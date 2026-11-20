@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- Implement `IsoEndpointIn` with borrowing `IsoSlot`. `ready()` waits until the previous packet has been sent or dropped and the next service interval is one tick away, then `IsoSlot::write()` arms that packet synchronously. For intervals greater than 1, the host polling phase is locked on the first completed IN transfer. Uncollected packets are dropped at the end of their interval.
+
+- Fixed: the host waits for a connection to be stable for 100 ms before it resets the port (USB 2.0 §7.1.7.3). Before, it reset on the first connect event, so a device that bounced while plugged in could be reset mid-bounce. A device that goes away during that 100 ms is reported as disconnected, so transfers in flight are woken.
+- Fixed: control transfers longer than 127 bytes. The size registers of EP0 are only 7 bits wide, so a 128 byte IN data stage was sent as 0 bytes, and a longer OUT data stage did not complete. EP0 now does one packet per transfer.
+- **Breaking:** `ControlPipe` is no longer public, the control pipe is part of `Bus`, and `Driver::start()` returns just the `Bus`. A control transfer stage now also ends when the bus is suspended, or VBUS is removed with VBUS detection enabled.
 - **Breaking:** Add `tx_fifo_count` to `OtgInstance`. This is the number of TX FIFOs. If there is no free TX FIFO, allocation of an IN endpoint fails. The TX FIFO number is not the endpoint number.
 - Changed: `embassy-time` is now an optional feature for device mode. Remote wakeup is now supported via `embassy-time`.
 - Changed: The driver can be configured with any `embassy_sync` raw mutex implementation.
@@ -20,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: Periodic IN transfer future can no longer park forever.
 - Fixed: Later events no longer override earlier ones.
 - Fixed: Correctly work with low-speed devices over high-speed hubs.
+- Fixed: A driver created after a previous one was dropped no longer panics at start.
+- Fixed: An isochronous IN packet that the host did not poll for in its frame is now discarded, with the endpoint disabled and its TX FIFO flushed. Before, the endpoint was enabled again with the packet still in the FIFO, which left the FIFO and the core out of step, and the writer could wait for room in the FIFO for ever.
+- Fixed: A bus reset or a new SETUP during a control transfer no longer leaves the device unresponsive.
+- Fixed: The status stage of a control transfer no longer clears NAK on EP0 OUT while the next SETUP is in the RX FIFO, which made the interrupt handler panic.
 
 ## 0.4.0 - 2026-05-28
 

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `UsbLogger::create_future_from_class()` receives packets of up to 512 bytes
+
 ## 0.6.0 - 2026-03-10
 
 - Fixed panic in `UsbLogger` when usb is disconnected

@@ -48,8 +48,7 @@ pub struct Adf<'d, T: Instance> {
 }
 
 /// Combined configuration for a typical PDM microphone capture on filter 0.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Clock generator settings.
     pub clock: ClockConfig,
@@ -94,8 +93,8 @@ impl<'d, T: Instance> Adf<'d, T> {
     where
         D: RxDma<T, Flt0>,
     {
-        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(sdi, AfType::input(Pull::None));
+        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+        set_as_af!(sdi, AfType::input(Pull::None)).persist();
 
         rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();

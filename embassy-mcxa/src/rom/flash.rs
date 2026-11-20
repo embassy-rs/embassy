@@ -12,7 +12,6 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-use nxp_pac::syscon::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErrData, DisMbeccErrInst};
 
 use super::{StandardVersion, Status};
 
@@ -383,16 +382,16 @@ fn speculation_buffer_clear() {
     let val = nvm.read();
 
     // Only proceed if MBECC error reporting is enabled for both inst and data
-    if val.dis_mbecc_err_inst() == DisMbeccErrInst::Enable && val.dis_mbecc_err_data() == DisMbeccErrData::Enable {
+    if !val.dis_mbecc_err_inst() && !val.dis_mbecc_err_data() {
         // Toggle flash speculation disable
-        if val.dis_flash_spec() == DisFlashSpec::Enable {
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Disable));
-            nvm.modify(|w| w.set_dis_flash_spec(DisFlashSpec::Enable));
+        if !val.dis_flash_spec() {
+            nvm.modify(|w| w.set_dis_flash_spec(true));
+            nvm.modify(|w| w.set_dis_flash_spec(false));
         }
         // Toggle data speculation disable
-        if nvm.read().dis_data_spec() == DisDataSpec::Enable {
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Disable));
-            nvm.modify(|w| w.set_dis_data_spec(DisDataSpec::Enable));
+        if !nvm.read().dis_data_spec() {
+            nvm.modify(|w| w.set_dis_data_spec(true));
+            nvm.modify(|w| w.set_dis_data_spec(false));
         }
     }
 }
@@ -401,8 +400,8 @@ fn speculation_buffer_clear() {
 /// matching the C `lpcac_clear()`.
 fn lpcac_clear() {
     let lpcac = nxp_pac::SYSCON.lpcac_ctrl();
-    if lpcac.read().dis_lpcac() == DisLpcac::Enable {
-        lpcac.modify(|w| w.set_clr_lpcac(ClrLpcac::Disable));
+    if !lpcac.read().dis_lpcac() {
+        lpcac.modify(|w| w.set_clr_lpcac(true));
     }
 }
 

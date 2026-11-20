@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) {
         {
             // Wait for PA0 to exceed ~0.6 V (raw > 0x07F at 12-bit / 3.3 V).
             let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0, 0x07F);
-            let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles125).await;
+            let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles12_5).await;
             let v = 3.3 * raw as f32 / max as f32;
             info!("Above high threshold, raw={} ~{} V", raw, v);
         }
@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
         {
             // Wait for PA0 to drop below ~0.2 V (raw < 0x01F at 12-bit / 3.3 V).
             let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0x01F, 0x0FFF);
-            let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles125).await;
+            let raw = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles12_5).await;
             let v = 3.3 * raw as f32 / max as f32;
             info!("Below low threshold, raw={} ~{} V", raw, v);
         }

@@ -59,9 +59,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Channel order must be ascending for this ADC4 path.
     let sequence = [
-        (vrefint.reborrow_adc(), SampleTime::Cycles795),     // CH0
-        (vcore.reborrow_adc(), SampleTime::Cycles795),       // CH12
-        (temperature.reborrow_adc(), SampleTime::Cycles795), // CH13
+        (vrefint.reborrow_adc(), SampleTime::Cycles79_5),     // CH0
+        (vcore.reborrow_adc(), SampleTime::Cycles79_5),       // CH12
+        (temperature.reborrow_adc(), SampleTime::Cycles79_5), // CH13
     ]
     .into_iter();
 

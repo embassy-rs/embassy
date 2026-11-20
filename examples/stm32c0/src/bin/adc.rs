@@ -33,9 +33,9 @@ async fn main(_spawner: Spawner) {
 
     for _ in 0..5 {
         info!("============================");
-        let blocking_temp = adc.blocking_read(&mut temperature, SampleTime::Cycles125);
-        let blocking_vref = adc.blocking_read(&mut vrefint, SampleTime::Cycles125);
-        let blocing_pin0 = adc.blocking_read(&mut p.PA0, SampleTime::Cycles125);
+        let blocking_temp = adc.blocking_read(&mut temperature, SampleTime::Cycles12_5);
+        let blocking_vref = adc.blocking_read(&mut vrefint, SampleTime::Cycles12_5);
+        let blocing_pin0 = adc.blocking_read(&mut p.PA0, SampleTime::Cycles12_5);
         info!(
             "Blocking ADC read: vref = {}, temp = {}, pin0 = {}.",
             blocking_vref, blocking_temp, blocing_pin0
@@ -45,9 +45,9 @@ async fn main(_spawner: Spawner) {
             dma.reborrow(),
             Irqs,
             [
-                (vrefint.reborrow_adc(), SampleTime::Cycles125),
-                (temperature.reborrow_adc(), SampleTime::Cycles125),
-                (p.PA0.reborrow_adc(), SampleTime::Cycles125),
+                (vrefint.reborrow_adc(), SampleTime::Cycles12_5),
+                (temperature.reborrow_adc(), SampleTime::Cycles12_5),
+                (p.PA0.reborrow_adc(), SampleTime::Cycles12_5),
             ]
             .into_iter(),
             None,

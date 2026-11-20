@@ -5,13 +5,11 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
 use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, dma, hash, peripherals};
 use hmac::{Hmac as SoftwareHmac, KeyInit, Mac};
-use panic_probe as _;
 use sha2::{Digest, Sha224 as SoftwareSha224, Sha256 as SoftwareSha256};
 
 type HmacSha256 = SoftwareHmac<SoftwareSha256>;
@@ -134,11 +132,7 @@ async fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Async>) {
     defmt::assert!(hw_digest == *sw_digest);
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
     let mut hw_hasher = Hash::new(p.HASH, p.GPDMA1_CH0, Irqs);

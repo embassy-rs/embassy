@@ -1,228 +1,121 @@
-use embassy_hal_internal::drop::OnDrop;
+use core::marker::PhantomData;
 
-use super::{EEPROM_BASE, EEPROM_SIZE, Error, Flash, family};
-use crate::mode::Mode;
+use embassy_hal_internal::Peri;
 
-impl<'d, M: Mode> Flash<'d, M> {
-    // --- Internal helpers ---
+use super::asynch::{REGION_ACCESS, op};
+use super::common::{Op, blocking_op, check_range};
+use super::{EEPROM_BASE, EEPROM_SIZE, Error, WRITE_SIZE};
+use crate::mode::{Async, Blocking, Mode};
+use crate::peripherals::FLASH;
 
-    /// Checks if the given offset and size are within the EEPROM bounds.
-    fn check_eeprom_offset(&self, offset: u32, size: u32) -> Result<(), Error> {
-        if offset
-            .checked_add(size)
-            .filter(|&end| end <= EEPROM_SIZE as u32)
-            .is_some()
-        {
-            Ok(())
-        } else {
-            Err(Error::OutOfBounds)
+// The EEPROM is programmed with the 32-bit word writes of the flash.
+const _: () = core::assert!(WRITE_SIZE == 4);
+
+/// Driver for the data EEPROM.
+///
+/// The EEPROM is written without erasing it first, at any offset and with any length. The
+/// hardware erases and programs it in 32-bit words, which takes a few milliseconds per word: a
+/// write rewrites every word it touches, except the ones that already have the value written.
+/// While a word is programmed, the CPU stalls when it reads from the flash bank being written.
+///
+/// Erased EEPROM reads as `0x00`.
+pub struct Eeprom<'d, M: Mode> {
+    _flash: Peri<'d, FLASH>,
+    _mode: PhantomData<M>,
+}
+
+impl<'d, M: Mode> Eeprom<'d, M> {
+    pub(crate) fn new(flash: Peri<'d, FLASH>) -> Self {
+        Self {
+            _flash: flash,
+            _mode: PhantomData,
         }
     }
 
-    // --- Unlocked (unsafe, internal) functions ---
+    /// Size of the EEPROM in bytes, [`EEPROM_SIZE`].
+    pub fn capacity(&self) -> usize {
+        EEPROM_SIZE
+    }
 
-    /// Writes a slice of bytes to EEPROM at the given offset without locking.
+    /// Blocking read.
     ///
-    /// # Safety
-    /// Caller must ensure EEPROM is unlocked and offset is valid.
-    unsafe fn eeprom_write_u8_slice_unlocked(&self, offset: u32, data: &[u8]) -> Result<(), Error> {
-        for (i, &byte) in data.iter().enumerate() {
-            let addr = EEPROM_BASE as u32 + offset + i as u32;
-            family::eeprom_write(addr, byte)?;
-        }
+    /// NOTE: `offset` is an offset from the start of the EEPROM, [`EEPROM_BASE`].
+    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        check_range(offset, bytes.len(), EEPROM_SIZE as u32)?;
+        let address = EEPROM_BASE as u32 + offset;
+        let eeprom = unsafe { core::slice::from_raw_parts(address as *const u8, bytes.len()) };
+        bytes.copy_from_slice(eeprom);
         Ok(())
     }
+}
 
-    /// Writes a slice of u16 values to EEPROM at the given offset without locking.
+impl<'d> Eeprom<'d, Blocking> {
+    /// Blocking write.
     ///
-    /// # Safety
-    /// Caller must ensure EEPROM is unlocked and offset is valid and aligned.
-    unsafe fn eeprom_write_u16_slice_unlocked(&self, offset: u32, data: &[u16]) -> Result<(), Error> {
-        for (i, &value) in data.iter().enumerate() {
-            let addr = EEPROM_BASE as u32 + offset + i as u32 * 2;
-            family::eeprom_write(addr, value)?;
+    /// NOTE: `offset` is an offset from the start of the EEPROM, [`EEPROM_BASE`].
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        check_range(offset, bytes.len(), EEPROM_SIZE as u32)?;
+        for (address, word) in words(offset, bytes) {
+            critical_section::with(|_| blocking_op(Op::Write(address, &word)))?;
         }
         Ok(())
     }
+}
 
-    /// Writes a slice of u32 values to EEPROM at the given offset without locking.
+impl<'d> Eeprom<'d, Async> {
+    /// Async read.
     ///
-    /// # Safety
-    /// Caller must ensure EEPROM is unlocked and offset is valid and aligned.
-    unsafe fn eeprom_write_u32_slice_unlocked(&self, offset: u32, data: &[u32]) -> Result<(), Error> {
-        for (i, &value) in data.iter().enumerate() {
-            let addr = EEPROM_BASE as u32 + offset + i as u32 * 4;
-            family::eeprom_write(addr, value)?;
-        }
-        Ok(())
+    /// Note: reading from the EEPROM can't actually block, so this is the same as
+    /// `blocking_read`.
+    pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read(offset, bytes)
     }
 
-    // --- Public, safe API ---
-
-    /// Writes a single byte to EEPROM at the given offset.
-    pub fn eeprom_write_u8(&mut self, offset: u32, value: u8) -> Result<(), Error> {
-        self.check_eeprom_offset(offset, 1)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u8_slice_unlocked(offset, core::slice::from_ref(&value))?;
-        }
-        Ok(())
-    }
-
-    /// Writes a single 16-bit value to EEPROM at the given offset.
+    /// Async write.
     ///
-    /// Returns an error if the offset is not 2-byte aligned.
-    pub fn eeprom_write_u16(&mut self, offset: u32, value: u16) -> Result<(), Error> {
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, 2)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u16_slice_unlocked(offset, core::slice::from_ref(&value))?;
+    /// NOTE: `offset` is an offset from the start of the EEPROM, [`EEPROM_BASE`].
+    pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        check_range(offset, bytes.len(), EEPROM_SIZE as u32)?;
+        let _guard = REGION_ACCESS.lock().await;
+        for (address, word) in words(offset, bytes) {
+            op(Op::Write(address, &word)).await?;
         }
         Ok(())
     }
+}
 
-    /// Writes a single 32-bit value to EEPROM at the given offset.
-    ///
-    /// Returns an error if the offset is not 4-byte aligned.
-    pub fn eeprom_write_u32(&mut self, offset: u32, value: u32) -> Result<(), Error> {
-        if offset % 4 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, 4)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u32_slice_unlocked(offset, core::slice::from_ref(&value))?;
-        }
-        Ok(())
-    }
-
-    /// Writes a slice of bytes to EEPROM at the given offset.
-    pub fn eeprom_write_u8_slice(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
-        self.check_eeprom_offset(offset, data.len() as u32)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u8_slice_unlocked(offset, data)?;
-        }
-        Ok(())
-    }
-
-    /// Writes a slice of 16-bit values to EEPROM at the given offset.
-    ///
-    /// Returns an error if the offset is not 2-byte aligned.
-    pub fn eeprom_write_u16_slice(&mut self, offset: u32, data: &[u16]) -> Result<(), Error> {
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, data.len() as u32 * 2)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u16_slice_unlocked(offset, data)?;
-        }
-        Ok(())
-    }
-
-    /// Writes a slice of 32-bit values to EEPROM at the given offset.
-    ///
-    /// Returns an error if the offset is not 4-byte aligned.
-    pub fn eeprom_write_u32_slice(&mut self, offset: u32, data: &[u32]) -> Result<(), Error> {
-        if offset % 4 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, data.len() as u32 * 4)?;
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-            self.eeprom_write_u32_slice_unlocked(offset, data)?;
-        }
-        Ok(())
-    }
-
-    /// Writes a byte slice to EEPROM at the given offset, handling alignment.
-    ///
-    /// This method will write unaligned prefix and suffix as bytes, and aligned middle as u32.
-    pub fn eeprom_write_slice(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
-        self.check_eeprom_offset(offset, data.len() as u32)?;
-        let start = offset;
-        let misalign = (start % 4) as usize;
-        let prefix_len = if misalign == 0 {
-            0
-        } else {
-            (4 - misalign).min(data.len())
-        };
-        let (prefix, rest) = data.split_at(prefix_len);
-        let aligned_len = (rest.len() / 4) * 4;
-        let (bytes_for_u32_write, suffix) = rest.split_at(aligned_len);
-
-        unsafe {
-            family::unlock();
-            let _on_drop = OnDrop::new(|| family::lock());
-
-            if !prefix.is_empty() {
-                self.eeprom_write_u8_slice_unlocked(start, prefix)?;
-            }
-            if !bytes_for_u32_write.is_empty() {
-                let aligned_eeprom_offset = start + prefix_len as u32;
-                let base_eeprom_addr = EEPROM_BASE as u32 + aligned_eeprom_offset;
-                for (i, chunk) in bytes_for_u32_write.chunks_exact(4).enumerate() {
-                    // Safely read a u32 from a potentially unaligned pointer into the chunk.
-                    let value = (chunk.as_ptr() as *const u32).read_unaligned();
-                    let current_eeprom_addr = base_eeprom_addr + (i * 4) as u32;
-                    family::eeprom_write(current_eeprom_addr, value)?;
-                }
-            }
-            if !suffix.is_empty() {
-                let suffix_offset = start + (prefix_len + aligned_len) as u32;
-                self.eeprom_write_u8_slice_unlocked(suffix_offset, suffix)?;
+/// The words to program to write `bytes` at `offset`, with the bytes they hold outside of
+/// `bytes` unchanged. The words that already have their new value are skipped.
+fn words(offset: u32, bytes: &[u8]) -> impl Iterator<Item = (u32, [u8; WRITE_SIZE])> + '_ {
+    let start = EEPROM_BASE as u32 + offset;
+    let end = start + bytes.len() as u32;
+    (start & !3..end).step_by(4).filter_map(move |address| {
+        let current = unsafe { (address as *const u32).read_volatile() }.to_le_bytes();
+        let mut word = current;
+        for (i, b) in word.iter_mut().enumerate() {
+            let a = address + i as u32;
+            if (start..end).contains(&a) {
+                *b = bytes[(a - start) as usize];
             }
         }
-        Ok(())
+        (word != current).then_some((address, word))
+    })
+}
+
+impl<M: Mode> embedded_storage::ReadStorage for Eeprom<'_, M> {
+    type Error = Error;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(offset, bytes)
     }
 
-    /// Reads a single byte from EEPROM at the given offset.
-    pub fn eeprom_read_u8(&self, offset: u32) -> Result<u8, Error> {
-        self.check_eeprom_offset(offset, 1)?;
-        let addr = EEPROM_BASE as u32 + offset;
-        Ok(unsafe { core::ptr::read_volatile(addr as *const u8) })
+    fn capacity(&self) -> usize {
+        Eeprom::capacity(self)
     }
+}
 
-    /// Reads a single 16-bit value from EEPROM at the given offset.
-    ///
-    /// Returns an error if the offset is not 2-byte aligned.
-    pub fn eeprom_read_u16(&self, offset: u32) -> Result<u16, Error> {
-        if offset % 2 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, 2)?;
-        let addr = EEPROM_BASE as u32 + offset;
-        Ok(unsafe { core::ptr::read_volatile(addr as *const u16) })
-    }
-
-    /// Reads a single 32-bit value from EEPROM at the given offset.
-    ///
-    /// Returns an error if the offset is not 4-byte aligned.
-    pub fn eeprom_read_u32(&self, offset: u32) -> Result<u32, Error> {
-        if offset % 4 != 0 {
-            return Err(Error::Unaligned);
-        }
-        self.check_eeprom_offset(offset, 4)?;
-        let addr = EEPROM_BASE as u32 + offset;
-        Ok(unsafe { core::ptr::read_volatile(addr as *const u32) })
-    }
-
-    /// Reads a slice of bytes from EEPROM at the given offset into the provided buffer.
-    pub fn eeprom_read_slice(&self, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
-        self.check_eeprom_offset(offset, buf.len() as u32)?;
-        let addr = EEPROM_BASE as u32 + offset;
-        let src = unsafe { core::slice::from_raw_parts(addr as *const u8, buf.len()) };
-        buf.copy_from_slice(src);
-        Ok(())
+impl embedded_storage::Storage for Eeprom<'_, Blocking> {
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(offset, bytes)
     }
 }

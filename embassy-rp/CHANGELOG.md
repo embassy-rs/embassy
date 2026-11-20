@@ -8,11 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- USB device: implement `IsoEndpointIn` with service-interval scheduling, phase locking for intervals > 1, and SOF-driven dropping of uncollected packets.
+- PAC types no longer implement `Debug` by default.
+- Add `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
+- USB device: a control transfer stage now ends when the bus is suspended, so the suspend is not missed.
 - All drivers now use the shared `embassy_rp::mode::{Mode, Blocking, Async}` instead of per-module copies.
 - Add `embassy_rp::time::Hertz`.
 - GPIO: rename `get_level` to `level` and `get_output_level` to `output_level`.
+- GPIO: add `persist()` to `Flex`, `Input`, `Output` and `OutputOpenDrain`.
 - GPIO: add `Flex::set_as_disconnected`, `Flex::is_input` and `Flex::is_disconnected`.
 - GPIO: `Flex::new` leaves the pin disconnected, with the input buffer and output driver off. `set_as_input` and `set_as_output` turn the input buffer on; `set_pull` no longer does.
+- GPIO: `Input`, `OutputOpenDrain` and `Flex` are now generic over the driver mode, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async one and takes an interrupt binding for the pin. The `wait_for_*` methods are only available in async mode.
+- GPIO: the HAL no longer defines the `IO_IRQ_BANK0`/`IO_IRQ_QSPI` handlers. Bind `gpio::InterruptHandler<PIN_x>` for each async pin with `bind_interrupts!`; the same interrupt can also be bound to your own handler.
+- GPIO: `embassy_rp::init` no longer enables the GPIO interrupts. The async constructors enable them on the core they run on.
+- GPIO: remove `AnyPin`.
+- GPIO: GPIO wakers are only allocated for pins used in async mode.
+- GPIO: dropping a `wait_for_*` future disables the pin's interrupt.
+- I2C, I2C slave, SPI, UART and buffered UART: pins are disconnected when the driver is dropped.
+- UART: dropping the receiver (`Uart`, `UartRx`, `BufferedUart`, `BufferedUartRx`) disables reception.
+- ADC: dropping a pin `Channel` disconnects the pin instead of re-enabling its input buffer and pull-down.
+- PWM: input mode enables the pin's input buffer on RP2040 too.
 - SPI: `Config::frequency` is now `Hertz`.
 - SPI: add `ConfigError`; constructors, `set_config` and `set_frequency` now return `Result`.
 - SPI: rename `flush` to `blocking_flush`.
@@ -28,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UART: `split_ref` now returns owned halves borrowed for the duration instead of `&mut`.
 - UART: remove the `nb`-based `embedded-hal` 0.2 and `embedded-hal-nb` `serial` impls.
 - UART: add inherent `read`, `fill_buf`, `consume`, `read_ready`, `write` and `flush` methods to `BufferedUart`, and the matching ones to `BufferedUartRx`/`BufferedUartTx`.
+- UART: fix TX-Only `BufferedUartTx` locking the core in the UART interrupt (also uniformity for RX-Only `BufferedUartRx`)
 - PIO UART: add inherent `write` and `flush` methods to `PioUartTx`, and `read` to `PioUartRx`.
 - UART: `BufferedUart`/`BufferedUartTx` `flush` and `blocking_flush` wait until the last byte has been transmitted, not just until the TX buffer is empty.
 - PIO UART: `flush` waits until the last byte has been transmitted.
@@ -66,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PIO: `pio::Config::clock_divider`, `StateMachine::set_clock_divider`, `calculate_pio_clock_divider` and `calculate_pio_clock_divider_value` are renamed to `clock_divider_x256`, `set_clock_divider_x256`, `calculate_pio_clock_divider_x256` and `calculate_pio_clock_divider_value_x256`, and use a `u32` with 16 integer and 8 fractional bits (the divider multiplied by 256).
 - RP235x: enable the RCP and initialize its salt at startup if the bootrom didn't. Fixes flash and multicore if a debugger starts the program directly after a reset.
 - RP235x: with the `run-from-ram` feature, the flash driver restores XIP with the bootrom's `flash_enter_cmd_xip` instead of the XIP setup function in boot RAM.
+- RTC: `DateTime` is replaced by `RawDateTime`, which has public fields that hold the RTC register values with no validation. The day of week is a `u8`, 0 is Sunday. `DayOfWeek` and `DateTimeError` are removed.
+- RTC: `Rtc::now` is renamed to `read_raw` and `Rtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
+- RTC: `DateTimeFilter::day_of_week` is a `u8`, 0 is Sunday.
+- RTC: remove `Rtc::save` and `Rtc::restore`. Use `read_raw` and `set_raw`.
+- RTC: add the `jiff` feature, with `Rtc::read` and `Rtc::set` taking and returning `jiff::civil::DateTime`.
+- AON timer: remove `set_datetime`, `now_as_datetime` and `set_alarm_at_datetime`, the `DateTime`, `DayOfWeek` and `DateTimeError` re-exports, and `Error::DateTime`.
+- Remove the `chrono` feature.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes

@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 
 use super::*;
+use crate::gpio::Flex;
 
 pub struct State {
     tx_waker: AtomicWaker,
@@ -43,6 +44,9 @@ pub struct BufferedUart<'d> {
 pub struct BufferedUartRx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// `None` in handles from `split_ref`, which don't own the pins.
+    pub(super) rx: Option<Flex<'d>>,
+    pub(super) _rts: Option<Flex<'d>>,
     /// True for a handle produced by `split_ref`, which borrows the buffers rather than owning
     /// them and so must not tear the peripheral down when it goes out of scope.
     pub(super) is_borrowed: bool,
@@ -53,6 +57,9 @@ pub struct BufferedUartRx<'d> {
 pub struct BufferedUartTx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// `None` in handles from `split_ref`, which don't own the pins.
+    pub(super) _tx: Option<Flex<'d>>,
+    pub(super) _cts: Option<Flex<'d>>,
     /// See [`BufferedUartRx::is_borrowed`].
     pub(super) is_borrowed: bool,
     pub(super) _phantom: PhantomData<&'d mut [u8]>,
@@ -61,15 +68,15 @@ pub struct BufferedUartTx<'d> {
 pub(super) fn init_buffers<'d>(
     info: &Info,
     state: &State,
-    tx_buffer: Option<&'d mut [u8]>,
-    rx_buffer: Option<&'d mut [u8]>,
+    mut tx_buffer: Option<&'d mut [u8]>,
+    mut rx_buffer: Option<&'d mut [u8]>,
 ) {
-    if let Some(tx_buffer) = tx_buffer {
+    if let Some(tx_buffer) = &mut tx_buffer {
         let len = tx_buffer.len();
         unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
     }
 
-    if let Some(rx_buffer) = rx_buffer {
+    if let Some(rx_buffer) = &mut rx_buffer {
         let len = rx_buffer.len();
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
     }
@@ -85,9 +92,9 @@ pub(super) fn init_buffers<'d>(
     // we clear it after it happens. The downside is that the we manually have
     // to pend the ISR when we want data transmission to start.
     info.regs.uartimsc().write(|w| {
-        w.set_rxim(true);
-        w.set_rtim(true);
-        w.set_txim(true);
+        w.set_rxim(rx_buffer.is_some());
+        w.set_rtim(rx_buffer.is_some());
+        w.set_txim(tx_buffer.is_some());
     });
 
     info.interrupt.unpend();
@@ -105,19 +112,25 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(T::info(), Some(tx.into()), Some(rx.into()), None, None, config);
+        let mut tx = Some(Flex::new_unconfigured(tx));
+        let mut rx = Some(Flex::new_unconfigured(rx));
+        super::Uart::<'d, Async>::init(T::info(), tx.as_mut(), rx.as_mut(), None, None, config);
         init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), Some(rx_buffer));
 
         Self {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                rx,
+                _rts: None,
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                _tx: tx,
+                _cts: None,
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
@@ -137,26 +150,27 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(
-            T::info(),
-            Some(tx.into()),
-            Some(rx.into()),
-            Some(rts.into()),
-            Some(cts.into()),
-            config,
-        );
+        let mut tx = Some(Flex::new_unconfigured(tx));
+        let mut rx = Some(Flex::new_unconfigured(rx));
+        let mut rts = Some(Flex::new_unconfigured(rts));
+        let mut cts = Some(Flex::new_unconfigured(cts));
+        super::Uart::<'d, Async>::init(T::info(), tx.as_mut(), rx.as_mut(), rts.as_mut(), cts.as_mut(), config);
         init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), Some(rx_buffer));
 
         Self {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                rx,
+                _rts: rts,
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                _tx: tx,
+                _cts: cts,
                 is_borrowed: false,
                 _phantom: PhantomData,
             },
@@ -258,12 +272,15 @@ impl<'d> BufferedUartRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(T::info(), None, Some(rx.into()), None, None, config);
+        let mut rx = Some(Flex::new_unconfigured(rx));
+        super::Uart::<'d, Async>::init(T::info(), None, rx.as_mut(), None, None, config);
         init_buffers(T::info(), T::buffered_state(), None, Some(rx_buffer));
 
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            rx,
+            _rts: None,
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -278,12 +295,16 @@ impl<'d> BufferedUartRx<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(T::info(), None, Some(rx.into()), Some(rts.into()), None, config);
+        let mut rx = Some(Flex::new_unconfigured(rx));
+        let mut rts = Some(Flex::new_unconfigured(rts));
+        super::Uart::<'d, Async>::init(T::info(), None, rx.as_mut(), rts.as_mut(), None, config);
         init_buffers(T::info(), T::buffered_state(), None, Some(rx_buffer));
 
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            rx,
+            _rts: rts,
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -449,12 +470,15 @@ impl<'d> BufferedUartTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(T::info(), Some(tx.into()), None, None, None, config);
+        let mut tx = Some(Flex::new_unconfigured(tx));
+        super::Uart::<'d, Async>::init(T::info(), tx.as_mut(), None, None, None, config);
         init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), None);
 
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            _tx: tx,
+            _cts: None,
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -469,12 +493,16 @@ impl<'d> BufferedUartTx<'d> {
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        super::Uart::<'d, Async>::init(T::info(), Some(tx.into()), None, None, Some(cts.into()), config);
+        let mut tx = Some(Flex::new_unconfigured(tx));
+        let mut cts = Some(Flex::new_unconfigured(cts));
+        super::Uart::<'d, Async>::init(T::info(), tx.as_mut(), None, None, cts.as_mut(), config);
         init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), None);
 
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            _tx: tx,
+            _cts: cts,
             is_borrowed: false,
             _phantom: PhantomData,
         }
@@ -629,6 +657,8 @@ impl<'d> BufferedUartRx<'d> {
         BufferedUartRx {
             info: self.info,
             state: self.state,
+            rx: None,
+            _rts: None,
             is_borrowed: true,
             _phantom: PhantomData,
         }
@@ -640,6 +670,8 @@ impl<'d> BufferedUartTx<'d> {
         BufferedUartTx {
             info: self.info,
             state: self.state,
+            _tx: None,
+            _cts: None,
             is_borrowed: true,
             _phantom: PhantomData,
         }
@@ -650,6 +682,11 @@ impl<'d> Drop for BufferedUartRx<'d> {
     fn drop(&mut self) {
         if self.is_borrowed {
             return;
+        }
+
+        // See `UartRx::drop`.
+        if self.rx.is_some() {
+            self.info.regs.uartcr().modify(|w| w.set_rxe(false));
         }
 
         unsafe { self.state.rx_buf.deinit() }

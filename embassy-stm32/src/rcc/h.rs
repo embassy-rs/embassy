@@ -13,6 +13,7 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 #[cfg(dsihost)]
 use crate::rcc::dsi;
 #[cfg(dsihost)]
@@ -80,8 +81,7 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
-    #[cfg(any(stm32h743, stm32h730, stm32h753))]
-    /// PLL Fractional multiplier.
+    /// PLL fractional multiplier (0..=8191).
     pub fracn: Option<u16>,
 
     /// PLL P division factor. If None, PLL P output is disabled.
@@ -375,9 +375,9 @@ pub(crate) unsafe fn init(config: Config) {
             | SupplyConfig::SMPSExternalLDO(sdlevel)
             | SupplyConfig::SMPSExternalLDOBypass(sdlevel) => {
                 let sdlevel = match sdlevel {
-                    SMPSSupplyVoltage::V1_8 => Sdlevel::V18,
+                    SMPSSupplyVoltage::V1_8 => Sdlevel::V1_8,
                     #[cfg(not(pwr_h7rs))]
-                    SMPSSupplyVoltage::V2_5 => Sdlevel::V25,
+                    SMPSSupplyVoltage::V2_5 => Sdlevel::V2_5,
                 };
                 pwr_reg.modify(|w| {
                     w.set_sdlevel(sdlevel);
@@ -651,7 +651,7 @@ pub(crate) unsafe fn init(config: Config) {
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
             Hertz(16_000_000) => Usbrefcksel::Mhz16,
-            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(19_200_000) => Usbrefcksel::Mhz19_2,
             Hertz(20_000_000) => Usbrefcksel::Mhz20,
             Hertz(24_000_000) => Usbrefcksel::Mhz24,
             Hertz(26_000_000) => Usbrefcksel::Mhz26,
@@ -883,8 +883,8 @@ pub(crate) unsafe fn init(config: Config) {
         csi: csi,
         hse: hse,
 
-        lse: None,
-        lsi: None,
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
 
         pll1_q: pll1.q,
         pll2_p: pll2.p,
@@ -980,15 +980,7 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     // be chosen when the reference clock frequency is lower than 2 MHz.
     let wide_allowed = ref_range != Pllrge::Range1;
 
-    #[cfg(any(stm32h743, stm32h730, stm32h753))]
-    let vco_clk = match config.fracn {
-        Some(fracn) => {
-            Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits() + 1) as f32 + (fracn as f32 / 8192.0))) as u32)
-        }
-        None => ref_clk * config.mul,
-    };
-    #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
-    let vco_clk = ref_clk * config.mul;
+    let vco_clk = super::util::calc_pll_vco(ref_clk, config.mul.to_bits() + 1, config.fracn);
 
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
         Pllvcosel::MediumVco
@@ -1018,16 +1010,23 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     let t = config.divt.map(|div| vco_clk / div);
 
     #[cfg(stm32h5)]
-    RCC.pllcfgr(num).write(|w| {
-        w.set_pllsrc(config.source);
-        w.set_divm(config.prediv);
-        w.set_pllvcosel(vco_range);
-        w.set_pllrge(ref_range);
-        w.set_pllfracen(false);
-        w.set_pllpen(p.is_some());
-        w.set_pllqen(q.is_some());
-        w.set_pllren(r.is_some());
-    });
+    {
+        if config.fracn.is_some() {
+            // Clear PLLxFRACEN first so setting it to 1 below creates the 0 -> 1 latch edge.
+            RCC.pllcfgr(num).modify(|w| w.set_pllfracen(false));
+        }
+        RCC.pllfracr(num).modify(|w| w.set_pllfracn(config.fracn.unwrap_or(0)));
+        RCC.pllcfgr(num).write(|w| {
+            w.set_pllsrc(config.source);
+            w.set_divm(config.prediv);
+            w.set_pllvcosel(vco_range);
+            w.set_pllrge(ref_range);
+            w.set_pllfracen(config.fracn.is_some());
+            w.set_pllpen(p.is_some());
+            w.set_pllqen(q.is_some());
+            w.set_pllren(r.is_some());
+        });
+    }
 
     #[cfg(any(stm32h7, stm32h7rs))]
     {
@@ -1036,24 +1035,20 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             w.set_pllsrc(config.source);
         });
 
-        #[cfg(any(stm32h743, stm32h730, stm32h753))]
-        if let Some(fracn) = config.fracn {
-            RCC.pllfracr(num).modify(|w| w.set_fracn(fracn))
-        }
+        // Clear PLLxFRACEN first so writing FRACN happens with latch disabled,
+        // and any subsequent 0 -> 1 transition latches cleanly into the SDM.
+        RCC.pllcfgr().modify(|w| w.set_pllfracen(num, false));
+        RCC.pllfracr(num).modify(|w| w.set_fracn(config.fracn.unwrap_or(0)));
 
         RCC.pllcfgr().modify(|w| {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
 
-            #[cfg(any(stm32h743, stm32h730, stm32h753))]
-            if config.fracn.is_some() {
-                w.set_pllfracen(num, true);
-            } else {
-                w.set_pllfracen(num, false);
-            }
-
-            #[cfg(not(any(stm32h743, stm32h730, stm32h753)))]
-            w.set_pllfracen(num, false);
+            #[cfg(stm32h7rs)]
+            // RM0477 §7.7.1: even integer mode must latch 0 into the SDM via 0 -> 1 edge.
+            w.set_pllfracen(num, true);
+            #[cfg(not(stm32h7rs))]
+            w.set_pllfracen(num, config.fracn.is_some());
 
             w.set_divpen(num, p.is_some());
             w.set_divqen(num, q.is_some());
@@ -1063,6 +1058,11 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
             #[cfg(stm32h7rs)]
             w.set_divten(num, t.is_some());
         });
+
+        // RM0477 §7.7.1: wait at least 5 us after latching FRACN into the SDM.
+        // SYSCLK is HSI (max HSI_FREQ = 64 MHz) at this point.
+        #[cfg(stm32h7rs)]
+        cortex_m::asm::delay(5 * (HSI_FREQ.0 / 1_000_000));
     }
 
     RCC.plldivr(num).write(|w| {
@@ -1092,7 +1092,139 @@ fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     }
 }
 
+/// The clocks to bring back after Stop.
+///
+/// H5 wakes up on HSI (at its HSIDIV frequency) or CSI, as chosen by STOPWUCK, in voltage scale 3,
+/// with HSE, the PLLs and HSI48 off. The configuration registers and the flash latency are kept
+/// (RM0481 10.7.1, 10.8.5, 11.4.9). So the latency must cover the wake-up clock at VOS3 before
+/// Stop, e.g. 3 wait states for HSI at 64 MHz.
+#[cfg(all(feature = "low-power", stm32h5))]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    vos: crate::pac::pwr::vals::Vos,
+    /// Flash latency and WRHIGHFREQ.
+    latency: (u8, u8),
+    /// The flash latency the wake-up clock needs at VOS3, if higher than `latency`.
+    wake_latency: Option<(u8, u8)>,
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+impl StopRestore {
+    #[cfg(rcc_h50)]
+    const PLLS: usize = 2;
+    #[cfg(not(rcc_h50))]
+    const PLLS: usize = 3;
+
+    pub(crate) fn capture() -> Self {
+        let cr = RCC.cr().read();
+        let cfgr = RCC.cfgr().read();
+        let acr = FLASH.acr().read();
+        let latency = (acr.latency(), acr.wrhighfreq());
+
+        let wake_clk = if cfgr.stopwuck() == crate::pac::rcc::vals::Stopwuck::Csi {
+            CSI_FREQ
+        } else {
+            HSI_FREQ / cr.hsidiv()
+        };
+        let wake_latency = flash_latency(wake_clk / cfgr2_hpre(), VoltageScale::Scale3);
+
+        Self {
+            cr,
+            sw: cfgr.sws(),
+            vos: PWR.voscr().read().vos(),
+            latency,
+            wake_latency: (wake_latency.0 > latency.0).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            set_latency(latency);
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        // The voltage first: the clocks may need more than VOS3.
+        if PWR.voscr().read().vos() != self.vos {
+            PWR.voscr().modify(|w| w.set_vos(self.vos));
+            while !PWR.vossr().read().vosrdy() {}
+        }
+
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_csion(w.csion() | s.csion());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_hsi48on(w.hsi48on() | s.hsi48on());
+        });
+        loop {
+            let cr = RCC.cr().read();
+            if (cr.hserdy() | !s.hseon())
+                && (cr.csirdy() | !s.csion())
+                && (cr.hsirdy() | !s.hsion())
+                && (cr.hsi48rdy() | !s.hsi48on())
+            {
+                break;
+            }
+        }
+
+        RCC.cr().modify(|w| {
+            for n in 0..Self::PLLS {
+                w.set_pllon(n, w.pllon(n) | s.pllon(n));
+            }
+        });
+        for n in 0..Self::PLLS {
+            while s.pllon(n) && !RCC.cr().read().pllrdy(n) {}
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            set_latency(self.latency);
+        }
+
+        if !s.hsion() || !s.csion() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_csion(w.csion() & s.csion());
+            });
+        }
+    }
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+fn cfgr2_hpre() -> AHBPrescaler {
+    RCC.cfgr2().read().hpre()
+}
+
+#[cfg(all(feature = "low-power", stm32h5))]
+fn set_latency((latency, wrhighfreq): (u8, u8)) {
+    FLASH.acr().modify(|w| {
+        w.set_latency(latency);
+        w.set_wrhighfreq(wrhighfreq);
+    });
+    while FLASH.acr().read().latency() != latency {}
+}
+
 fn flash_setup(clk: Hertz, vos: VoltageScale) {
+    let (latency, wrhighfreq) = flash_latency(clk, vos);
+
+    debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
+
+    FLASH.acr().write(|w| {
+        w.set_wrhighfreq(wrhighfreq);
+        w.set_latency(latency);
+    });
+    while FLASH.acr().read().latency() != latency {}
+}
+
+/// Flash wait states and programming delay for an AXI/AHB clock of `clk` at voltage scale `vos`.
+fn flash_latency(clk: Hertz, vos: VoltageScale) -> (u8, u8) {
     // RM0481 Rev 1, table 37
     // LATENCY  WRHIGHFREQ  VOS3           VOS2            VOS1            VOS0
     //      0           0   0 to 20 MHz    0 to 30 MHz     0 to 34 MHz     0 to 42 MHz
@@ -1238,13 +1370,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         _ => unreachable!(),
     };
 
-    debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
-
-    FLASH.acr().write(|w| {
-        w.set_wrhighfreq(wrhighfreq);
-        w.set_latency(latency);
-    });
-    while FLASH.acr().read().latency() != latency {}
+    (latency, wrhighfreq)
 }
 
 /// Compensation cell calibration values. The N-MOS and P-MOS transistors slew
@@ -1311,60 +1437,4 @@ pub fn set_and_enable_comp_vals(cv: &CompVals) {
         w.set_octo2_comp_codesel(true);
         w.set_comp_codesel(true);
     });
-}
-
-/// CPU Reset Sources
-///
-/// The STM32 RCC peripheral implements the ability for the CPU to detect why a reset
-/// occurred.
-#[cfg(rcc_h7rm0433)]
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ResetReason {
-    PowerOnReset,
-    PinReset,
-    BrownoutReset,
-    SysReset,
-    CpuReset,
-    Wwdg1Reset,
-    Iwdg1Reset,
-    D1ExitStandby,
-    D2ExitStandby,
-    D1ErroneousStandby,
-    Unknown(u32),
-}
-
-#[cfg(rcc_h7rm0433)]
-impl ResetReason {
-    /// Read and clear the reason the core thinks the reset occurred.
-    pub fn read_clear() -> ResetReason {
-        let rsr = RCC.rsr().read();
-        RCC.rsr().modify(|w| w.set_rmvf(true));
-
-        // Refer to Reference Manual (RM0433, Rev 8, Table 56).
-        match (
-            rsr.lpwrrstf(),
-            rsr.wwdg1rstf(),
-            rsr.iwdg1rstf(),
-            rsr.sftrstf(),
-            rsr.porrstf(),
-            rsr.pinrstf(),
-            rsr.borrstf(),
-            rsr.d2rstf(),
-            rsr.d1rstf(),
-            rsr.cpurstf(),
-        ) {
-            (false, false, false, false, true, true, true, true, true, true) => ResetReason::PowerOnReset,
-            (false, false, false, false, false, true, false, false, false, true) => ResetReason::PinReset,
-            (false, false, false, false, false, true, true, false, false, true) => ResetReason::BrownoutReset,
-            (false, false, false, true, false, true, false, false, false, true) => ResetReason::SysReset,
-            (false, false, false, false, false, false, false, false, false, true) => ResetReason::CpuReset,
-            (false, true, false, false, false, true, false, false, false, true) => ResetReason::Wwdg1Reset,
-            (false, false, true, false, false, true, false, false, false, true) => ResetReason::Iwdg1Reset,
-            (false, false, false, false, false, false, false, false, true, false) => ResetReason::D1ExitStandby,
-            (false, false, false, false, false, false, false, true, false, false) => ResetReason::D2ExitStandby,
-            (true, false, false, false, false, true, false, false, false, true) => ResetReason::D1ErroneousStandby,
-            _ => ResetReason::Unknown(rsr.0),
-        }
-    }
 }

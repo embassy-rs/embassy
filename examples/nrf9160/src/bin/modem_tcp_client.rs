@@ -17,9 +17,9 @@ use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
 use embassy_nrf::crypto::rng::Rng;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
-use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
+use embassy_nrf::{bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use panic_probe as _;
@@ -87,8 +87,7 @@ fn apply_status(iface: Iface<'static>, status: &Status) {
 }
 
 #[embassy_executor::task]
-async fn blink_task(pin: Peri<'static, AnyPin>) {
-    let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
+async fn blink_task(mut led: Output<'static>) {
     loop {
         led.set_high();
         Timer::after_millis(1000).await;
@@ -108,7 +107,8 @@ async fn main(spawner: Spawner) {
 
     info!("Hello World!");
 
-    spawner.spawn(unwrap!(blink_task(p.P0_02.into())));
+    let led = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
+    spawner.spawn(unwrap!(blink_task(led)));
 
     let ipc_mem = unsafe {
         let ipc_start = &__start_ipc as *const u8 as *mut MaybeUninit<u8>;

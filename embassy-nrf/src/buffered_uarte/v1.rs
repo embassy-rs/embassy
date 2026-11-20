@@ -12,7 +12,7 @@ use core::cmp::min;
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::Peri;
@@ -21,15 +21,14 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::Flex;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::ppi::{
-    self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
-};
+use crate::ppi::{self, ChannelNumber, ConfigurableChannel, Event, Group, GroupNumber, Ppi, PpiGroup, Task};
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{
-    Config, DMA_SIZE, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx,
+    Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
+    configure_tx_pins, drop_tx_rx,
 };
 use crate::{interrupt, pac};
 
@@ -39,10 +38,10 @@ pub(crate) struct State {
 
     rx_buf: RingBuffer,
     rx_started: AtomicBool,
-    rx_started_count: AtomicU8,
-    rx_ended_count: AtomicU8,
     rx_ppi_ch: AtomicU8,
     rx_overrun: AtomicBool,
+    /// The TIMER counting RXDRDY events.
+    rx_timer: AtomicPtr<()>,
 }
 
 /// UART error.
@@ -72,10 +71,9 @@ impl State {
 
             rx_buf: RingBuffer::new(),
             rx_started: AtomicBool::new(false),
-            rx_started_count: AtomicU8::new(0),
-            rx_ended_count: AtomicU8::new(0),
             rx_ppi_ch: AtomicU8::new(0),
             rx_overrun: AtomicBool::new(false),
+            rx_timer: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 }
@@ -114,14 +112,6 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 ss.rx_waker.wake();
             }
 
-            if r.events_dma().rx().end().read() != 0 {
-                //trace!("  irq_rx: endrx");
-                r.events_dma().rx().end().write_value(0);
-
-                let val = s.rx_ended_count.load(Ordering::Relaxed);
-                s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
-            }
-
             if r.events_dma().rx().ready().read() != 0 || !s.rx_started.load(Ordering::Relaxed) {
                 //trace!("  irq_rx: rxstarted");
                 let (ptr, len) = rx.push_buf();
@@ -134,55 +124,48 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     r.dma().rx().ptr().write_value(ptr as u32);
                     r.dma().rx().maxcnt().write(|w| w.set_maxcnt(half_len as _));
 
-                    let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
-
-                    // Enable endrx -> startrx PPI channel.
-                    // From this point on, if endrx happens, startrx is automatically fired.
-                    ppi::regs().chenset().write(|w| w.0 = 1 << chn);
-
-                    // It is possible that endrx happened BEFORE enabling the PPI. In this case
-                    // the PPI channel doesn't trigger, and we'd hang. We have to detect this
-                    // and manually start.
-
-                    // check again in case endrx has happened between the last check and now.
-                    if r.events_dma().rx().end().read() != 0 {
-                        //trace!("  irq_rx: endrx");
-                        r.events_dma().rx().end().write_value(0);
-
-                        let val = s.rx_ended_count.load(Ordering::Relaxed);
-                        s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
-                    }
-
-                    let rx_ended = s.rx_ended_count.load(Ordering::Relaxed);
-                    let rx_started = s.rx_started_count.load(Ordering::Relaxed);
-
-                    // If we started the same amount of transfers as ended, the last rxend has
-                    // already occurred.
-                    let rxend_happened = rx_started == rx_ended;
-
-                    // Check if the PPI channel is still enabled. The PPI channel disables itself
-                    // when it fires, so if it's still enabled it hasn't fired.
-                    let ppi_ch_enabled = ppi::regs().chen().read().ch(chn as _);
-
-                    // if rxend happened, and the ppi channel hasn't fired yet, the rxend got missed.
-                    // this condition also naturally matches if `!started`, needed to kickstart the DMA.
-                    if rxend_happened && ppi_ch_enabled {
-                        //trace!("manually starting.");
-
-                        // disable the ppi ch, it's of no use anymore.
-                        ppi::regs().chenclr().write(|w| w.set_ch(chn as _, true));
-
-                        // manually start
+                    if s.rx_started.load(Ordering::Relaxed) {
+                        // Queue the transfer: the PPI channel starts it when the running one ends
+                        // (ENDRX), and then disables itself. If that ENDRX has already happened,
+                        // the PPI channel never fires; the check below catches that.
+                        let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
+                        ppi::regs().chenset().write(|w| w.0 = 1 << chn);
+                    } else {
                         r.tasks_dma().rx().start().write_value(1);
+                        s.rx_started.store(true, Ordering::Relaxed);
                     }
 
                     rx.push_done(half_len);
-
-                    s.rx_started_count.store(rx_started.wrapping_add(1), Ordering::Relaxed);
-                    s.rx_started.store(true, Ordering::Relaxed);
                 } else {
                     //trace!("  irq_rx: rxstarted no buf");
                     r.intenclr().write(|w| w.set_dmarxready(true));
+                }
+            }
+
+            // If a transfer is queued but the PPI channel missed the ENDRX it waits for, the DMA
+            // has stopped. Read its state from the hardware every time rather than counting ENDRX
+            // events: ENDRX is a flag, so two transfers ending while this interrupt is held off
+            // look like one.
+            let pos = RxDmaPos::read(s);
+            if pos.queued {
+                match pos.counter_past_dma_end(buf_len) {
+                    Some(0) => {
+                        // All bytes of the running transfer are counted, nothing more. Either it is
+                        // still finishing and the PPI channel will start the queued transfer, or
+                        // it ended before the channel was armed. Nothing is waiting either way, so
+                        // decide when the next byte arrives.
+                        r.intenset().write(|w| w.set_rxdrdy(true));
+                    }
+                    Some(_) => {
+                        // A byte past the end of the running transfer has been received, so the
+                        // running transfer ended at least one frame ago: the PPI channel missed
+                        // its ENDRX and can't fire any more. Start the queued transfer by hand.
+                        let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
+                        ppi::regs().chenclr().write(|w| w.set_ch(chn as _, true));
+                        r.tasks_dma().rx().start().write_value(1);
+                        ss.rx_waker.wake();
+                    }
+                    None => {}
                 }
             }
         }
@@ -223,6 +206,83 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
     }
 }
 
+/// Read the RXDRDY count, in the ring's `0..2*len` index space.
+fn rxdrdy_counter(timer: pac::timer::Timer, len: usize) -> usize {
+    // Read the RXDRDY counter. The interrupt also captures into CC[0]; if it does so between the
+    // reader's capture and read, the reader gets the newer count, which is just as valid.
+    timer.tasks_capture(0).write_value(1);
+    let mut rxdrdy = timer.cc(0).read() as usize;
+    //trace!("  rxdrdy count = {:?}", rxdrdy);
+
+    // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
+    // However, it's unclear if that's instant, or there's a small window where you can
+    // still read `len()*2`.
+    // This could happen if in one clock cycle the counter is updated, and in the next the
+    // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
+    // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
+    // clock cycle of the PCLK16M." :shrug:
+    // So, we wrap the counter ourselves, just in case.
+    if rxdrdy >= len * 2 {
+        rxdrdy = 0;
+    }
+
+    rxdrdy
+}
+
+/// Where the RX DMA is, read from the hardware.
+///
+/// RX transfers are exactly half the ring each, back to back. At most one is queued (set up, with
+/// the ENDRX -> STARTRX PPI channel armed) while another one runs.
+struct RxDmaPos {
+    /// Received bytes, from the RXDRDY counter, in the ring's `0..2*len` index space.
+    ///
+    /// RXDRDY fires when a byte enters the UARTE, before the DMA writes it to RAM. While the DMA is
+    /// stopped, received bytes wait in the UARTE, and some of them are already counted.
+    counter: usize,
+    /// End of the transfers the DMA has started, in the same index space. The DMA writes nothing
+    /// past it.
+    dma_end: usize,
+    /// Whether a transfer is queued and hasn't started yet.
+    queued: bool,
+}
+
+impl RxDmaPos {
+    /// Read the position. The interrupt changes the ring's write index and the PPI channel, so the
+    /// reader must call this with the interrupt masked to get a consistent result.
+    fn read(s: &State) -> Self {
+        let len = s.rx_buf.len();
+        let timer = unsafe { pac::timer::Timer::from_ptr(s.rx_timer.load(Ordering::Relaxed)) };
+
+        // Read the counter before the PPI channel: if the channel is still armed when read, the
+        // queued transfer hadn't started when the counter was read either.
+        let counter = rxdrdy_counter(timer, len);
+        let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
+        let queued = ppi::regs().chen().read().ch(chn as _);
+
+        // The ring's write index is the end of all transfers set up so far. A queued transfer
+        // hasn't started.
+        let mut dma_end = s.rx_buf.end.load(Ordering::Relaxed);
+        if queued {
+            dma_end = (dma_end + 2 * len - len / 2) % (2 * len);
+        }
+
+        Self {
+            counter,
+            dma_end,
+            queued,
+        }
+    }
+
+    /// How many bytes past `dma_end` the counter is, or `None` if the running transfer still has
+    /// bytes to receive.
+    fn counter_past_dma_end(&self, len: usize) -> Option<usize> {
+        // The counter is never more than half the ring behind `dma_end` (the running transfer),
+        // and never more than a few bytes past it (bytes waiting in the UARTE).
+        let past = (self.counter + 2 * len - self.dma_end) % (2 * len);
+        if past < len { Some(past) } else { None }
+    }
+}
+
 /// Buffered UARTE driver.
 pub struct BufferedUarte<'d> {
     tx: BufferedUarteTx<'d>,
@@ -240,8 +300,8 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -253,14 +313,14 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
+            Flex::new(txd),
+            Flex::new(rxd),
             None,
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -275,10 +335,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -290,14 +350,14 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             tx_buffer,
             rx_buffer,
             config,
@@ -307,14 +367,14 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -367,7 +427,6 @@ impl<'d> BufferedUarte<'d> {
                 r: self.rx.r,
                 state: self.rx.state,
                 buffered_state: self.rx.buffered_state,
-                timer_regs: self.rx.timer_regs,
                 resources: None,
                 is_borrowed: true,
                 _p: PhantomData,
@@ -428,30 +487,30 @@ impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), None, tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), None, tx_buffer, config)
     }
 
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
     pub fn new_with_cts<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), tx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -475,8 +534,8 @@ impl<'d> BufferedUarteTx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
@@ -609,9 +668,9 @@ impl<'a> Drop for BufferedUarteTx<'a> {
 /// Peripherals owned by a [`BufferedUarteRx`] that aren't needed by a borrowed half.
 struct RxResources<'d> {
     timer: Timer<'d>,
-    _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 1>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    ppi_group: PpiGroup<'d, AnyGroup>,
+    _ppi_ch1: Ppi<'d, 1, 1>,
+    _ppi_ch2: Ppi<'d, 1, 2>,
+    ppi_group: PpiGroup<'d>,
 }
 
 /// Reader part of the buffered UARTE driver.
@@ -619,7 +678,6 @@ pub struct BufferedUarteRx<'d> {
     r: pac::uarte::Uarte,
     state: &'static crate::uarte::State,
     buffered_state: &'static State,
-    timer_regs: pac::timer::Timer,
     /// `None` for a half borrowed via `split_ref`.
     resources: Option<RxResources<'d>>,
     /// Whether this half was borrowed via `split_ref`, in which case dropping it must not tear down the peripheral.
@@ -636,7 +694,7 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -647,12 +705,12 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
+            Flex::new(rxd),
             None,
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -666,8 +724,8 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_rts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
@@ -678,12 +736,12 @@ impl<'d> BufferedUarteRx<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            rxd.into(),
-            Some(rts.into()),
+            Flex::new(rxd),
+            Some(Flex::new(rts)),
             timer,
-            ppi_ch1.into(),
-            ppi_ch2.into(),
-            ppi_group.into(),
+            ChannelNumber::new(ppi_ch1),
+            ChannelNumber::new(ppi_ch2),
+            GroupNumber::new(ppi_group),
             rx_buffer,
             config,
         )
@@ -692,12 +750,12 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -722,12 +780,12 @@ impl<'d> BufferedUarteRx<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_innerer<U: UarteInstance, T: TimerInstance>(
         _peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         timer: Peri<'d, T>,
-        ppi_ch1: Peri<'d, AnyConfigurableChannel>,
-        ppi_ch2: Peri<'d, AnyConfigurableChannel>,
-        ppi_group: Peri<'d, AnyGroup>,
+        ppi_ch1: ChannelNumber,
+        ppi_ch2: ChannelNumber,
+        ppi_group: GroupNumber,
         rx_buffer: &'d mut [u8],
     ) -> Self {
         assert!(rx_buffer.len() % 2 == 0);
@@ -740,8 +798,6 @@ impl<'d> BufferedUarteRx<'d> {
         configure_rx_pins(r, rxd, rts);
 
         // Initialize state
-        buffered_state.rx_started_count.store(0, Ordering::Relaxed);
-        buffered_state.rx_ended_count.store(0, Ordering::Relaxed);
         buffered_state.rx_started.store(false, Ordering::Relaxed);
         buffered_state.rx_overrun.store(false, Ordering::Relaxed);
         let rx_len = rx_buffer.len().min(DMA_SIZE * 2);
@@ -760,24 +816,24 @@ impl<'d> BufferedUarteRx<'d> {
             w.set_dmatxend(true);
             w.set_dmarxready(true);
             w.set_error(true);
-            w.set_dmarxend(true);
         });
 
         // Configure byte counter.
         let timer = Timer::new_counter(timer);
+        buffered_state.rx_timer.store(timer_regs.as_ptr(), Ordering::Relaxed);
         timer.cc(1).write(rx_len as u32 * 2);
         timer.cc(1).short_compare_clear();
         timer.clear();
         timer.start();
 
-        let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
+        let mut ppi_ch1 = Ppi::new_one_to_one_inner(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
         ppi_ch1.enable();
 
         buffered_state
             .rx_ppi_ch
             .store(ppi_ch2.number() as u8, Ordering::Relaxed);
-        let mut ppi_group = PpiGroup::new(ppi_group);
-        let mut ppi_ch2 = Ppi::new_one_to_two(
+        let mut ppi_group = PpiGroup::new_inner(ppi_group);
+        let mut ppi_ch2 = Ppi::new_one_to_two_inner(
             ppi_ch2,
             Event::from_reg(r.events_dma().rx().end()),
             Task::from_reg(r.tasks_dma().rx().start()),
@@ -790,7 +846,6 @@ impl<'d> BufferedUarteRx<'d> {
             r,
             state,
             buffered_state,
-            timer_regs,
             resources: Some(RxResources {
                 timer,
                 _ppi_ch1: ppi_ch1,
@@ -802,28 +857,16 @@ impl<'d> BufferedUarteRx<'d> {
         }
     }
 
-    fn get_rxdrdy_counter(&self) -> usize {
+    /// The ring index up to which received bytes are in RAM.
+    fn rx_end(&self) -> usize {
         let s = self.buffered_state;
-        let timer = self.timer_regs;
-
-        // Read the RXDRDY counter.
-        timer.tasks_capture(0).write_value(1);
-        let mut rxdrdy = timer.cc(0).read() as usize;
-        //trace!("  rxdrdy count = {:?}", rxdrdy);
-
-        // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
-        // However, it's unclear if that's instant, or there's a small window where you can
-        // still read `len()*2`.
-        // This could happen if in one clock cycle the counter is updated, and in the next the
-        // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
-        // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
-        // clock cycle of the PCLK16M." :shrug:
-        // So, we wrap the counter ourselves, just in case.
-        if rxdrdy > s.rx_buf.len() * 2 {
-            rxdrdy = 0;
-        }
-
-        rxdrdy
+        let len = s.rx_buf.len();
+        let pos = critical_section::with(|_| RxDmaPos::read(s));
+        // Bytes counted past the end of the started transfers are still waiting in the UARTE.
+        let start = s.rx_buf.start.load(Ordering::Relaxed);
+        let received = (pos.counter + 2 * len - start) % (2 * len);
+        let in_ram = (pos.dma_end + 2 * len - start) % (2 * len);
+        (start + received.min(in_ram)) % (2 * len)
     }
 
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
@@ -849,7 +892,7 @@ impl<'d> BufferedUarteRx<'d> {
                 return Poll::Ready(Err(Error::Overrun));
             }
 
-            let mut end = self.get_rxdrdy_counter();
+            let mut end = self.rx_end();
 
             // This logic mirrors `atomic_ring_buffer::Reader::pop_buf()`
             let mut start = s.rx_buf.start.load(Ordering::Relaxed);
@@ -899,7 +942,7 @@ impl<'d> BufferedUarteRx<'d> {
         }
 
         let start = state.rx_buf.start.load(Ordering::Relaxed);
-        let end = self.get_rxdrdy_counter();
+        let end = self.rx_end();
 
         Ok(start != end)
     }
@@ -914,6 +957,9 @@ impl<'a> Drop for BufferedUarteRx<'a> {
         if let Some(resources) = &mut self.resources {
             resources.ppi_group.disable_all();
             resources.timer.stop();
+            // workaround errata 78
+            #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "_nrf5340", feature = "_nrf91"))]
+            resources.timer.shutdown();
         }
 
         let r = self.r;

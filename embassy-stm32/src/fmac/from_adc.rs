@@ -5,18 +5,18 @@ use crate::fmac::{self, Fmac};
 use crate::mode::Mode;
 
 /// A type used to bind ADC to FMAC using DMA
-pub struct FromAdc<'d, FMAC: fmac::Instance, ADC: adc::Instance> {
+pub struct FromAdc<'d, 'f, FMAC: fmac::Instance, ADC: adc::Instance> {
     #[allow(unused)]
     transfer: ConfiguredTransfer<'d, ADC::Regs>,
     #[allow(unused)]
-    fmac: &'d mut Fmac<'d, FMAC>,
+    fmac: &'d mut Fmac<'f, FMAC>,
 }
 
-impl<'d, ADC: adc::Instance, FMAC: fmac::Instance> FromAdc<'d, FMAC, ADC> {
+impl<'d, 'f, ADC: adc::Instance, FMAC: fmac::Instance> FromAdc<'d, 'f, FMAC, ADC> {
     #[allow(unused)]
     /// Bind ADC to FMAC using DMA and start conversion
     pub fn new<'ch, 'a, D: RxDma<ADC>, M: Mode>(
-        fmac: &'d mut Fmac<'d, FMAC>,
+        fmac: &'d mut Fmac<'f, FMAC>,
         adc: &'d mut Adc<'a, ADC, M>,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, ADC>, SampleTimeOf<ADC>)>,
         trigger: RegularAdcTrigger<ADC>,

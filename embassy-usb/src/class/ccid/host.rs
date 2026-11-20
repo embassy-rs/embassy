@@ -4,32 +4,18 @@
 //! `PC_to_RDR_GetSlotStatus` exchange over its bulk endpoints.
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use super::types::*;
+pub use super::types::{CardState, SlotStatus};
+use crate::host::class::{ClassError, HostClass};
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
-const USB_CLASS_CCID: u8 = 0x0b;
 const TRANSFER_BULK: u8 = 0x02;
-/// `bDescriptorType` of the CCID class-specific (functional) descriptor. Shares its
-/// value with the HID descriptor, so its length is what tells the two apart.
-const CCID_FUNCTIONAL_DESCRIPTOR: u8 = 0x21;
-/// `bLength` of the CCID functional descriptor.
-const CCID_FUNCTIONAL_LEN: usize = 54;
-/// Offset of `bMaxSlotIndex` within the CCID functional descriptor.
-const CCID_MAX_SLOT_INDEX: usize = 4;
-const PC_TO_RDR_ICC_POWER_ON: u8 = 0x62;
-const PC_TO_RDR_ICC_POWER_OFF: u8 = 0x63;
-const PC_TO_RDR_GET_SLOT_STATUS: u8 = 0x65;
-const PC_TO_RDR_XFR_BLOCK: u8 = 0x6f;
-const RDR_TO_PC_DATA_BLOCK: u8 = 0x80;
-const RDR_TO_PC_SLOT_STATUS: u8 = 0x81;
-const HEADER_LEN: usize = 10;
-const MAX_APDU_LEN: usize = 261;
-const MAX_CCID_MESSAGE_LEN: usize = HEADER_LEN + MAX_APDU_LEN;
 
 /// CCID interface and endpoint information.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CcidInfo {
     /// CCID interface number.
@@ -41,6 +27,19 @@ pub struct CcidInfo {
     /// Number of card slots the reader exposes, from `bMaxSlotIndex + 1`. One when
     /// the interface has no CCID functional descriptor.
     pub slots: u8,
+}
+
+/// Matcher for the standard CCID interface class.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct CcidMatcher;
+
+impl ClassMatch for CcidMatcher {
+    const NAME: &'static str = "CCID";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(USB_CLASS_CCID, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_CCID
+    }
 }
 
 /// Find the first CCID interface with bulk IN and OUT endpoints.
@@ -68,9 +67,9 @@ pub fn find_ccid(config_desc: &[u8]) -> Option<CcidInfo> {
                 continue;
             }
             if ep.is_in() {
-                bulk_in = Some((ep.endpoint_address, ep.max_packet_size));
+                bulk_in = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                bulk_out = Some((ep.endpoint_address, ep.max_packet_size));
+                bulk_out = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -84,38 +83,6 @@ pub fn find_ccid(config_desc: &[u8]) -> Option<CcidInfo> {
         }
     }
     None
-}
-
-/// Smart-card presence reported by a CCID slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum CardState {
-    /// A card is present and active.
-    PresentActive,
-    /// A card is present but inactive.
-    PresentInactive,
-    /// No card is present.
-    NotPresent,
-    /// The reader returned the reserved ICC status value.
-    Reserved,
-}
-
-/// Decoded `RDR_to_PC_SlotStatus` response.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct SlotStatus {
-    /// Slot number returned by the reader.
-    pub slot: u8,
-    /// Command sequence returned by the reader.
-    pub sequence: u8,
-    /// Card presence and activation state.
-    pub card_state: CardState,
-    /// CCID command-status field (zero means processed without error).
-    pub command_status: u8,
-    /// CCID error byte.
-    pub error: u8,
-    /// Reader clock-status byte.
-    pub clock_status: u8,
 }
 
 /// CCID host error.
@@ -178,11 +145,13 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         let info = find_ccid(config_desc).ok_or(CcidError::NoInterface)?;
         let split = enum_info.split();
         let address = enum_info.device_address;
-        let endpoint = |(ep, max_packet_size), direction| EndpointInfo {
-            addr: EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
-            ep_type: EndpointType::Bulk,
-            max_packet_size,
-            interval_ms: 0,
+        let endpoint = |(ep, max_packet_size), direction| {
+            EndpointInfo::new(
+                EndpointAddress::from_parts((ep & 0x0f) as usize, direction),
+                EndpointType::Bulk,
+                max_packet_size,
+                EndpointInterval::NONE,
+            )
         };
 
         let in_pipe = alloc
@@ -223,12 +192,7 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         }
 
         let status = response[7];
-        let card_state = match status & 0x03 {
-            0 => CardState::PresentActive,
-            1 => CardState::PresentInactive,
-            2 => CardState::NotPresent,
-            _ => CardState::Reserved,
-        };
+        let card_state = CardState::from_icc_status(status);
         Ok(SlotStatus {
             slot,
             sequence,
@@ -316,6 +280,31 @@ impl<'d, A: UsbHostAllocator<'d>> CcidHost<'d, A> {
         }
         response[..payload_len].copy_from_slice(&message[HEADER_LEN..HEADER_LEN + payload_len]);
         Ok(payload_len)
+    }
+}
+
+impl From<CcidError> for ClassError {
+    fn from(e: CcidError) -> Self {
+        match e {
+            CcidError::Transfer(e) => Self::Transfer(e),
+            CcidError::NoInterface => Self::NoMatch,
+            CcidError::NoPipe => Self::NoPipe,
+            CcidError::InvalidResponse => Self::InvalidResponse,
+            _ => Self::Unsupported("CCID error"),
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for CcidHost<'d, A> {
+    const NAME: &'static str = "CCID";
+    type Info = CcidInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_ccid(cfg)
+    }
+
+    async fn open(alloc: &A, cfg: &[u8], _info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new(alloc, cfg, enum_info).map_err(Into::into)
     }
 }
 

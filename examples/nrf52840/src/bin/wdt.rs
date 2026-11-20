@@ -4,9 +4,14 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::{self, Input, Pull};
 use embassy_nrf::wdt::{Config, HaltConfig, Watchdog};
+use embassy_nrf::{bind_interrupts, peripherals};
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    GPIOTE => gpio::InterruptHandler<peripherals::P0_11>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -28,7 +33,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut button = Input::new(p.P0_11, Pull::Up);
+    let mut button = Input::new_async(p.P0_11, Irqs, Pull::Up);
 
     info!("Watchdog started, press button 1 to feed it or I'll reset in 3 seconds!");
 

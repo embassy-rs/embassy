@@ -84,12 +84,13 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    let msc_config = MscConfig::new(64)
+    let mut msc_config = MscConfig::new()
         .vendor_id("Embassy")
         .product_id("RAM Disk")
         .product_revision_level("1.0")
-        .serial_number("12345678")
-        .double_buffered(true);
+        .serial_number("12345678");
+    msc_config.out_endpoint_options.buffers = 2;
+    msc_config.in_endpoint_options.buffers = 2;
 
     let mut msc = MscClass::new(&mut builder, &mut state, msc_config);
     let mut usb = builder.build();

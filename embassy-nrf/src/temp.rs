@@ -1,9 +1,9 @@
 //! Builtin temperature sensor driver.
 
 use core::future::poll_fn;
+use core::mem::DropGuard;
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
@@ -68,7 +68,7 @@ impl<'d> Temp<'d> {
     /// ```
     pub async fn read_celsius_x4(&mut self) -> i32 {
         // In case the future is dropped, stop the task and reset events.
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             let t = Self::regs();
             t.tasks_stop().write_value(1);
             t.events_datardy().write_value(0);
@@ -89,7 +89,7 @@ impl<'d> Temp<'d> {
             }
         })
         .await;
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
         value
     }
 

@@ -63,9 +63,9 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
@@ -74,7 +74,7 @@ use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpi2c::{Alf, Cmd, Dmf, Dozen, Epf, McrRrf, McrRtf, Msr, MsrFef, MsrSdf, Ndf, Pltf, Prescale, Stf};
+use crate::pac::lpi2c::{Cmd, Msr, Prescale};
 
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -738,7 +738,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             self.info.regs().mcr().modify(|w| w.set_rst(false));
 
             self.info.regs().mcr().modify(|w| {
-                w.set_dozen(Dozen::Enabled);
+                w.set_dozen(false);
                 w.set_dbgen(false);
             });
         });
@@ -764,14 +764,14 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         // Clear all flags
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::IntYes);
-            w.set_sdf(MsrSdf::IntYes);
-            w.set_ndf(Ndf::IntYes);
-            w.set_alf(Alf::IntYes);
-            w.set_fef(MsrFef::IntYes);
-            w.set_pltf(Pltf::IntYes);
-            w.set_dmf(Dmf::IntYes);
-            w.set_stf(Stf::IntYes);
+            w.set_epf(true);
+            w.set_sdf(true);
+            w.set_ndf(true);
+            w.set_alf(true);
+            w.set_fef(true);
+            w.set_pltf(true);
+            w.set_dmf(true);
+            w.set_stf(true);
         });
 
         Ok(())
@@ -803,8 +803,8 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn reset_fifos(&self) {
         critical_section::with(|_| {
             self.info.regs().mcr().modify(|w| {
-                w.set_rtf(McrRtf::Reset);
-                w.set_rrf(McrRrf::Reset);
+                w.set_rtf(true);
+                w.set_rrf(true);
             });
         });
     }
@@ -816,14 +816,14 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn recover_from_error(&self) {
         self.reset_fifos();
         self.info.regs().msr().write(|w| {
-            w.set_epf(Epf::IntYes);
-            w.set_sdf(MsrSdf::IntYes);
-            w.set_ndf(Ndf::IntYes);
-            w.set_alf(Alf::IntYes);
-            w.set_fef(MsrFef::IntYes);
-            w.set_pltf(Pltf::IntYes);
-            w.set_dmf(Dmf::IntYes);
-            w.set_stf(Stf::IntYes);
+            w.set_epf(true);
+            w.set_sdf(true);
+            w.set_ndf(true);
+            w.set_alf(true);
+            w.set_fef(true);
+            w.set_pltf(true);
+            w.set_dmf(true);
+            w.set_stf(true);
         });
     }
 
@@ -850,7 +850,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn is_stop_complete_or_error(&self) -> bool {
         let msr = self.info.regs().msr().read();
 
-        if msr.sdf() == MsrSdf::IntYes {
+        if msr.sdf() {
             return true;
         }
 
@@ -865,13 +865,13 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
     fn parse_status(&self, msr: &Msr) -> Result<(), IOError> {
-        if msr.alf() == Alf::IntYes {
+        if msr.alf() {
             Err(IOError::ArbitrationLoss)
-        } else if msr.fef() == MsrFef::IntYes {
+        } else if msr.fef() {
             Err(IOError::FifoError)
-        } else if msr.pltf() == Pltf::IntYes {
+        } else if msr.pltf() {
             Err(IOError::Other)
-        } else if msr.ndf() == Ndf::IntYes {
+        } else if msr.ndf() {
             Err(IOError::AddressNack)
         } else {
             Ok(())
@@ -937,13 +937,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// command.
     fn send_cmd(&self, cmd: Cmd, data: u8) {
         #[cfg(feature = "defmt")]
-        defmt::trace!(
-            "Sending cmd '{}' ({}) with data '{:08x}' MSR: {:08x}",
-            cmd,
-            cmd as u8,
-            data,
-            self.info.regs().msr().read()
-        );
+        defmt::trace!("Sending cmd {} with data '{:08x}'", cmd as u8, data);
 
         self.info.regs().mtdr().write(|w| {
             w.set_data(data);
@@ -1392,10 +1386,10 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             //
             // NOTE: this *must* be set up *after* async_start. async_start
             // already runs `status_and_act`, which on NACK performs its
-            // own remediation; if we set OnDrop earlier, the early `?`
+            // own remediation; if we set the DropGuard earlier, the early `?`
             // return would invoke remediation a second time and corrupt
             // the controller state for the next transaction.
-            let on_drop = OnDrop::new(|| self.remediation());
+            let on_drop = DropGuard::new((), |()| self.remediation());
 
             // send receive command
             self.send_cmd(Cmd::RECEIVE, (chunk.len() - 1) as u8);
@@ -1426,8 +1420,8 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
                 *byte = self.info.regs().mrdr().read().data();
             }
 
-            // defuse it; we'll re-arm on the next chunk if any.
-            on_drop.defuse();
+            // dismiss it; we'll re-arm on the next chunk if any.
+            DropGuard::dismiss(on_drop);
         }
 
         if send_stop == SendStop::Yes {
@@ -1441,7 +1435,7 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
         self.async_start(address, false).await?;
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| self.remediation());
+        let on_drop = DropGuard::new((), |()| self.remediation());
 
         // Usually, embassy HALs error out with an empty write,
         // however empty writes are useful for writing I2C scanning
@@ -1484,8 +1478,8 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1578,10 +1572,10 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         //
         // NOTE: this *must* be set up *after* async_start. async_start
         // already runs `status_and_act`, which on NACK performs its
-        // own remediation; if we set OnDrop earlier, the early `?`
+        // own remediation; if we set the DropGuard earlier, the early `?`
         // return would invoke remediation a second time and corrupt
         // the controller state for the next transaction.
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.remediation();
             self.info.regs().mder().modify(|w| w.set_rdde(false));
         });
@@ -1660,8 +1654,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1690,7 +1684,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
         // Stop DMA before controller remediation so it cannot refill the
         // command FIFO after the FIFO reset.
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().mder().modify(|w| w.set_tdde(false));
             self.mode.tx_dma.stop();
             self.remediation();
@@ -1759,7 +1753,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
 
             if let Err(error) = result {
                 self.remediation();
-                on_drop.defuse();
+                DropGuard::dismiss(on_drop);
                 return Err(error);
             }
         }
@@ -1768,8 +1762,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.async_stop().await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }

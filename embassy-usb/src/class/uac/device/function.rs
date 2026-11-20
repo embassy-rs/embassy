@@ -2,6 +2,7 @@
 //! frequency control handler, and the feedback endpoint. Only the stream direction differs.
 
 use core::cell::Cell;
+use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
@@ -10,6 +11,7 @@ use core::sync::atomic::Ordering;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
+use embassy_usb_driver::EndpointInterval;
 use heapless::Vec;
 #[cfg(not(target_has_atomic = "32"))]
 use portable_atomic::AtomicU32;
@@ -21,9 +23,11 @@ use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac1_codes::*;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointInfo, EndpointType};
+use crate::driver::{
+    Driver, Endpoint, EndpointDisabledError, EndpointInfo, EndpointType, IsoEndpointIn, IsoWriteError,
+};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler, InterfaceAltBuilder};
+use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
 /// Maximum allowed sampling rate in Hz: the 3-byte tSamFreq field's limit.
 const MAX_SAMPLE_RATE_HZ: u32 = 0xFF_FFFF;
@@ -621,7 +625,7 @@ impl<'d> AudioFunction<'d> {
         // The audio data endpoint's descriptors point at the synch endpoint; the synch endpoint's go after.
         Self::write_as_endpoint_descriptors(
             &mut alt,
-            streaming_endpoint.info(),
+            &streaming_endpoint.info(),
             feedback.as_ref().map(|(feedback, _)| feedback),
         );
         if let Some((feedback, refresh)) = &feedback {
@@ -831,7 +835,8 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
                 EndpointType::Isochronous,
                 None,
                 4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
-                1,
+                EndpointInterval::from_ms(1),
+                EndpointOptions::new(),
             ),
         }
     }
@@ -846,7 +851,7 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
     /// separate step.
     fn write_descriptor(&self, alt: &mut InterfaceAltBuilder<'_, 'd, D>, refresh: FeedbackRefresh) {
         alt.endpoint_descriptor(
-            self.feedback_endpoint.info(),
+            &self.feedback_endpoint.info(),
             SynchronizationType::NoSynchronization,
             UsageType::FeedbackEndpoint,
             &[
@@ -856,9 +861,23 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
         );
     }
 
-    /// Writes a single packet into the IN endpoint.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.feedback_endpoint.write(data).await
+    /// Wait until the next feedback packet can be queued, returning a reserved slot.
+    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        self.feedback_endpoint.ready().await
+    }
+
+    /// Writes one feedback packet for the next service interval.
+    ///
+    /// Returns how many intervals were skipped before this packet, if any. A packet the host
+    /// does not poll for is dropped rather than sent late.
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
+    where
+        D::EndpointIn: IsoEndpointIn,
+    {
+        crate::class::write_iso_packet(&mut self.feedback_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface.

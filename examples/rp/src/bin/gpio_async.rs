@@ -8,10 +8,15 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio;
+use embassy_rp::peripherals::PIN_16;
+use embassy_rp::{bind_interrupts, gpio};
 use embassy_time::Timer;
 use gpio::{Input, Level, Output, Pull};
 use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_16>;
+});
 
 /// It requires an external signal to be manually triggered on PIN 16. For
 /// example, this could be accomplished using an external power source with a
@@ -25,7 +30,7 @@ use panic_probe as _;
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::Low);
-    let mut async_input = Input::new(p.PIN_16, Pull::None);
+    let mut async_input = Input::new_async(p.PIN_16, Irqs, Pull::None);
 
     loop {
         info!("wait_for_high. Turn on LED");

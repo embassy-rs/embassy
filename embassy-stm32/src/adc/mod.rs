@@ -29,9 +29,9 @@
 #![macro_use]
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::AtomicBool;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
@@ -352,8 +352,7 @@ pub enum Clock {
 }
 
 /// ADC configuration.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct Config {
     /// Conversion resolution. `None` keeps the hardware default, which is the highest resolution
@@ -721,7 +720,7 @@ pub(crate) trait AnalogPin {
 
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
-        T::set_as_analog(self);
+        self.pin_number().set_as_analog();
     }
 }
 
@@ -834,7 +833,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         r.set_eoc_interrupt(true);
         r.start();
 
-        let _stop = OnDrop::new(|| {
+        let _stop = DropGuard::new((), |()| {
             r.set_eoc_interrupt(false);
             r.stop();
         });
@@ -1027,7 +1026,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         };
 
         // Stop conversions even if the future is dropped.
-        let _stop_adc = OnDrop::new(|| r.stop());
+        let _stop_adc = DropGuard::new((), |()| r.stop());
         r.start();
 
         transfer.await;

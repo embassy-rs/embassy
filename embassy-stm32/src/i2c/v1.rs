@@ -5,11 +5,11 @@
 //! All other devices (as of 2023-12-28) use [`v2`](super::v2) instead.
 
 use core::future::poll_fn;
+use core::mem::DropGuard;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{Either, select};
-use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::Master;
 
@@ -512,7 +512,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
         // TODO: Generate STOP condition on cancel?
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs.cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
@@ -743,7 +743,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
         // TODO: Generate STOP condition on cancel?
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs.cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
@@ -1031,8 +1031,8 @@ enum Duty {
 impl Duty {
     fn duty(&self) -> i2c::vals::Duty {
         match self {
-            Duty::Duty2_1 => i2c::vals::Duty::Duty21,
-            Duty::Duty16_9 => i2c::vals::Duty::Duty169,
+            Duty::Duty2_1 => i2c::vals::Duty::Duty2_1,
+            Duty::Duty16_9 => i2c::vals::Duty::Duty16_9,
         }
     }
 }
@@ -1075,13 +1075,13 @@ enum SlaveTermination {
 
 impl<'d, M: PeriMode> I2c<'d, M, Master> {
     /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+    pub fn into_slave_multimaster(self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
         let mut slave = I2c {
             info: self.info,
             state: self.state,
             kernel_clock: self.kernel_clock,
-            tx_dma: self.tx_dma.take(), // Use take() to move ownership
-            rx_dma: self.rx_dma.take(), // Use take() to move ownership
+            tx_dma: self.tx_dma,
+            rx_dma: self.rx_dma,
             #[cfg(feature = "time")]
             timeout: self.timeout,
             _marker: PhantomData,
@@ -1643,7 +1643,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         Self::enable_interrupts(info);
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 
@@ -1714,7 +1714,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         self.setup_slave_dma_base();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 
@@ -1748,7 +1748,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         self.setup_slave_dma_base();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             Self::disable_dma_and_interrupts(info);
         });
 

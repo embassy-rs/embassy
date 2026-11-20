@@ -14,9 +14,9 @@ use embassy_net::{StackStorage, StaticPool};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::gpio::{self, Input, Level, Output, Pull};
 use embassy_rp::mode::Async;
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_21};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, dma};
@@ -26,6 +26,7 @@ use panic_probe as _;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_21>;
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
@@ -35,7 +36,7 @@ async fn ethernet_task(
         'static,
         W5500,
         ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>,
-        Input<'static>,
+        Input<'static, Async>,
         Output<'static>,
     >,
 ) -> ! {
@@ -57,7 +58,7 @@ async fn main(spawner: Spawner) {
     let (miso, mosi, clk) = (p.PIN_16, p.PIN_19, p.PIN_18);
     let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg).unwrap();
     let cs = Output::new(p.PIN_17, Level::High);
-    let w5500_int = Input::new(p.PIN_21, Pull::Up);
+    let w5500_int = Input::new_async(p.PIN_21, Irqs, Pull::Up);
     let w5500_reset = Output::new(p.PIN_20, Level::High);
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00];

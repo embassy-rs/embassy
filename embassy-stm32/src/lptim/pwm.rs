@@ -48,29 +48,27 @@ macro_rules! channel_impl {
         impl<'d, T: BasicInstance> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                let pin = critical_section::with(|_| {
+                    set_as_af!(
+                        pin,
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                        Flex::set_low
+                    )
                 });
                 PwmPin {
-                    pin: Flex::new(pin),
+                    pin,
                     phantom: PhantomData,
                 }
             }
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
             pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    #[cfg(gpio_v1)]
-                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-                    #[cfg(gpio_v2)]
-                    set_as_af!(
-                        pin,
-                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
-                    );
-                });
+                #[cfg(gpio_v1)]
+                let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+                #[cfg(gpio_v2)]
+                let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+                let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
                 PwmPin {
-                    pin: Flex::new(pin),
+                    pin,
                     phantom: PhantomData,
                 }
             }
@@ -187,8 +185,10 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
 impl<'d, T: Instance> Pwm<'d, T> {
     fn init(&mut self, freq: Hertz) {
+        // CFGR must be written while the timer is disabled, ARR while it is enabled.
+        self.inner.set_prescaler(freq);
         self.inner.enable();
-        self.set_frequency(freq);
+        self.inner.set_period(freq);
 
         self.post_init();
 
@@ -197,10 +197,16 @@ impl<'d, T: Instance> Pwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// The timer is briefly disabled to change the prescaler, then restarted.
+    ///
     /// Note: when you call this, the max duty value changes, so you will have to
     /// call `set_duty` on all channels with the duty calculated based on the new max duty.
     pub fn set_frequency(&mut self, frequency: Hertz) {
-        self.inner.set_frequency(frequency);
+        self.inner.disable();
+        self.inner.set_prescaler(frequency);
+        self.inner.enable();
+        self.inner.set_period(frequency);
+        self.inner.continuous_mode_start();
     }
 
     /// Get max duty value.

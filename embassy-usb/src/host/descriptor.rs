@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use embassy_usb_driver::host::HostError;
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointInterval, EndpointType, Speed};
 use heapless::{String, Vec};
 
 /// Standard descriptor type constants.
@@ -63,6 +63,7 @@ pub mod lang_id {
 pub type StringIndex = u8;
 
 /// Maximum descriptor buffer size used during enumeration.
+#[allow(dead_code)]
 pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -605,6 +606,30 @@ impl<'a> ConfigurationDescriptorChain<'a> {
         }
     }
 
+    /// Find the first interface matching `C`.
+    pub fn find_interface<C: ClassMatch>(&'a self) -> Option<InterfaceDescriptorChain<'a>> {
+        self.iter_interface().find(|iface| C::matches(&iface.descriptor))
+    }
+
+    /// Iterate over every interface matching `C`.
+    pub fn find_interfaces<C: ClassMatch>(&'a self) -> impl Iterator<Item = InterfaceDescriptorChain<'a>> + 'a {
+        self.iter_interface().filter(|iface| C::matches(&iface.descriptor))
+    }
+
+    /// Find the Interface Association Descriptor whose interface group contains
+    /// `interface`.
+    ///
+    /// Returns `None` when the configuration has no matching IAD, or when the
+    /// interface is not part of an association.
+    pub fn find_iad_group(&'a self, interface: u8) -> Option<InterfaceAssociationDescriptor> {
+        self.iter_descriptors()
+            .filter_map(|(_, bytes)| InterfaceAssociationDescriptor::try_from_bytes(bytes))
+            .find(|iad| {
+                let end = iad.first_interface.saturating_add(iad.interface_count);
+                interface >= iad.first_interface && interface < end
+            })
+    }
+
     /// Iterate over all descriptors of this Configuration, passing to Visitor callbacks.
     /// Returns `Ok(())` on completion (including early stop), or `Err(e)` on error.
     pub fn visit_descriptors<V: DescriptorVisitor<'a>>(&self, visitor: &mut V) -> Result<(), VisitError<V::Error>> {
@@ -779,6 +804,86 @@ impl WritableDescriptor for InterfaceDescriptor {
     }
 }
 
+/// Standard USB Interface Association Descriptor (USB 2.0 §9.6.4).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct InterfaceAssociationDescriptor {
+    /// First interface number in the association.
+    pub first_interface: u8,
+    /// Number of contiguous interfaces in the association.
+    pub interface_count: u8,
+    /// Function class.
+    pub function_class: u8,
+    /// Function subclass.
+    pub function_subclass: u8,
+    /// Function protocol.
+    pub function_protocol: u8,
+    /// Function string index.
+    pub function_name: StringIndex,
+}
+
+impl InterfaceAssociationDescriptor {
+    /// Descriptor length in bytes.
+    pub const LEN: u8 = 8;
+    /// Descriptor type.
+    pub const DESC_TYPE: u8 = descriptor_type::INTERFACE_ASSOCIATION;
+
+    /// Parse an IAD from a raw descriptor.
+    pub fn try_from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < Self::LEN as usize || bytes[0] != Self::LEN || bytes[1] != Self::DESC_TYPE {
+            return None;
+        }
+        Some(Self {
+            first_interface: bytes[2],
+            interface_count: bytes[3],
+            function_class: bytes[4],
+            function_subclass: bytes[5],
+            function_protocol: bytes[6],
+            function_name: bytes[7],
+        })
+    }
+}
+
+/// A class/subclass/protocol triple.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ClassCode {
+    /// Interface class code.
+    pub class: u8,
+    /// Interface subclass code.
+    pub subclass: u8,
+    /// Interface protocol code.
+    pub protocol: u8,
+}
+
+impl ClassCode {
+    /// Create a class code triple.
+    pub const fn new(class: u8, subclass: u8, protocol: u8) -> Self {
+        Self {
+            class,
+            subclass,
+            protocol,
+        }
+    }
+}
+
+/// Pure, synchronous interface matching for a host class.
+///
+/// Used by [`ConfigurationDescriptorChain::find_interface`] and
+/// [`ConfigurationDescriptorChain::find_interfaces`]. Vendor-specific classes
+/// can match on `interface_class == 0xff` here and check VID/PID in
+/// [`HostClass::probe`](crate::host::class::HostClass::probe).
+pub trait ClassMatch {
+    /// Human-readable class name.
+    const NAME: &'static str;
+
+    /// Standard class code, when the class has one.
+    const CODE: Option<ClassCode> = None;
+
+    /// Return true when `iface` belongs to this class.
+    fn matches(iface: &InterfaceDescriptor) -> bool;
+}
+
 /// The chain of descriptors of a [InterfaceDescriptor].
 ///
 /// A [ConfigurationDescriptorChain] provides one or more interface descriptors (USB 2.0 §9.6.5).
@@ -929,6 +1034,27 @@ pub struct EndpointDescriptor {
 }
 
 impl EndpointDescriptor {
+    /// The [`EndpointInfo`] of this endpoint on a device that enumerated at `speed`.
+    ///
+    /// The descriptor's `bInterval` is only meaningful together with the speed and transfer type,
+    /// so this is where it is decoded into an [`EndpointInterval`].
+    pub fn endpoint_info(&self, speed: Speed) -> EndpointInfo {
+        let ep_type = self.ep_type();
+        let additional_transactions = if matches!(ep_type, EndpointType::Isochronous | EndpointType::Interrupt) {
+            self.additional_transactions()
+        } else {
+            0
+        };
+        let mut info = EndpointInfo::new(
+            self.endpoint_address.into(),
+            ep_type,
+            self.packet_size(),
+            EndpointInterval::from_b_interval(speed, ep_type, self.interval),
+        );
+        info.additional_transactions = additional_transactions;
+        info
+    }
+
     /// Returns the endpoint direction.
     pub fn ep_dir(&self) -> Direction {
         match self.endpoint_address & 0x80 {
@@ -961,6 +1087,18 @@ impl EndpointDescriptor {
     pub fn transfer_type(&self) -> u8 {
         self.attributes & 0x03
     }
+
+    /// Maximum packet size per transaction in bytes (bits 10..0 of `wMaxPacketSize`).
+    pub const fn packet_size(&self) -> u16 {
+        self.max_packet_size & 0x07ff
+    }
+
+    /// Additional transaction opportunities per microframe (bits 12..11 of `wMaxPacketSize`).
+    ///
+    /// Only meaningful for high-speed isochronous and interrupt endpoints (`0..=2`); 0 otherwise.
+    pub const fn additional_transactions(&self) -> u8 {
+        ((self.max_packet_size >> 11) & 0x03) as u8
+    }
 }
 
 impl ExtendableDescriptor for EndpointDescriptor {
@@ -991,17 +1129,6 @@ impl WritableDescriptor for EndpointDescriptor {
         [bytes[4], bytes[5]] = self.max_packet_size.to_le_bytes();
         bytes[6] = self.interval;
         Ok(bytes[0] as usize)
-    }
-}
-
-impl From<EndpointDescriptor> for EndpointInfo {
-    fn from(value: EndpointDescriptor) -> Self {
-        EndpointInfo {
-            addr: value.endpoint_address.into(),
-            ep_type: value.ep_type(),
-            max_packet_size: value.max_packet_size,
-            interval_ms: value.interval,
-        }
     }
 }
 
@@ -1497,6 +1624,33 @@ mod test {
             Ok(EndpointDescriptor::MIN_LEN as usize)
         );
         assert_eq!(EndpointDescriptor::try_from_bytes(&bytes), Ok(descriptor));
+    }
+
+    #[test]
+    fn endpoint_descriptor_splits_high_speed_additional_transactions() {
+        // Isochronous IN with 1024-byte packet and 2 additional transactions (wMaxPacketSize = 0x1400).
+        let iso = EndpointDescriptor {
+            endpoint_address: 0x81,
+            attributes: 0x05,
+            max_packet_size: (2 << 11) | 1024,
+            interval: 1,
+        };
+        assert_eq!(iso.packet_size(), 1024);
+        assert_eq!(iso.additional_transactions(), 2);
+        let iso_info = iso.endpoint_info(Speed::High);
+        assert_eq!(iso_info.max_packet_size, 1024);
+        assert_eq!(iso_info.additional_transactions, 2);
+
+        // Bulk endpoints always clear additional_transactions in EndpointInfo.
+        let bulk = EndpointDescriptor {
+            endpoint_address: 0x02,
+            attributes: 0x02,
+            max_packet_size: (1 << 11) | 512,
+            interval: 0,
+        };
+        let bulk_info = bulk.endpoint_info(Speed::High);
+        assert_eq!(bulk_info.max_packet_size, 512);
+        assert_eq!(bulk_info.additional_transactions, 0);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::{self, Input, Pull};
 use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
@@ -23,6 +23,7 @@ use panic_probe as _;
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
+    GPIOTE => gpio::InterruptHandler<peripherals::P0_11>;
 });
 
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
@@ -102,7 +103,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut button = Input::new(p.P0_11, Pull::Up);
+    let mut button = Input::new_async(p.P0_11, Irqs, Pull::Up);
 
     let (reader, mut writer) = hid.split();
 

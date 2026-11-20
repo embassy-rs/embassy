@@ -323,9 +323,9 @@ impl<F: Future + 'static> AvailableTask<F> {
         task.raw.state.spawn().then(|| Self { task })
     }
 
-    fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
+    fn initialize_impl<S>(self, name: Option<&'static str>, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
-            self.task.raw.metadata.reset();
+            self.task.raw.metadata.init(name);
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
@@ -337,7 +337,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
     /// Initialize the [`TaskStorage`] to run the given future.
     pub fn initialize(self, future: impl FnOnce() -> F) -> SpawnToken<F> {
-        self.initialize_impl::<F>(future)
+        self.initialize_impl::<F>(None, future)
     }
 
     /// Initialize the [`TaskStorage`] to run the given future.
@@ -373,7 +373,7 @@ impl<F: Future + 'static> AvailableTask<F> {
         //
         // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
-        self.initialize_impl::<FutFn>(future)
+        self.initialize_impl::<FutFn>(None, future)
     }
 }
 
@@ -392,9 +392,13 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         }
     }
 
-    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<T>, SpawnError> {
+    fn spawn_impl<T>(
+        &'static self,
+        name: Option<&'static str>,
+        future: impl FnOnce() -> F,
+    ) -> Result<SpawnToken<T>, SpawnError> {
         match self.pool.iter().find_map(AvailableTask::claim) {
-            Some(task) => Ok(task.initialize_impl::<T>(future)),
+            Some(task) => Ok(task.initialize_impl::<T>(name, future)),
             None => Err(SpawnError::Busy),
         }
     }
@@ -406,11 +410,24 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// This will loop over the pool and spawn the task in the first storage that
     /// is currently free. If none is free, [`SpawnError::Busy`] is returned.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
-        self.spawn_impl::<F>(future)
+        self.spawn_impl::<F>(None, future)
+    }
+
+    /// Like spawn(), but with `name` as the task's default name (see `MetadataRef::name`).
+    ///
+    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
+    /// by the Embassy macros ONLY.
+    #[doc(hidden)]
+    pub fn _spawn(
+        &'static self,
+        name: Option<&'static str>,
+        future: impl FnOnce() -> F,
+    ) -> Result<SpawnToken<impl Sized>, SpawnError> {
+        self.spawn_impl::<F>(name, future)
     }
 
     /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
-    /// the future is !Send.
+    /// the future is !Send, and with `name` as the task's default name (see `MetadataRef::name`).
     ///
     /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
     /// by the Embassy macros ONLY.
@@ -418,12 +435,16 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     /// is an `async fn`, NOT a hand-written `Future`.
     #[doc(hidden)]
-    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> Result<SpawnToken<impl Sized>, SpawnError>
+    pub unsafe fn _spawn_async_fn<FutFn>(
+        &'static self,
+        name: Option<&'static str>,
+        future: FutFn,
+    ) -> Result<SpawnToken<impl Sized>, SpawnError>
     where
         FutFn: FnOnce() -> F,
     {
         // See the comment in AvailableTask::__initialize_async_fn for explanation.
-        self.spawn_impl::<FutFn>(future)
+        self.spawn_impl::<FutFn>(name, future)
     }
 }
 

@@ -50,10 +50,10 @@ async fn main(_spawner: Spawner) -> ! {
     let mut buffer = opamp.buffer_ext(p.PA7.reborrow(), p.PA6.reborrow());
 
     loop {
-        let vref = adc.read(&mut vrefint, SampleTime::Cycles6015).await;
+        let vref = adc.read(&mut vrefint, SampleTime::Cycles601_5).await;
         info!("read vref: {} (should be {})", vref, vrefint.calibrated_value());
 
-        let buffer = adc.read(&mut buffer, SampleTime::Cycles6015).await;
+        let buffer = adc.read(&mut buffer, SampleTime::Cycles601_5).await;
         info!("read buffer: {}", buffer);
 
         let pin_mv = (buffer as u32 * vrefint.calibrated_value() as u32 / vref as u32) * 3300 / 4095;

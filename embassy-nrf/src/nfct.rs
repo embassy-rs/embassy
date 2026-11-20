@@ -118,6 +118,9 @@ pub struct NfcT<'d> {
 
 impl<'d> NfcT<'d> {
     /// Create an Nfc Tag driver
+    ///
+    /// With the `nfc-pins-as-gpio` feature the NFC pins are GPIOs, and the
+    /// NFCT receives nothing on them.
     pub fn new(
         _p: Peri<'d, NFCT>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::NFCT, InterruptHandler> + 'd,
@@ -125,6 +128,10 @@ impl<'d> NfcT<'d> {
     ) -> Self {
         let r = pac::NFCT;
 
+        // Power-cycle the peripheral through its undocumented POWER register
+        // at 0xFFC (the workaround of nRF52 erratum 141). On the nRF54L the
+        // address reads 0 and writing it has no effect.
+        #[cfg(not(feature = "_nrf54l"))]
         unsafe {
             let reset = (r.as_ptr() as *mut u32).add(0xFFC / 4);
             reset.write_volatile(0);
@@ -132,34 +139,41 @@ impl<'d> NfcT<'d> {
             reset.write_volatile(1);
         }
 
+        // On the nRF54L the NFC pads are switched in the peripheral rather
+        // than in UICR. They are on after reset, but a bootloader may have
+        // turned them off; with `nfc-pins-as-gpio` they stay GPIOs, as
+        // `embassy_nrf::init` set them.
+        #[cfg(all(feature = "_nrf54l", not(feature = "nfc-pins-as-gpio")))]
+        r.padconfig().write(|w| w.set_enable(true));
+
         let nfcid_size = match &config.nfcid1 {
             NfcId::SingleSize(bytes) => {
-                r.nfcid1_last().write(|w| w.0 = u32::from_be_bytes(*bytes));
+                r.nfcid1().last().write(|w| w.0 = u32::from_be_bytes(*bytes));
 
                 vals::Nfcidsize::Nfcid1single
             }
             NfcId::DoubleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
-                r.nfcid1_last().write(|w| w.0 = u32::from_be_bytes(*chunk));
+                r.nfcid1().last().write(|w| w.0 = u32::from_be_bytes(*chunk));
 
                 let mut chunk = [0u8; 4];
                 chunk[1..].copy_from_slice(bytes);
-                r.nfcid1_2nd_last().write(|w| w.0 = u32::from_be_bytes(chunk));
+                r.nfcid1().secondlast().write(|w| w.0 = u32::from_be_bytes(chunk));
 
                 vals::Nfcidsize::Nfcid1double
             }
             NfcId::TripleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
-                r.nfcid1_last().write(|w| w.0 = u32::from_be_bytes(*chunk));
+                r.nfcid1().last().write(|w| w.0 = u32::from_be_bytes(*chunk));
 
                 let (bytes, chunk2) = bytes.split_last_chunk::<3>().unwrap();
                 let mut chunk = [0u8; 4];
                 chunk[1..].copy_from_slice(chunk2);
-                r.nfcid1_2nd_last().write(|w| w.0 = u32::from_be_bytes(chunk));
+                r.nfcid1().secondlast().write(|w| w.0 = u32::from_be_bytes(chunk));
 
                 let mut chunk = [0u8; 4];
                 chunk[1..].copy_from_slice(bytes);
-                r.nfcid1_3rd_last().write(|w| w.0 = u32::from_be_bytes(chunk));
+                r.nfcid1().thirdlast().write(|w| w.0 = u32::from_be_bytes(chunk));
 
                 vals::Nfcidsize::Nfcid1triple
             }

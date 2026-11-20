@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 #![allow(static_mut_refs)]
 
 /// This example demonstrates the LTDC lcd display peripheral and was tested to run on an stm32h735g-dk (embassy-stm32 feature "stm32h735ig" and probe-rs chip "STM32H735IGKx")
@@ -334,6 +333,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul104,     // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div1),
             divq: Some(PllDiv::Div4),
             divr: Some(PllDiv::Div2),
@@ -344,6 +344,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul80,      // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div5),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div2),
@@ -354,6 +355,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul160,     // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div83),

@@ -80,34 +80,34 @@ enum Pins<'d> {
 #[cfg(eth_v1a)]
 macro_rules! config_in_pins {
     ($($pin:ident),*) => {
-        critical_section::with(|_| {
-            $(
+        let ($($pin,)*) = critical_section::with(|_| {
+            ($(
                 // TODO properly create a set_as_input function
-                set_as_af!($pin, AfType::input(Pull::None));
-            )*
-        })
+                set_as_af!($pin, AfType::input(Pull::None)),
+            )*)
+        });
     }
 }
 
 #[cfg(eth_v1a)]
 macro_rules! config_af_pins {
     ($($pin:ident),*) => {
-        critical_section::with(|_| {
-            $(
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            )*
-        })
+        let ($($pin,)*) = critical_section::with(|_| {
+            ($(
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            )*)
+        });
     };
 }
 
 #[cfg(any(eth_v1b, eth_v1c))]
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        critical_section::with(|_| {
-            $(
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            )*
-        })
+        let ($($pin,)*) = critical_section::with(|_| {
+            ($(
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            )*)
+        });
     };
 }
 
@@ -209,23 +209,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
     ) -> Result<Self, crate::eth::Error> {
         #[cfg(eth_v1a)]
-        {
-            config_in_pins!(ref_clk, rx_d0, rx_d1);
-            config_af_pins!(tx_d0, tx_d1, tx_en);
-        }
+        config_in_pins!(ref_clk, rx_d0, rx_d1);
+        #[cfg(eth_v1a)]
+        config_af_pins!(tx_d0, tx_d1, tx_en);
+        #[cfg(eth_v1a)]
+        let crs = Flex::new(crs);
 
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        let pins = Pins::Rmii([
-            Flex::new(ref_clk),
-            Flex::new(crs),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_en),
-        ]);
+        let pins = Pins::Rmii([ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, true)
     }
@@ -415,10 +408,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
     ) -> Result<Self, crate::eth::Error> {
         #[cfg(eth_v1a)]
-        {
-            config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
-            config_af_pins!(tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
-        }
+        config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
+        #[cfg(eth_v1a)]
+        config_af_pins!(tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
 
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(
@@ -426,18 +418,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         );
 
         let pins = Pins::Mii([
-            Flex::new(rx_clk),
-            Flex::new(tx_clk),
-            Flex::new(rxdv),
-            Flex::new(rx_d0),
-            Flex::new(rx_d1),
-            Flex::new(rx_d2),
-            Flex::new(rx_d3),
-            Flex::new(tx_d0),
-            Flex::new(tx_d1),
-            Flex::new(tx_d2),
-            Flex::new(tx_d3),
-            Flex::new(tx_en),
+            rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en,
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, false)

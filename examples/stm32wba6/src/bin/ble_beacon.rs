@@ -29,6 +29,7 @@ use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
 use panic_probe as _;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -69,8 +70,8 @@ fn build_ibeacon() -> AdvData {
     data[22] = IBEACON_TX_POWER as u8;
 
     let mut adv = AdvData::new();
-    adv.add_flags(0x04).unwrap(); // BR/EDR not supported (non-discoverable)
-    adv.add_manufacturer_data(APPLE_COMPANY_ID, &data).unwrap();
+    adv = adv.flags(AdvFlags::BR_EDR_NOT_SUPPORTED).unwrap(); // BR/EDR not supported (non-discoverable)
+    adv = adv.manufacturer_specific_data(APPLE_COMPANY_ID, &data).unwrap();
     adv
 }
 
@@ -93,9 +94,11 @@ fn build_eddystone_uid() -> AdvData {
     // bytes 18..20 reserved, already zero
 
     let mut adv = AdvData::new();
-    adv.add_flags(0x06).unwrap(); // General discoverable, no BR/EDR
-    adv.add_service_uuid_16(EDDYSTONE_UUID).unwrap();
-    adv.add_service_data(EDDYSTONE_UUID, &data).unwrap();
+    adv = adv
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap(); // General discoverable, no BR/EDR
+    adv = adv.complete_uuid16_list(&[EDDYSTONE_UUID]).unwrap();
+    adv = adv.service_data_uuid16(EDDYSTONE_UUID, &data).unwrap();
     adv
 }
 
@@ -118,9 +121,11 @@ fn build_eddystone_url() -> AdvData {
     let _ = url_len; // used only for clarity
 
     let mut adv = AdvData::new();
-    adv.add_flags(0x06).unwrap();
-    adv.add_service_uuid_16(EDDYSTONE_UUID).unwrap();
-    adv.add_service_data(EDDYSTONE_UUID, &data).unwrap();
+    adv = adv
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv = adv.complete_uuid16_list(&[EDDYSTONE_UUID]).unwrap();
+    adv = adv.service_data_uuid16(EDDYSTONE_UUID, &data).unwrap();
     adv
 }
 
@@ -143,9 +148,11 @@ fn build_eddystone_tlm(adv_count: u32, uptime_100ms: u32) -> AdvData {
     data[10..14].copy_from_slice(&uptime_100ms.to_be_bytes());
 
     let mut adv = AdvData::new();
-    adv.add_flags(0x06).unwrap();
-    adv.add_service_uuid_16(EDDYSTONE_UUID).unwrap();
-    adv.add_service_data(EDDYSTONE_UUID, &data).unwrap();
+    adv = adv
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv = adv.complete_uuid16_list(&[EDDYSTONE_UUID]).unwrap();
+    adv = adv.service_data_uuid16(EDDYSTONE_UUID, &data).unwrap();
     adv
 }
 
@@ -173,7 +180,7 @@ async fn main(spawner: Spawner) {
 
     // Start with minimal data; update_adv_data sets the real payload below
     let mut initial_adv = AdvData::new();
-    initial_adv.add_flags(0x04).unwrap();
+    initial_adv = initial_adv.flags(AdvFlags::BR_EDR_NOT_SUPPORTED).unwrap();
     ble.start_advertising(adv_params, initial_adv, None)
         .await
         .expect("Failed to start advertising");
@@ -188,7 +195,7 @@ async fn main(spawner: Spawner) {
 
     // Set the first beacon type immediately
     let first = build_ibeacon();
-    ble.update_adv_data(first).expect("Failed to set beacon data");
+    ble.update_adv_data(first).await.expect("Failed to set beacon data");
     info!("Beacon type: {}", beacon_names[0]);
 
     let mut ticker = Ticker::every(Duration::from_secs(5));
@@ -211,7 +218,9 @@ async fn main(spawner: Spawner) {
                     3 => build_eddystone_tlm(adv_count, uptime_ticks),
                     _ => core::unreachable!(),
                 };
-                ble.update_adv_data(adv_data).expect("Failed to update beacon data");
+                ble.update_adv_data(adv_data)
+                    .await
+                    .expect("Failed to update beacon data");
                 info!("Beacon type: {}", beacon_names[beacon_idx]);
             }
         }

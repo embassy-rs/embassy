@@ -3,13 +3,13 @@
 use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ptr;
 use core::task::Poll;
 
 use critical_section::{CriticalSection, Mutex};
 #[cfg(feature = "_nrf5340-app")]
 use embassy_futures::{select::select, yield_now};
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::crypto::cryptocell::{ActivationHandle, activate};
@@ -162,7 +162,7 @@ impl<'d> Rng<'d, Async> {
 
         self.enable_irq();
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.disable_irq();
             self.stop();
 

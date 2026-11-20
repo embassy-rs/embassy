@@ -29,11 +29,12 @@ use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::Flex;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::uarte::{
-    Config, DMA_SIZE, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx,
+    Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
+    configure_tx_pins, drop_tx_rx,
 };
 use crate::{interrupt, pac};
 
@@ -180,24 +181,8 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
-        tx_buffer: &'d mut [u8],
-        rx_buffer: &'d mut [u8],
-        config: Config,
-    ) -> Self {
-        Self::new_inner(uarte, txd.into(), rxd.into(), None, None, tx_buffer, rx_buffer, config)
-    }
-
-    /// Create a new BufferedUarte with hardware flow control (RTS/CTS)
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_rtscts<U: UarteInstance>(
-        uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
@@ -205,10 +190,35 @@ impl<'d> BufferedUarte<'d> {
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
+    /// Create a new BufferedUarte with hardware flow control (RTS/CTS)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_rtscts<U: UarteInstance>(
+        uarte: Peri<'d, U>,
+        txd: Peri<'d, impl TxPin<U>>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            uarte,
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             tx_buffer,
             rx_buffer,
             config,
@@ -218,10 +228,10 @@ impl<'d> BufferedUarte<'d> {
     #[allow(clippy::too_many_arguments)]
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -333,30 +343,30 @@ impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), None, tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), None, tx_buffer, config)
     }
 
     /// Create a new BufferedUarteTx with hardware flow control (CTS)
     pub fn new_with_cts<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<U>>,
+        cts: Peri<'d, impl CtsPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), tx_buffer, config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), tx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -378,8 +388,8 @@ impl<'d> BufferedUarteTx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
@@ -522,30 +532,30 @@ impl<'d> BufferedUarteRx<'d> {
     /// Create a new BufferedUarteRx without hardware flow control.
     pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, rxd.into(), None, rx_buffer, config)
+        Self::new_inner(uarte, Flex::new(rxd), None, rx_buffer, config)
     }
 
     /// Create a new BufferedUarteRx with hardware flow control (RTS)
     pub fn new_with_rts<U: UarteInstance>(
         uarte: Peri<'d, U>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<U>>,
+        rts: Peri<'d, impl RtsPin<U>>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, rxd.into(), Some(rts.into()), rx_buffer, config)
+        Self::new_inner(uarte, Flex::new(rxd), Some(Flex::new(rts)), rx_buffer, config)
     }
 
     fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -567,8 +577,8 @@ impl<'d> BufferedUarteRx<'d> {
 
     fn new_innerer<U: UarteInstance>(
         _peri: Peri<'d, U>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rxd: Flex<'d>,
+        rts: Option<Flex<'d>>,
         rx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();

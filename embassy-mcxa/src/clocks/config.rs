@@ -129,8 +129,8 @@ pub struct ClocksConfig {
     pub sirc: SircConfig,
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
-    /// OSC32K clock source
-    #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+    /// LP OSC32K clock source. `None` preserves hardware without advertising it.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub osc32k: Option<Osc32KConfig>,
     /// SOSC, clk_in clock source
     ///
@@ -565,47 +565,31 @@ impl Default for Fro16KConfig {
     }
 }
 
-/// OSC32K Operational Mode
-#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
-pub enum Osc32KMode {
-    ///  low power switched oscillator mode
-    LowPower {
-        /// 32K Oscillator internal transconductance gain current
-        coarse_amp_gain: Osc32KCoarseGain,
-        /// Enable if Vbat exceeds 3.0v
-        vbat_exceeds_3v0: bool,
-    },
-    /// high performance transconductance oscillator mode
-    HighPower {
-        /// 32K Oscillator internal transconductance gain current
-        coarse_amp_gain: Osc32KCoarseGain,
-        /// Configurable capacitance for XTAL pad
-        xtal_cap_sel: Osc32KCapSel,
-        /// Configurable capacitance for EXTAL pad
-        extal_cap_sel: Osc32KCapSel,
-    },
-}
-
 /// Coarse Gain Amplification
 ///
-/// See datasheet table 4.2.1.4, "32 kHz oscillation gain setting"
+/// NXP specifies LP ESR limits of 50 kOhm for gain 00 and 70 kOhm for gain 01.
+/// Higher gain LP electrical limits require device/crystal qualification.
 #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 pub enum Osc32KCoarseGain {
-    /// Max ESR 50kOhms, Max Cx 14pF
+    /// Gain 00: LP maximum ESR 50 kOhm.
     EsrRange0,
-    /// Max ESR 70kOhms, Max Cx 22pF
+    /// Gain 01: LP maximum ESR 70 kOhm.
     EsrRange1,
-    /// Max ESR 80kOhms, Max Cx 22pF
+    /// Gain 10: no LP ESR limit specified here.
     EsrRange2,
-    /// Max ESR 100kOhms, Max Cx 20pF
+    /// Gain 11: no LP ESR limit specified here.
     EsrRange3,
 }
 
+/// Per-pin startup capacitance, not effective crystal load capacitance.
+///
+/// Only positive startup values are supported. Final LP capacitances are always zero.
 #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum Osc32KCapSel {
-    // NOTE: 0pF is not supported in non-low-power-modes
     /// 2pF
-    Cap2PicoF,
+    Cap2PicoF = 1,
     /// 4pF
     Cap4PicoF,
     /// 6pF
@@ -636,12 +620,29 @@ pub enum Osc32KCapSel {
     Cap30PicoF,
 }
 
-/// OSC32K Configuration Items
+/// LP-only OSC32K configuration.
+///
+/// Startup loading must be qualified for the crystal and PCB parasitics; crystal C0
+/// is not the pad/PCB shunt capacitance. Readiness does not establish frequency accuracy
+/// or crystal drive compliance. Normal mode is not supported on this device family.
+/// A compatible retained LP source is adopted without replaying startup. Unrequested
+/// retained output gates remain enabled, but are not advertised in the clock cache.
 #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 #[non_exhaustive]
 pub struct Osc32KConfig {
-    /// Low/High Power Mode Selection
-    pub mode: Osc32KMode,
+    /// XTAL pin capacitance used only during startup.
+    pub startup_xtal_cap_sel: Osc32KCapSel,
+    /// EXTAL pin capacitance used only during startup.
+    pub startup_extal_cap_sel: Osc32KCapSel,
+    /// Oscillator transconductance gain used during startup and LP operation.
+    pub coarse_amp_gain: Osc32KCoarseGain,
+    /// Select the LP supply detector setting for VBAT above 3.0 V.
+    pub vbat_exceeds_3v0: bool,
+    /// Maximum status polls per LDO/startup/LP readiness stage, before the time driver exists.
+    ///
+    /// The reference default is 100,000,000 polls, not a wall-clock duration. Tune for
+    /// CPU/bus speed and qualified worst-case crystal startup; it is always finite.
+    pub readiness_poll_budget: core::num::NonZeroU32,
     /// is `clk_32k[0]` active?
     pub vsys_domain_active: bool,
     /// is `clk_32k[1]` active?
@@ -652,12 +653,15 @@ pub struct Osc32KConfig {
 
 #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
 impl Default for Osc32KConfig {
+    /// SDK 26.09 reference STARTUP profile (12 pF per pin, gain 01), followed by LP.
+    /// This is not universal crystal/board qualification. All three outputs are enabled.
     fn default() -> Self {
         Self {
-            mode: Osc32KMode::LowPower {
-                coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
-                vbat_exceeds_3v0: true,
-            },
+            startup_xtal_cap_sel: Osc32KCapSel::Cap12PicoF,
+            startup_extal_cap_sel: Osc32KCapSel::Cap12PicoF,
+            coarse_amp_gain: Osc32KCoarseGain::EsrRange1,
+            vbat_exceeds_3v0: true,
+            readiness_poll_budget: core::num::NonZeroU32::new(100_000_000).unwrap(),
             vsys_domain_active: true,
             vdd_core_domain_active: true,
             vbat_domain_active: true,
@@ -721,7 +725,7 @@ impl Default for ClocksConfig {
                 #[cfg(feature = "_mcxa5xx")]
                 vbat_domain_active: true,
             }),
-            #[cfg(all(feature = "_mcxa5xx", feature = "unstable-osc32k", not(feature = "rosc-32k-as-gpio")))]
+            #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
             osc32k: None,
             #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,

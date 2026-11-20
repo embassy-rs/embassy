@@ -4,8 +4,8 @@
 //! network is normally a run of *software* epochs — softmax, dequantization,
 //! argmax — that the Cortex-M55 executes once the NPU's hardware epochs have
 //! finished. [`EpochBlock`](super::EpochBlock) models that shape (`blob: None`
-//! is a pure software epoch), but its `start`/`end` are bare `fn()` pointers and
-//! so cannot carry the buffers a kernel needs. These types are therefore used
+//! and `streng_mask == 0` is a pure software epoch), but its `start`/`end` are
+//! bare `fn()` pointers and so cannot carry the buffers a kernel needs. These types are therefore used
 //! directly, alongside the hardware epochs rather than inside an `EpochBlock`.
 //!
 //! Each one is a thin wrapper over the equivalent [`embedded-nn`] kernel, so the

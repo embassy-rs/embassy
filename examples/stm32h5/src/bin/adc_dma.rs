@@ -26,6 +26,7 @@ async fn main(spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div4), // SPI1 cksel defaults to pll1_q
             divr: None,
@@ -34,6 +35,7 @@ async fn main(spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(PllDiv::Div4), // 100mhz
@@ -98,8 +100,8 @@ async fn adc_task<'a, T, D, I>(
             dma.reborrow(),
             irq,
             [
-                (pin1.reborrow_adc(), SampleTime::Cycles25),
-                (pin2.reborrow_adc(), SampleTime::Cycles25),
+                (pin1.reborrow_adc(), SampleTime::Cycles2_5),
+                (pin2.reborrow_adc(), SampleTime::Cycles2_5),
             ]
             .into_iter(),
             None,

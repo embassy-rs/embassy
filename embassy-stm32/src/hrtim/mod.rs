@@ -39,7 +39,7 @@ pub enum Channel {
     ChD,
     /// Channel E.
     ChE,
-    #[cfg(hrtim_v2)]
+    #[cfg(any(hrtim_v2, hrtim_g5))]
     /// Channel F.
     ChF,
 }
@@ -62,7 +62,7 @@ pub enum ChD {}
 /// Channel E marker type.
 pub enum ChE {}
 
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 /// Channel F marker type.
 pub enum ChF {}
 
@@ -95,7 +95,7 @@ impl HRTimerChannel for ChE {
     const CHANNEL: Channel = Channel::ChE;
 }
 
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 impl HRTimerChannel for ChF {
     const CHANNEL: Channel = Channel::ChF;
 }
@@ -105,7 +105,7 @@ impl SealedTimerChannel for ChB {}
 impl SealedTimerChannel for ChC {}
 impl SealedTimerChannel for ChD {}
 impl SealedTimerChannel for ChE {}
-#[cfg(hrtim_v2)]
+#[cfg(any(hrtim_v2, hrtim_g5))]
 impl SealedTimerChannel for ChF {}
 
 /// PWM pin wrapper.
@@ -120,31 +120,24 @@ pub struct HRPin<'d, T, C, #[cfg(afio)] A> {
 impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(HRPin<'d, T, C, A>) {
     /// Create a new PWM pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, output_type: OutputType) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
-        });
+        let pin =
+            critical_section::with(|_| set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh), Flex::set_low));
         Self {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
 
     /// Create a new PWM pin instance with a specific configuration.
     pub fn new_with_config(pin: Peri<'d, if_afio!(impl HRTimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            #[cfg(gpio_v1)]
-            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-            #[cfg(gpio_v2)]
-            set_as_af!(
-                pin,
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
-            );
-        });
+        #[cfg(gpio_v1)]
+        let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+        #[cfg(gpio_v2)]
+        let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+        let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
 
         Self {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
@@ -162,12 +155,10 @@ pub struct ComplementaryHRPin<'d, T, C, #[cfg(afio)] A> {
 impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryHRPin<'d, T, C, A>) {
     /// Create a new PWM pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
-        });
+        let pin =
+            critical_section::with(|_| set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh), Flex::set_low));
         Self {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
@@ -177,19 +168,14 @@ impl<'d, T: Instance, C: HRTimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryH
         pin: Peri<'d, if_afio!(impl HRTimerComplementaryPin<T, C, A>)>,
         pin_config: PwmPinConfig,
     ) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            #[cfg(gpio_v1)]
-            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-            #[cfg(gpio_v2)]
-            set_as_af!(
-                pin,
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
-            );
-        });
+        #[cfg(gpio_v1)]
+        let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+        #[cfg(gpio_v2)]
+        let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+        let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
 
         Self {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }

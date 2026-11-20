@@ -4,6 +4,7 @@ error[E0271]: type mismatch resolving `<() as _EmbassyInternalTaskTrait>::Fut ==
 4 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^
   | |
+  | `impl Future<Output = u32>` returned here
   | types differ
   | type mismatch resolving `<() as _EmbassyInternalTaskTrait>::Fut == impl Future<Output = u32>`
   |

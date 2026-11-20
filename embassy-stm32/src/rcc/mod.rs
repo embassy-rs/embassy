@@ -5,9 +5,7 @@
 
 use core::mem::MaybeUninit;
 
-#[cfg(not(stm32c5))]
 mod bd;
-#[cfg(not(stm32c5))]
 pub use bd::*;
 
 #[cfg(any(stm32f0, stm32f1, stm32f3))]
@@ -15,10 +13,13 @@ pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: crate::time::Hertz = crate::time::Hertz(32_000);
 
-#[cfg(any(mco, mco1, mco2))]
+mod reset;
+pub use reset::*;
+
+#[cfg(all(not(stm32g5), any(mco, mco1, mco2)))]
 mod mco;
 use critical_section::CriticalSection;
-#[cfg(any(mco, mco1, mco2))]
+#[cfg(all(not(stm32g5), any(mco, mco1, mco2)))]
 pub use mco::*;
 
 #[cfg(dsihost)]
@@ -35,6 +36,7 @@ pub use hsi48::*;
 #[cfg_attr(stm32c5, path = "c5.rs")]
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]
+#[cfg_attr(stm32g5, path = "g5.rs")]
 #[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u3, path = "u3.rs")]
@@ -62,11 +64,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+/// The clocks to bring back after Stop, captured by `init_rcc`.
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
-pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+static mut STOP_RESTORE: Option<StopRestore> = None;
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
-static RCC_CONFIG_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<Config>>> =
+static STOP_RESTORE_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<StopRestore>>> =
     core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 #[cfg(backup_sram)]
@@ -88,8 +91,8 @@ pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
-pub(crate) fn set_rcc_config_ptr(config: *mut MaybeUninit<Option<Config>>) {
-    RCC_CONFIG_PTR.store(config, core::sync::atomic::Ordering::SeqCst);
+pub(crate) fn set_stop_restore_ptr(ptr: *mut MaybeUninit<Option<StopRestore>>) {
+    STOP_RESTORE_PTR.store(ptr, core::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(all(not(feature = "_dual-core")))]
@@ -126,28 +129,52 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Reads a mutable global.
-pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
-    RCC_CONFIG
+unsafe fn get_stop_restore() -> Option<StopRestore> {
+    STOP_RESTORE
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
-pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
-    unwrap!(RCC_CONFIG_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
+unsafe fn get_stop_restore() -> Option<StopRestore> {
+    unwrap!(STOP_RESTORE_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
 }
 
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 /// Safety: Sets a mutable global.
-unsafe fn set_rcc_config(config: Option<Config>) {
-    RCC_CONFIG = config;
+unsafe fn set_stop_restore(restore: Option<StopRestore>) {
+    STOP_RESTORE = restore;
 }
 
 #[cfg(all(feature = "low-power", feature = "_dual-core"))]
 /// Safety: Sets a mutable global.
-unsafe fn set_rcc_config(config: Option<Config>) {
-    RCC_CONFIG_PTR
+unsafe fn set_stop_restore(restore: Option<StopRestore>) {
+    STOP_RESTORE_PTR
         .load(core::sync::atomic::Ordering::SeqCst)
-        .write(MaybeUninit::new(config));
+        .write(MaybeUninit::new(restore));
+}
+
+/// Prepare the clocks for Stop. Call right before entering Stop.
+///
+/// Stop turns off the PLLs and the high-speed oscillators except the wake-up one, and the chip
+/// resumes on the wake-up clock. This makes the flash latency valid for the wake-up clock at the
+/// voltage scale the chip wakes up in.
+#[cfg(feature = "low-power")]
+pub(crate) fn stop_enter(_cs: CriticalSection) {
+    if let Some(restore) = unsafe { get_stop_restore() } {
+        restore.enter();
+    }
+}
+
+/// Bring the clocks back to what `init` configured, after a Stop or a `WFI` that didn't stop.
+///
+/// Only turns on and switches what Stop turned off, so it is cheap when nothing changed. The
+/// configuration registers (PLL setup, bus prescalers, kernel clock muxes) survive Stop. After
+/// this the hardware matches what `clocks()` reports again.
+#[cfg(feature = "low-power")]
+pub(crate) fn stop_exit(_cs: CriticalSection) {
+    if let Some(restore) = unsafe { get_stop_restore() } {
+        restore.exit();
+    }
 }
 
 /// Get the current clock configuration of the chip.
@@ -162,8 +189,8 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
 #[cfg(feature = "low-power")]
 /// Get the current stop mode
 pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
-    // If rcc config is not set, then we're not ready to stop
-    unsafe { get_rcc_config()? };
+    // If rcc is not initialized, then we're not ready to stop
+    unsafe { get_stop_restore()? };
 
     // We cannot enter standby because we will lose program state.
     if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
@@ -179,7 +206,7 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
 }
 
 #[cfg(feature = "low-power")]
-fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -192,7 +219,7 @@ fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
 }
 
 #[cfg(feature = "low-power")]
-fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -477,6 +504,14 @@ impl WakeGuard {
             stop_mode,
         }
     }
+
+    /// Keeps the chip out of every Stop mode.
+    pub(crate) fn no_stop() -> Self {
+        Self::new(
+            #[cfg(feature = "low-power")]
+            StopMode::Stop1,
+        )
+    }
 }
 
 impl Drop for WakeGuard {
@@ -556,6 +591,19 @@ mod util {
             return Err(());
         }
         Ok(Some(x))
+    }
+
+    #[allow(dead_code)]
+    /// Computes VCO frequency for PLLs with a 13-bit fractional multiplier (`fracn < 8192`).
+    pub fn calc_pll_vco(ref_clk: Hertz, mul: u16, fracn: Option<u16>) -> Hertz {
+        match fracn {
+            Some(fracn) => {
+                assert!(fracn < 8192);
+                let vco_hz = ((u64::from(ref_clk.0) * ((u64::from(mul) << 13) + u64::from(fracn))) >> 13) as u32;
+                Hertz::hz(vco_hz)
+            }
+            None => ref_clk * u32::from(mul),
+        }
     }
 }
 
@@ -657,100 +705,12 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
     })
 }
 
-#[cfg(feature = "low-power")]
-#[allow(dead_code)]
-/// Re-initialize the `embassy-stm32` clock configuration with the saved configuration.
-pub(crate) fn reinit_saved(_cs: CriticalSection) {
-    unsafe { init(get_rcc_config().unwrap()) };
-}
-
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
-        // if we are using a lp timer as the time driver, we need to make sure that the clock selection is sane
-        // TODO: how to share this config from the secondary core thats using a lp timer? (right now its not detected as missing!)
-        #[cfg(feature = "_lp-time-driver")]
-        let config = {
-            let mut config = config;
-
-            // Ensure the LPTIM clock source is suitable for use as a time
-            // driver during STOP mode.  If the default APB clock is selected,
-            // switch to LSI; otherwise verify that the chosen source is enabled.
-            //
-            // STM32WBA and STM32L4 use per-timer mux enums (Lptim1sel / Lptim2sel)
-            // while other families share a single Lptimsel enum.
-            macro_rules! ensure_lptim_clk {
-                ($field:ident, $Sel:path, $pclk:pat) => {
-                    match config.mux.$field {
-                        $pclk => {
-                            config.mux.$field = <$Sel>::Lsi;
-                            config.ls.lsi = true;
-                        }
-                        <$Sel>::Lsi => {
-                            config.ls.lsi = true;
-                        }
-                        <$Sel>::Hsi => {
-                            config.hsi = true;
-                        }
-                        <$Sel>::Lse => {
-                            if config.ls.lse.is_none() {
-                                panic!("LSE is not configured, but selected for time_driver!!!");
-                            }
-                            #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
-                            if let Some(mut lse_config) = config.ls.lse {
-                                lse_config.peripherals_clocked = true;
-                                config.ls.lse = Some(lse_config);
-                            }
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => {}
-                    }
-                };
-            }
-
-            #[cfg(time_driver_lptim1)]
-            {
-                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
-                {
-                    use crate::pac::rcc::vals::Lptimsel;
-                    #[cfg(any(stm32u5, stm32u3))]
-                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Msik);
-                    #[cfg(not(any(stm32u5, stm32u3)))]
-                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Pclk1);
-                }
-                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
-                {
-                    use crate::pac::rcc::vals::Lptim1sel;
-                    #[cfg(stm32wba)]
-                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk7);
-                    #[cfg(not(stm32wba))]
-                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk1);
-                }
-            }
-            #[cfg(time_driver_lptim2)]
-            {
-                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
-                {
-                    use crate::pac::rcc::vals::Lptimsel;
-                    ensure_lptim_clk!(lptim2sel, Lptimsel, Lptimsel::Pclk1);
-                }
-                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
-                {
-                    use crate::pac::rcc::vals::Lptim2sel;
-                    ensure_lptim_clk!(lptim2sel, Lptim2sel, Lptim2sel::Pclk1);
-                }
-            }
-            #[cfg(time_driver_lptim3)]
-            {
-                use crate::pac::rcc::vals::Lptimsel;
-                ensure_lptim_clk!(lptim3sel, Lptimsel, Lptimsel::Pclk1);
-            }
-            config
-        };
-
         init(config);
 
         #[cfg(feature = "low-power")]
-        set_rcc_config(Some(config));
+        set_stop_restore(Some(StopRestore::capture()));
     }
 }
 

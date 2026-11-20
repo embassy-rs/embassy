@@ -5,13 +5,18 @@
 
 #![allow(async_fn_in_trait)]
 
+pub mod class;
 pub mod control;
 pub mod descriptor;
 pub mod handler;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
+pub use class::{ClassError, HostClass};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex as AsyncMutex;
@@ -19,7 +24,9 @@ use embassy_usb_driver::host::{
     AddressSet, DeviceEvent, HostError, PipeError, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 pub use embassy_usb_driver::host::{SplitInfo, SplitSpeed};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType, Speed};
+use embassy_usb_driver::{
+    Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType, Speed,
+};
 
 use crate::host::control::{ControlPipeExt, SetupPacket};
 use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
@@ -94,6 +101,7 @@ struct DeviceState {
 }
 
 impl DeviceState {
+    #[allow(dead_code)]
     fn set_parent(&mut self, addr: u8, hub: u8) {
         if hub < ADDRESS_COUNT && self.parent.get(addr as usize).is_some_and(|parent| parent.is_some()) {
             self.parent[addr as usize] = Some(hub);
@@ -149,6 +157,7 @@ impl BusState {
     }
 
     /// Record that device `addr` hangs off hub `hub`.
+    #[allow(dead_code)]
     pub(crate) fn set_parent(&self, addr: u8, hub: u8) {
         self.devices.lock(|d| d.borrow_mut().set_parent(addr, hub));
     }
@@ -401,12 +410,12 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // use smallest size "8", since some devices use lower than default for given speed.
         const DEFAULT_MAX_PACKET_SIZE: u16 = 8;
 
-        let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: DEFAULT_MAX_PACKET_SIZE,
-            interval_ms: 0,
-        };
+        let ep0_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            DEFAULT_MAX_PACKET_SIZE,
+            EndpointInterval::NONE,
+        );
 
         let mut ch = self
             .alloc
@@ -451,12 +460,12 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // Drop pipe to re-allocate with new address and correct max_packet_size.
         drop(ch);
 
-        let ep0_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: max_packet_size0 as u16,
-            interval_ms: 0,
-        };
+        let ep0_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            max_packet_size0 as u16,
+            EndpointInterval::NONE,
+        );
 
         let mut ch = self
             .alloc

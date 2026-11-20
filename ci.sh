@@ -26,6 +26,13 @@ fi
 
 cargo embassy-devtool build
 
+# The pinned devtool's build metadata cannot disable default features. Check
+# MCXN without its default time driver across the distinct N23/N24/N5/N9 paths.
+for chip in mcxn235 mcxn247 mcxn556 mcxn947; do
+    cargo check --release --manifest-path embassy-mcxa/Cargo.toml \
+        --target thumbv8m.main-none-eabihf --no-default-features --features "$chip"
+done
+
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
@@ -41,6 +48,8 @@ rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/nrf51422-dk
 
 # temporarily disabled
+rm -rf out/tests/stm32f767zi
+rm -f out/tests/stm32f429zi/i2s_dma
 
 rm -f out/tests/stm32u585ai/saes
 

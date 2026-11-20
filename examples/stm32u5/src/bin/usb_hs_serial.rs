@@ -7,9 +7,9 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
-use embassy_usb::Builder;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embassy_usb::driver::EndpointError;
+use embassy_usb::{Builder, UsbDeviceSpeed};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -30,8 +30,9 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
-            prediv: PllPreDiv::Div2,   // HSE / 2 = 8MHz
-            mul: PllMul::Mul60,        // 8MHz * 60 = 480MHz
+            prediv: PllPreDiv::Div2, // HSE / 2 = 8MHz
+            mul: PllMul::Mul60,      // 8MHz * 60 = 480MHz
+            fracn: None,
             divr: Some(PllDiv::Div3),  // 480MHz / 3 = 160MHz (sys_ck)
             divq: Some(PllDiv::Div10), // 480MHz / 10 = 48MHz (USB)
             divp: Some(PllDiv::Div15), // 480MHz / 15 = 32MHz (USBOTG)
@@ -55,6 +56,7 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
+    config.max_speed = UsbDeviceSpeed::High;
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
@@ -78,7 +80,7 @@ async fn main(_spawner: Spawner) {
 
     // Create classes on the builder.
     // High-speed bulk endpoints must have a max packet size of 512 bytes.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 512);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, CdcAcmConfig::new());
 
     // Build the builder.
     let mut usb = builder.build();
@@ -107,7 +109,7 @@ impl From<EndpointError> for Disconnected {
     fn from(val: EndpointError) -> Self {
         match val {
             EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+            _ => Disconnected {},
         }
     }
 }

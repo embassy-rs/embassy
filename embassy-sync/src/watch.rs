@@ -532,6 +532,8 @@ impl<'a, T: Clone> DerefMut for DynSender<'a, T> {
 }
 
 /// A receiver can `.await` a change in the `Watch` value.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Rcv<'a, T: Clone, W: WatchBehavior<T> + ?Sized> {
     watch: &'a W,
     at_id: u64,
@@ -684,6 +686,8 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> AnonRcv<'a, T, W> {
 }
 
 /// A receiver of a `Watch` channel.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Receiver<'a, M: RawMutex, T: Clone, const N: usize>(Rcv<'a, T, Watch<M, T, N>>);
 
 impl<'a, M: RawMutex, T: Clone, const N: usize> Receiver<'a, M, T, N> {

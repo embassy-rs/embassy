@@ -1796,6 +1796,8 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         const PKA_RAM_WORDS: usize = 894;
         #[cfg(pka_n6)]
         const PKA_RAM_WORDS: usize = 1334;
+        #[cfg(pka_c5)]
+        const PKA_RAM_WORDS: usize = 1334;
 
         let p = T::regs();
         for i in 0..PKA_RAM_WORDS {

@@ -28,7 +28,7 @@ use embassy_usb::class::web_usb::device::{Config as WebUsbConfig, State, Url, We
 use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
-use embassy_usb::{Builder, Config};
+use embassy_usb::{Builder, Config, EndpointOptions};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -102,7 +102,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder (WebUSB just needs some setup, but doesn't return anything)
     WebUsb::configure(&mut builder, &mut state, &webusb_config);
     // Create some USB bulk endpoints for testing.
-    let mut endpoints = WebEndpoints::new(&mut builder, &webusb_config);
+    let mut endpoints = WebEndpoints::new(&mut builder);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -130,13 +130,13 @@ struct WebEndpoints<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> WebEndpoints<'d, D> {
-    fn new(builder: &mut Builder<'d, D>, config: &'d WebUsbConfig<'d>) -> Self {
+    fn new(builder: &mut Builder<'d, D>) -> Self {
         let mut func = builder.function(0xff, 0x00, 0x00);
         let mut iface = func.interface();
         let mut alt = iface.alt_setting(0xff, 0x00, 0x00, None);
 
-        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, EndpointOptions::new());
+        let read_ep = alt.endpoint_bulk_out(None, EndpointOptions::new());
 
         WebEndpoints { write_ep, read_ep }
     }
@@ -150,10 +150,10 @@ impl<'d, D: Driver<'d>> WebEndpoints<'d, D> {
     async fn echo(&mut self) {
         let mut buf = [0; 64];
         loop {
-            let n = self.read_ep.read(&mut buf).await.unwrap();
+            let n = self.read_ep.read_transfer(&mut buf).await.unwrap();
             let data = &buf[..n];
             info!("Data read: {:x}", data);
-            self.write_ep.write(data).await.unwrap();
+            self.write_ep.write_transfer(data, false).await.unwrap();
         }
     }
 }

@@ -7,6 +7,7 @@
 pub struct InterfaceNumber(pub u8);
 
 impl InterfaceNumber {
+    #[allow(dead_code)]
     pub(crate) const fn new(index: u8) -> InterfaceNumber {
         InterfaceNumber(index)
     }
@@ -31,6 +32,7 @@ impl core::fmt::Display for InterfaceNumber {
 pub struct StringIndex(pub u8);
 
 impl StringIndex {
+    #[allow(dead_code)]
     pub(crate) const fn new(index: u8) -> StringIndex {
         StringIndex(index)
     }

@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
 
 fn assert_idle() {
     let status = pac::FREQME0.ctrlstat().read();
-    assert_eq!(status.measure_in_progress().to_bits(), 0);
+    assert!(!status.measure_in_progress());
     assert!(!status.continuous_mode_en());
     assert!(!status.result_ready_int_en());
     assert!(!status.lt_min_int_en());
@@ -91,7 +91,7 @@ async fn exercise_shared_controls<M: Mode>(driver: &mut Freqme<'_, M>) {
     pac::FREQME0.ctrlstat().write(|w| w.set_result_ready_stat(true));
     Timer::after_millis(15).await;
     assert_not_ready(driver);
-    assert_eq!(pac::FREQME0.ctrlstat().read().measure_in_progress().to_bits(), 0);
+    assert!(!pac::FREQME0.ctrlstat().read().measure_in_progress());
 
     driver.continuous();
     assert!((65_530..=65_540).contains(&wait_result(driver).await.unwrap().raw_count()));

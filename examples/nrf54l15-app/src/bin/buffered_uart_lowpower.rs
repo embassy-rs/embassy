@@ -5,13 +5,14 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::buffered_uarte::{self, BufferedUarte};
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::{self, Input, Pull};
 use embassy_nrf::{bind_interrupts, peripherals, uarte};
 use embedded_io_async::Write;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SERIAL30 => buffered_uarte::InterruptHandler<peripherals::SERIAL30>;
+    GPIOTE20_0 => gpio::InterruptHandler<peripherals::P1_13>;
 });
 
 /// Uses the pins of the VCOM0 and button 0 on the nRF54L15 devkit.
@@ -57,6 +58,8 @@ async fn main(_spawner: Spawner) {
         drop(u);
 
         // Wait for button 0 to be pressed
-        Input::new(p.P1_13.reborrow(), Pull::Up).wait_for_low().await;
+        Input::new_async(p.P1_13.reborrow(), Irqs, Pull::Up)
+            .wait_for_low()
+            .await;
     }
 }

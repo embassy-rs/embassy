@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: usb: implement `IsoEndpointIn` on USBD (EP8) and USBHS (via `embassy-usb-synopsys-otg`) for scheduled isochronous IN transfers.
+
+- fixed: `buffered_uarte`: RX no longer hangs if interrupts are delayed while both halves of the RX buffer fill up (nRF52, nRF53, nRF91).
+- changed: PAC types no longer implement `Debug` by default.
+- added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
+- changed: usb: the control pipe is part of `Bus`, and a control transfer stage now ends when the bus is suspended, so the suspend is not missed.
+- added: on nRF54L, `ppi::Ppi` constructors panic if an event or task is not in the channel's power domain, and `PpiGroup::add_channel`/`remove_channel` panic if the group and channel are in different power domains.
+- removed: `gpio::AnyPin` is no longer public. Pass type-erased pins around as `gpio::Flex`, `gpio::Input` or `gpio::Output`.
+- changed: `gpio` `persist()` no longer requires a `'static` pin.
+- changed: drivers take per-signal pin traits instead of `gpio::Pin`: `spim::{SckPin, MosiPin, MisoPin}`, `spis::{SckPin, MosiPin, MisoPin, CsPin}`, `uarte::{TxPin, RxPin, CtsPin, RtsPin}` (also used by `buffered_uarte`), `twim::{SclPin, SdaPin}`, `twis::{SclPin, SdaPin}`, `pwm::OutPin`, `pdm::{ClkPin, DinPin}`, `i2s::{MckPin, SckPin, LrckPin}`, `qdec::{APin, BPin, LedPin}`, `qspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}` and `sqspi::{SckPin, CsPin, Io0Pin, Io1Pin, Io2Pin, Io3Pin}`. They're implemented for all pins, except on nRF54L.
+- added: nRF54L power domains: `domain` module with `Domain`, `Domain0`..`Domain3`, `DomainPeripheral` and `DomainPin`. Peripherals only accept pins in their own power domain, or their dedicated pins on P2.
+- added: `cross-domain-pins` Cargo feature for nRF54L15, nRF54L10 and nRF54L05. It allows SERIAL20/SERIAL21 to use their dedicated pins on P2, and enables Constant Latency mode in `init()`.
+- added: `spis` support for SERIAL00 on nRF54L.
+- changed: `ppi::Ppi` and `ppi::PpiGroup` no longer have a channel or group type parameter.
+- removed: `ppi::AnyStaticChannel`, `ppi::AnyConfigurableChannel` and `ppi::AnyGroup`. `Ppi` and `PpiGroup` are already type-erased.
+- changed: `gpio::Input`, `gpio::Flex` and `gpio::OutputOpenDrain` have a `Mode` parameter, defaulting to `Blocking`. `new` creates a blocking driver; `new_async` creates an async driver and takes an interrupt binding to `gpio::InterruptHandler` for the pin. The `wait_for_*` methods only exist in async mode.
+- changed: `gpiote::InputChannel` has a `Mode` parameter, defaulting to `Blocking`. `new` creates a channel without the `wait*` methods; `new_async` takes an interrupt binding to `gpiote::InterruptHandler` for the channel.
+- added: `gpio::InterruptHandler` and `gpiote::InterruptHandler`. Each handler only services its own pin or channel, so several handlers, including your own, can be bound to the same GPIOTE interrupt.
+- changed: `init()` no longer configures GPIOTE or enables its interrupts. Async GPIO drivers and async `InputChannel`s enable them when created.
+- changed: `gpiote::GpiotePin` is implemented on all chips, and has an `Interrupt` associated type. `gpiote::Channel` has an `Interrupt` associated type.
+- removed: the `gpiote` Cargo feature. The `gpiote` module is always available.
+- removed: `config::Config::gpiote_interrupt_priority`. Set the priority on the GPIOTE interrupt instead.
+- bugfix: apply the nRF52832 anomaly 108 and nRF52805/nRF52810/nRF52811 anomaly 217 RAM workarounds in `init()`, as Nordic's `SystemInit` does.
+- added: `nfct` on the nRF54L family (nRF54L05, nRF54L10, nRF54L15, nRF54LM20).
 - added: `i2s` on the nRF91 family (nRF9120, nRF9151, nRF9160, nRF9161).
 - added: `pdm` on the nRF54L family. Buffers must be word aligned there, or `pdm::Error::BufferNotAligned` is returned.
 - added: `pdm::Config::prescaler` on the nRF54L, replacing `frequency`, and `pdm::Config::high_pass` on the nRF54LM20A.

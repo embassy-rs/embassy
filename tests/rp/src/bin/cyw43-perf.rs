@@ -108,7 +108,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
-    control.init(clm).await;
+    control.init(clm, cyw43::Config::default()).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;

@@ -1,4 +1,3 @@
-use super::DayOfWeek;
 use crate::pac::rtc::regs::{IrqSetup0, IrqSetup1};
 
 /// A filter used for [`RealTimeClock::schedule_alarm`].
@@ -13,8 +12,8 @@ pub struct DateTimeFilter {
     pub month: Option<u8>,
     /// The day that this alarm should trigger on, `None` if the RTC alarm should not trigger on a day value.
     pub day: Option<u8>,
-    /// The day of week that this alarm should trigger on, `None` if the RTC alarm should not trigger on a day of week value.
-    pub day_of_week: Option<DayOfWeek>,
+    /// The day of week that this alarm should trigger on, `0..=6` with 0 being Sunday, `None` if the RTC alarm should not trigger on a day of week value.
+    pub day_of_week: Option<u8>,
     /// The hour that this alarm should trigger on, `None` if the RTC alarm should not trigger on a hour value.
     pub hour: Option<u8>,
     /// The minute that this alarm should trigger on, `None` if the RTC alarm should not trigger on a minute value.
@@ -39,8 +38,8 @@ impl DateTimeFilter {
         self.day = Some(day);
         self
     }
-    /// Set a filter on the given day of the week
-    pub fn day_of_week(mut self, day_of_week: DayOfWeek) -> Self {
+    /// Set a filter on the given day of the week, `0..=6` with 0 being Sunday
+    pub fn day_of_week(mut self, day_of_week: u8) -> Self {
         self.day_of_week = Some(day_of_week);
         self
     }
@@ -81,9 +80,7 @@ impl DateTimeFilter {
     pub(super) fn write_setup_1(&self, w: &mut IrqSetup1) {
         if let Some(day_of_week) = self.day_of_week {
             w.set_dotw_ena(true);
-            let bits = super::conversions::day_of_week_to_u8(day_of_week);
-
-            w.set_dotw(bits);
+            w.set_dotw(day_of_week);
         }
         if let Some(hour) = self.hour {
             w.set_hour_ena(true);

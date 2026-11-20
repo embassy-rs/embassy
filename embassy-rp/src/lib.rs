@@ -27,7 +27,6 @@ pub mod aon_timer;
 pub mod block;
 pub mod bootsel;
 pub mod clocks;
-pub(crate) mod datetime;
 pub mod dma;
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 pub mod executor;
@@ -636,7 +635,6 @@ pub fn init(config: config::Config) -> Peripherals {
         #[cfg(feature = "time-driver")]
         time_driver::init();
         dma::init();
-        gpio::init();
     }
 
     peripherals

@@ -11,7 +11,6 @@ note: required by a bound in `embassy_executor::_export::task_pool_size`
  --> src/lib.rs
   |
   |     pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
-  |                  -------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |                         ^^^^^^^^^ required by this bound in `task_pool_size`
@@ -21,13 +20,14 @@ error[E0277]: task futures must resolve to `()` or `!`
   |
 4 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `embassy_executor::_export::TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
+5 | fn task() -> impl Future<Output = u32> {
+  |    ---- `fn() -> impl Future<Output = u32> {__task_task}` doesn't satisfy the trait bound
   |
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
 note: required by a bound in `embassy_executor::_export::task_pool_size`
  --> src/lib.rs
   |
   |     pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
-  |                  -------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_size`
@@ -46,7 +46,6 @@ note: required by a bound in `embassy_executor::_export::task_pool_align`
  --> src/lib.rs
   |
   |     pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
-  |                  --------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |                         ^^^^^^^^^ required by this bound in `task_pool_align`
@@ -56,13 +55,14 @@ error[E0277]: task futures must resolve to `()` or `!`
   |
 4 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `embassy_executor::_export::TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
+5 | fn task() -> impl Future<Output = u32> {
+  |    ---- `fn() -> impl Future<Output = u32> {__task_task}` doesn't satisfy the trait bound
   |
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
 note: required by a bound in `embassy_executor::_export::task_pool_align`
  --> src/lib.rs
   |
   |     pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
-  |                  --------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_align`
@@ -97,7 +97,6 @@ note: required by a bound in `embassy_executor::_export::task_pool_new`
  --> src/lib.rs
   |
   |     pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
-  |                  ------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |                         ^^^^^^^^^ required by this bound in `task_pool_new`
@@ -107,13 +106,14 @@ error[E0277]: task futures must resolve to `()` or `!`
   |
 4 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `embassy_executor::_export::TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
+5 | fn task() -> impl Future<Output = u32> {
+  |    ---- `fn() -> impl Future<Output = u32> {__task_task}` doesn't satisfy the trait bound
   |
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
 note: required by a bound in `embassy_executor::_export::task_pool_new`
  --> src/lib.rs
   |
   |     pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
-  |                  ------------- required by a bound in this function
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_new`

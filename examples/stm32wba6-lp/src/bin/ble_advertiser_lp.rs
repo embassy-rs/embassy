@@ -26,15 +26,17 @@ use embassy_stm32::rcc::{Config as RccConfig, LseDrive, LseMode};
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Duration;
 use panic_probe as _;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 const MEASURE_POWER: bool = true;
 const ULTRA_LOW_POWER_PRESET: bool = false;
 const AGGRESSIVE_SRAM_POWERDOWN: bool = false;
@@ -147,49 +149,55 @@ async fn main(spawner: Spawner) {
     let mut gatt = ble.gatt_server();
 
     // Add a custom service (128-bit UUID)
-    let service_uuid = Uuid::from_u128_le([
+    let service_uuid = Uuid::Uuid128([
         0x00, 0x00, 0x12, 0x34, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
     ]);
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 8)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 8)
+        .await
         .expect("Failed to add service");
     info!("Created Service with handle: 0x{:04X}", service_handle.0);
 
     // Add a read/write characteristic
-    let char_uuid = Uuid::from_u128_le([
+    let char_uuid = Uuid::Uuid128([
         0x00, 0x00, 0x56, 0x78, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
     ]);
     let char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             char_uuid,
             16, // Max length 16 bytes
             CharProperties::READ | CharProperties::WRITE,
-            SecurityPermissions::NONE,
-            GattEventMask::NONE,
+            SecurityPermissions::empty(),
+            GattEventMask::empty(),
             16,   // Key size
             true, // Variable length
         )
+        .await
         .expect("Failed to add characteristic");
     info!("Created characteristic with handle: 0x{:04X}", char_handle.0);
 
     // Set initial characteristic value
     let initial_value = b"Low Power BLE!";
-    gatt.update_characteristic_value(service_handle, char_handle, 0, initial_value)
+    gatt.update_characteristic_value(ble.controller(), service_handle, char_handle, 0, initial_value)
+        .await
         .expect("Failed to set characteristic value");
     info!("Set initial characteristic value");
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data
-        .add_flags(0x06) // General discoverable, BR/EDR not supported
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED) // General discoverable, BR/EDR not supported
         .expect("Failed to add flags");
-    adv_data.add_name("Embassy-LP-WBA6").expect("Failed to add name");
-    adv_data
-        .add_service_uuid_16(0x1234) // Advertise our custom service
+    adv_data = adv_data
+        .complete_local_name(b"Embassy-LP-WBA6")
+        .expect("Failed to add name");
+    adv_data = adv_data
+        .complete_uuid16_list(&[0x1234]) // Advertise our custom service
         .expect("Failed to add service UUID");
 
-    info!("Advertising data created ({} bytes)", adv_data.len());
+    info!("Advertising data created ({} bytes)", adv_data.as_bytes().len());
 
     // Configure advertising parameters
     // Slower advertising intervals significantly reduce average radio duty cycle.

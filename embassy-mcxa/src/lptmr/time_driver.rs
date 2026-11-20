@@ -19,7 +19,6 @@ use embassy_time_queue_utils::Queue;
 use super::{Config, configure, read_counter};
 use crate::clocks::{PoweredClock, with_clocks};
 use crate::interrupt::InterruptExt;
-use crate::pac::lptmr::{Ten, Tfc};
 use crate::{interrupt, pac};
 
 const HALF_WRAP: u64 = 1 << 31;
@@ -193,8 +192,8 @@ pub(crate) fn init(priority: interrupt::Priority) {
         state.time = 0;
         state.initialized = true;
         pac::LPTMR0.csr().write(|w| {
-            w.set_tfc(Tfc::Tfc1);
-            w.set_ten(Ten::Ten1);
+            w.set_tfc(true);
+            w.set_ten(true);
         });
         state.update_alarm();
     });

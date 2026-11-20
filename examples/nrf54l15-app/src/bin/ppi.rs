@@ -1,6 +1,6 @@
 //! PPI and PPIB (PPI bridge) demo:
 //! - PPI: a TIMER compare event toggles LED1 (both in the PERI domain).
-//! - PPIB: a button in the MCU domain toggles LED2 in the PERI domain, forwarded
+//! - PPIB: a button in the LP domain toggles LED2 in the PERI domain, forwarded
 //!   across the PPIB30 <-> PPIB22 bridge as one DPPI hop per domain.
 
 #![no_std]
@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
-    // GPIOTE20 drives P1 pins (PERI domain), GPIOTE30 drives P0 pins (MCU domain).
+    // GPIOTE20 drives P1 pins (PERI domain), GPIOTE30 drives P0 pins (LP domain).
     let led1 = OutputChannel::new(
         p.GPIOTE20_CH0,
         p.P1_10,

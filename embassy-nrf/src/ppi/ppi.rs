@@ -1,4 +1,6 @@
-use super::{Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task};
+use core::marker::PhantomData;
+
+use super::{ChannelNumber, ConfigurableChannel, Event, Ppi, PpiGroup, Task};
 use crate::{Peri, pac};
 
 impl<'d> Task<'d> {
@@ -17,44 +19,67 @@ pub(crate) fn regs() -> pac::ppi::Ppi {
 }
 
 #[cfg(not(feature = "_nrf51"))] // Not for nrf51 because of the fork task
-impl<'d, C: super::StaticChannel> Ppi<'d, C, 0, 1> {
+impl<'d> Ppi<'d, 0, 1> {
     /// Configure PPI channel to trigger `task`.
-    pub fn new_zero_to_one(ch: Peri<'d, C>, task: Task) -> Self {
+    pub fn new_zero_to_one(ch: Peri<'d, impl super::StaticChannel>, task: Task) -> Self {
+        let ch = ChannelNumber::new(ch);
         let r = regs();
         let n = ch.number();
         r.fork(n).tep().write_value(task.reg_val());
 
-        Self { ch }
+        Self {
+            ch,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
+impl<'d> Ppi<'d, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
-    pub fn new_one_to_one(ch: Peri<'d, C>, event: Event<'d>, task: Task<'d>) -> Self {
+    pub fn new_one_to_one(ch: Peri<'d, impl ConfigurableChannel>, event: Event<'d>, task: Task<'d>) -> Self {
+        Self::new_one_to_one_inner(ChannelNumber::new(ch), event, task)
+    }
+
+    pub(crate) fn new_one_to_one_inner(ch: ChannelNumber, event: Event<'d>, task: Task<'d>) -> Self {
         let r = regs();
         let n = ch.number();
         r.ch(n).eep().write_value(event.reg_val());
         r.ch(n).tep().write_value(task.reg_val());
 
-        Self { ch }
+        Self {
+            ch,
+            _phantom: PhantomData,
+        }
     }
 }
 
 #[cfg(not(feature = "_nrf51"))] // Not for nrf51 because of the fork task
-impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
+impl<'d> Ppi<'d, 1, 2> {
     /// Configure PPI channel to trigger both `task1` and `task2` on `event`.
-    pub fn new_one_to_two(ch: Peri<'d, C>, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
+    pub fn new_one_to_two(
+        ch: Peri<'d, impl ConfigurableChannel>,
+        event: Event<'d>,
+        task1: Task<'d>,
+        task2: Task<'d>,
+    ) -> Self {
+        Self::new_one_to_two_inner(ChannelNumber::new(ch), event, task1, task2)
+    }
+
+    pub(crate) fn new_one_to_two_inner(ch: ChannelNumber, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
         let r = regs();
         let n = ch.number();
         r.ch(n).eep().write_value(event.reg_val());
         r.ch(n).tep().write_value(task1.reg_val());
         r.fork(n).tep().write_value(task2.reg_val());
 
-        Self { ch }
+        Self {
+            ch,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, C, EVENT_COUNT, TASK_COUNT> {
+impl<'d, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, EVENT_COUNT, TASK_COUNT> {
     /// Enables the channel.
     pub fn enable(&mut self) {
         let n = self.ch.number();
@@ -68,7 +93,7 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     }
 }
 
-impl<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static, C, EVENT_COUNT, TASK_COUNT> {
+impl<const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static, EVENT_COUNT, TASK_COUNT> {
     /// Persist the channel's configuration for the rest of the program's lifetime. This method
     /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
     /// accidental reuse of the underlying peripheral.
@@ -77,7 +102,7 @@ impl<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static,
     }
 }
 
-impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for Ppi<'d, C, EVENT_COUNT, TASK_COUNT> {
+impl<'d, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for Ppi<'d, EVENT_COUNT, TASK_COUNT> {
     fn drop(&mut self) {
         self.disable();
 
@@ -90,13 +115,13 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for
     }
 }
 
-impl<'d, G: Group> PpiGroup<'d, G> {
+impl<'d> PpiGroup<'d> {
     /// Add a PPI channel to this group.
     ///
     /// If the channel is already in the group, this is a no-op.
-    pub fn add_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+    pub fn add_channel<const EVENT_COUNT: usize, const TASK_COUNT: usize>(
         &mut self,
-        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+        ch: &Ppi<'_, EVENT_COUNT, TASK_COUNT>,
     ) {
         let r = self.g.regs();
         let ng = self.g.number();
@@ -107,9 +132,9 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// Remove a PPI channel from this group.
     ///
     /// If the channel is already not in the group, this is a no-op.
-    pub fn remove_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+    pub fn remove_channel<const EVENT_COUNT: usize, const TASK_COUNT: usize>(
         &mut self,
-        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+        ch: &Ppi<'_, EVENT_COUNT, TASK_COUNT>,
     ) {
         let r = self.g.regs();
         let ng = self.g.number();

@@ -3,11 +3,11 @@
 use core::cmp::Reverse;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_futures::select::{Either, select};
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
@@ -586,7 +586,7 @@ impl<'a> UartTx<'a, Async> {
         let regs = self.info.regs;
 
         // Disable DMA on completion/cancellation
-        let _dma_guard = OnDrop::new(|| {
+        let _dma_guard = DropGuard::new((), |()| {
             regs.fifocfg().modify(|_, w| w.dmatx().disabled());
         });
 
@@ -714,7 +714,7 @@ impl<'a> UartRx<'a, Async> {
         let regs = self.info.regs;
 
         // Disable DMA on completion/cancellation
-        let _dma_guard = OnDrop::new(|| {
+        let _dma_guard = DropGuard::new((), |()| {
             regs.fifocfg().modify(|_, w| w.dmarx().disabled());
         });
 

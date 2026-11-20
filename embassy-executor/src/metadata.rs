@@ -41,13 +41,18 @@ impl MetadataRef {
 
     /// Get this task's name
     ///
+    /// Tasks declared with `#[task]` default to their function name, or to the macro's
+    /// `name = "..."` argument. [`set_name`](Self::set_name) replaces the default.
+    ///
+    /// `None` only for tasks spawned without the macros.
+    ///
     /// NOTE: this takes a critical section.
     #[cfg(feature = "metadata-name")]
     pub fn name(&self) -> Option<&'static str> {
         self.metadata().name()
     }
 
-    /// Set this task's name
+    /// Set this task's name, replacing the default from `#[task]` or `#[main]`.
     ///
     /// NOTE: this takes a critical section.
     #[cfg(feature = "metadata-name")]
@@ -135,6 +140,7 @@ impl MetadataRef {
 
 /// Metadata associated with a task.
 pub(crate) struct Metadata {
+    /// The macro default or the name given to `set_name`, see [`MetadataRef::name`].
     #[cfg(feature = "metadata-name")]
     name: Mutex<Cell<Option<&'static str>>>,
     #[cfg(feature = "scheduler-priority")]
@@ -157,9 +163,13 @@ impl Metadata {
         }
     }
 
-    pub(crate) fn reset(&self) {
+    /// Initialize the metadata for a freshly spawned task: `name` is its default name
+    /// (see [`MetadataRef::name`]), priority and deadline start unset.
+    pub(crate) fn init(&self, name: Option<&'static str>) {
         #[cfg(feature = "metadata-name")]
-        critical_section::with(|cs| self.name.borrow(cs).set(None));
+        critical_section::with(|cs| self.name.borrow(cs).set(name));
+        #[cfg(not(feature = "metadata-name"))]
+        let _ = name;
 
         #[cfg(feature = "scheduler-priority")]
         self.set_priority(0);

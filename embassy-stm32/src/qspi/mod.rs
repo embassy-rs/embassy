@@ -106,7 +106,7 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
     bk2d3: Option<Flex<'d>>,
     bk1nss: Option<Flex<'d>>,
     bk2nss: Option<Flex<'d>>,
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     _marker: PhantomData<M>,
     config: Config,
 }
@@ -125,7 +125,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         sck: Option<Flex<'d>>,
         bk1nss: Option<Flex<'d>>,
         bk2nss: Option<Flex<'d>>,
-        dma: Option<ChannelAndRequest<'d>>,
+        dma: M::IfAsync<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
@@ -447,7 +447,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             FlashSelection::Flash1,
         )
@@ -480,7 +480,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
-            None,
+            (),
             config,
             FlashSelection::Flash1,
         )
@@ -513,7 +513,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            None,
+            (),
             config,
             FlashSelection::Flash2,
         )
@@ -546,7 +546,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            None,
+            (),
             config,
             FlashSelection::Flash2,
         )
@@ -582,7 +582,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(bk1nss, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(bk2nss, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            None,
+            (),
             config,
             FlashSelection::Flash1, // Dual bank mode, so DFM is set and both banks are used
         )
@@ -626,7 +626,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             FlashSelection::Flash1,
         )
@@ -668,7 +668,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             FlashSelection::Flash1,
         )
@@ -710,7 +710,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             FlashSelection::Flash2,
         )
@@ -752,7 +752,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             config,
             FlashSelection::Flash2,
         )
@@ -786,12 +786,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
             v.set_address(current_ar);
         });
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut u8, buf, Default::default())
-        };
+        let transfer = unsafe { self.dma.read(T::REGS.dr().as_ptr() as *mut u8, buf, Default::default()) };
 
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
@@ -821,8 +816,6 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
         let transfer = unsafe {
             self.dma
-                .as_mut()
-                .unwrap()
                 .write(buf, T::REGS.dr().as_ptr() as *mut u8, Default::default())
         };
 

@@ -11,6 +11,7 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 #[cfg(dsihost)]
 use crate::rcc::dsi;
 #[cfg(dsihost)]
@@ -338,8 +339,8 @@ pub(crate) unsafe fn init(config: Config) {
     set_clocks!(
         hsi: hsi,
         hse: hse,
-        lse: None, // TODO
-        lsi: None, // TODO
+        lse: config.ls.lse.map(|l| l.frequency),
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
         sys: Some(sys),
         hclk1: Some(hclk),
         hclk2: Some(hclk),
@@ -376,6 +377,84 @@ pub(crate) unsafe fn init(config: Config) {
         hsi_hse: None,
         afif: None,
     );
+}
+
+/// The clocks to bring back after Stop.
+///
+/// F4 and F7 wake up on HSI at 16 MHz with HSE and the PLLs off (RM0090 5.3.4, 6.3.1; RM0410
+/// 4.3.5), which runs at 0 wait states at any supply voltage, so the flash latency never needs
+/// raising before Stop. The chips with over-drive also lose it and drop to voltage scale 3 until
+/// the PLL is on (RM0090 5.1.4, RM0410 4.1.6).
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
+    overdrive: bool,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        Self {
+            cr: RCC.cr().read(),
+            sw: RCC.cfgr().read().sws(),
+            #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
+            overdrive: PWR.cr1().read().odswen(),
+        }
+    }
+
+    pub(crate) fn enter(&self) {}
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| w.set_hseon(w.hseon() | s.hseon()));
+        while s.hseon() && !RCC.cr().read().hserdy() {}
+
+        RCC.cr().modify(|w| {
+            w.set_pllon(w.pllon() | s.pllon());
+            #[cfg(not(stm32f410))]
+            w.set_plli2son(w.plli2son() | s.plli2son());
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+            w.set_pllsaion(w.pllsaion() | s.pllsaion());
+        });
+
+        // Over-drive goes back on once the PLL is on, while still running on HSI (RM0090 5.1.4,
+        // RM0410 4.1.6).
+        #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
+        if self.overdrive && !PWR.cr1().read().odswen() {
+            PWR.cr1().modify(|w| w.set_oden(true));
+            while !PWR.csr1().read().odrdy() {}
+            PWR.cr1().modify(|w| w.set_odswen(true));
+            while !PWR.csr1().read().odswrdy() {}
+        }
+
+        loop {
+            let cr = RCC.cr().read();
+            #[allow(unused_mut)]
+            let mut ready = cr.pllrdy() | !s.pllon();
+            #[cfg(not(stm32f410))]
+            {
+                ready &= cr.plli2srdy() | !s.plli2son();
+            }
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+            {
+                ready &= cr.pllsairdy() | !s.pllsaion();
+            }
+            if ready {
+                break;
+            }
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
 }
 
 struct PllInput {

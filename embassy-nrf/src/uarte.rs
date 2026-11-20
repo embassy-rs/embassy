@@ -15,23 +15,23 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::{self, AnyPin, DISCONNECTED, Pin as GpioPin, PselBits, SealedPin as _};
+use crate::gpio::{self, DISCONNECTED, Flex, OutputDrive, PselBits, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::uarte::regs::RxMaxcnt;
 use crate::pac::uarte::vals;
-use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
+use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
@@ -40,7 +40,7 @@ use crate::{interrupt, pac};
 pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// UARTE config.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Config {
     /// Parity bit.
@@ -185,12 +185,12 @@ impl<'d> Uarte<'d, Async> {
     /// Create a new UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(uarte, txd.into(), rxd.into(), None, None, config);
+        let this = Self::new_inner(uarte, Flex::new(txd), Flex::new(rxd), None, None, config);
         enable_irq::<T>();
         this
     }
@@ -198,19 +198,19 @@ impl<'d> Uarte<'d, Async> {
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         let this = Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             config,
         );
         enable_irq::<T>();
@@ -242,28 +242,28 @@ impl<'d> Uarte<'d, Blocking> {
     /// Create a new blocking UARTE without hardware flow control
     pub fn new_blocking<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), rxd.into(), None, None, config)
+        Self::new_inner(uarte, Flex::new(txd), Flex::new(rxd), None, None, config)
     }
 
     /// Create a new blocking UARTE with hardware flow control (RTS/CTS)
     pub fn new_blocking_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        rxd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             uarte,
-            txd.into(),
-            rxd.into(),
-            Some(cts.into()),
-            Some(rts.into()),
+            Flex::new(txd),
+            Flex::new(rxd),
+            Some(Flex::new(cts)),
+            Some(Flex::new(rts)),
             config,
         )
     }
@@ -272,10 +272,10 @@ impl<'d> Uarte<'d, Blocking> {
 impl<'d, M: Mode> Uarte<'d, M> {
     fn new_inner<T: Instance>(
         _uarte: Peri<'d, T>,
-        txd: Peri<'d, AnyPin>,
-        rxd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        txd: Flex<'d>,
+        rxd: Flex<'d>,
+        cts: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
@@ -368,66 +368,46 @@ pub(crate) fn enable_irq<T: Instance>() {
     unsafe { T::Interrupt::enable() };
 }
 
-pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts: Option<Peri<'_, AnyPin>>) {
+pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, mut txd: Flex<'_>, mut cts: Option<Flex<'_>>) {
     txd.set_high();
-    txd.conf().write(|w| {
-        w.set_dir(gpiovals::Dir::Output);
-        w.set_input(gpiovals::Input::Disconnect);
-        #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0h1);
-        #[cfg(feature = "_nrf54l")]
-        {
-            w.set_drive0(gpiovals::Drive::H);
-            w.set_drive1(gpiovals::Drive::H);
-        }
-    });
+    txd.set_as_output(OutputDrive::HighDrive);
     r.psel().txd().write_value(txd.psel_bits());
 
-    if let Some(pin) = &cts {
-        pin.conf().write(|w| {
+    if let Some(pin) = &mut cts {
+        pin.set_cnf(|w| {
             w.set_dir(gpiovals::Dir::Input);
             w.set_input(gpiovals::Input::Connect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0h1);
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(gpiovals::Drive::H);
-                w.set_drive1(gpiovals::Drive::H);
-            }
+            convert_drive(w, OutputDrive::HighDrive);
         });
     }
     r.psel().cts().write_value(cts.psel_bits());
+
+    // Disconnected on drop by reading back PSEL.
+    txd.persist();
+    if let Some(pin) = cts {
+        pin.persist();
+    }
 }
 
-pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts: Option<Peri<'_, AnyPin>>) {
-    rxd.conf().write(|w| {
+pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, mut rxd: Flex<'_>, mut rts: Option<Flex<'_>>) {
+    rxd.set_cnf(|w| {
         w.set_dir(gpiovals::Dir::Input);
         w.set_input(gpiovals::Input::Connect);
-        #[cfg(not(feature = "_nrf54l"))]
-        w.set_drive(gpiovals::Drive::H0h1);
-        #[cfg(feature = "_nrf54l")]
-        {
-            w.set_drive0(gpiovals::Drive::H);
-            w.set_drive1(gpiovals::Drive::H);
-        }
+        convert_drive(w, OutputDrive::HighDrive);
     });
     r.psel().rxd().write_value(rxd.psel_bits());
 
-    if let Some(pin) = &rts {
+    if let Some(pin) = &mut rts {
         pin.set_high();
-        pin.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::Output);
-            w.set_input(gpiovals::Input::Disconnect);
-            #[cfg(not(feature = "_nrf54l"))]
-            w.set_drive(gpiovals::Drive::H0h1);
-            #[cfg(feature = "_nrf54l")]
-            {
-                w.set_drive0(gpiovals::Drive::H);
-                w.set_drive1(gpiovals::Drive::H);
-            }
-        });
+        pin.set_as_output(OutputDrive::HighDrive);
     }
     r.psel().rts().write_value(rts.psel_bits());
+
+    // Disconnected on drop by reading back PSEL.
+    rxd.persist();
+    if let Some(pin) = rts {
+        pin.persist();
+    }
 }
 
 pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_control: bool) {
@@ -462,11 +442,11 @@ impl<'d> UarteTx<'d, Async> {
     /// Create a new tx-only UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(uarte, txd.into(), None, config);
+        let this = Self::new_inner(uarte, Flex::new(txd), None, config);
         enable_irq::<T>();
         this
     }
@@ -474,12 +454,12 @@ impl<'d> UarteTx<'d, Async> {
     /// Create a new tx-only UARTE with hardware flow control (CTS)
     pub fn new_with_cts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(uarte, txd.into(), Some(cts.into()), config);
+        let this = Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), config);
         enable_irq::<T>();
         this
     }
@@ -515,7 +495,7 @@ impl<'d> UarteTx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("write drop: stopping");
 
             r.intenclr().write(|w| w.set_dmatxend(true));
@@ -549,7 +529,7 @@ impl<'d> UarteTx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
         r.events_dma().tx().ready().write_value(0);
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(())
     }
@@ -557,28 +537,23 @@ impl<'d> UarteTx<'d, Async> {
 
 impl<'d> UarteTx<'d, Blocking> {
     /// Create a new blocking tx-only UARTE without hardware flow control
-    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, txd: Peri<'d, impl GpioPin>, config: Config) -> Self {
-        Self::new_inner(uarte, txd.into(), None, config)
+    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, txd: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
+        Self::new_inner(uarte, Flex::new(txd), None, config)
     }
 
     /// Create a new blocking tx-only UARTE with hardware flow control (CTS)
     pub fn new_blocking_with_cts<T: Instance>(
         uarte: Peri<'d, T>,
-        txd: Peri<'d, impl GpioPin>,
-        cts: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, txd.into(), Some(cts.into()), config)
+        Self::new_inner(uarte, Flex::new(txd), Some(Flex::new(cts)), config)
     }
 }
 
 impl<'d, M: Mode> UarteTx<'d, M> {
-    fn new_inner<T: Instance>(
-        _uarte: Peri<'d, T>,
-        txd: Peri<'d, AnyPin>,
-        cts: Option<Peri<'d, AnyPin>>,
-        config: Config,
-    ) -> Self {
+    fn new_inner<T: Instance>(_uarte: Peri<'d, T>, txd: Flex<'d>, cts: Option<Flex<'d>>, config: Config) -> Self {
         let r = T::regs();
 
         configure(r, config, cts.is_some());
@@ -678,11 +653,11 @@ impl<'d> UarteRx<'d, Async> {
     /// Create a new rx-only UARTE without hardware flow control
     pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(uarte, rxd.into(), None, config);
+        let this = Self::new_inner(uarte, Flex::new(rxd), None, config);
         enable_irq::<T>();
         this
     }
@@ -690,12 +665,12 @@ impl<'d> UarteRx<'d, Async> {
     /// Create a new rx-only UARTE with hardware flow control (RTS)
     pub fn new_with_rts<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        let this = Self::new_inner(uarte, rxd.into(), Some(rts.into()), config);
+        let this = Self::new_inner(uarte, Flex::new(rxd), Some(Flex::new(rts)), config);
         enable_irq::<T>();
         this
     }
@@ -715,7 +690,7 @@ impl<'d> UarteRx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("read drop: stopping");
 
             r.intenclr().write(|w| {
@@ -763,7 +738,7 @@ impl<'d> UarteRx<'d, Async> {
 
         compiler_fence(Ordering::SeqCst);
         r.events_dma().rx().ready().write_value(0);
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         result
     }
@@ -780,7 +755,7 @@ impl<'d> UarteRx<'d, Async> {
         let s = self.state;
 
         // If the future is dropped, disable the RXTO interrupt.
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.intenclr().write(|w| {
                 w.set_rxto(true);
             });
@@ -818,7 +793,7 @@ impl<'d> UarteRx<'d, Async> {
             w.set_rxto(true);
         });
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
     }
 
     /// Flush the RX FIFO to RAM without activating the receiver.
@@ -836,7 +811,7 @@ impl<'d> UarteRx<'d, Async> {
         let r = self.r;
         let s = self.state;
 
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             trace!("flush_rx drop: stopping");
 
             r.intenclr().write(|w| {
@@ -875,7 +850,7 @@ impl<'d> UarteRx<'d, Async> {
         compiler_fence(Ordering::SeqCst);
         r.events_dma().rx().ready().write_value(0);
         let amount = r.dma().rx().amount().read().amount();
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(amount as usize)
     }
@@ -883,18 +858,18 @@ impl<'d> UarteRx<'d, Async> {
 
 impl<'d> UarteRx<'d, Blocking> {
     /// Create a new blocking rx-only UARTE without hardware flow control
-    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, rxd: Peri<'d, impl GpioPin>, config: Config) -> Self {
-        Self::new_inner(uarte, rxd.into(), None, config)
+    pub fn new_blocking<T: Instance>(uarte: Peri<'d, T>, rxd: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
+        Self::new_inner(uarte, Flex::new(rxd), None, config)
     }
 
     /// Create a new blocking rx-only UARTE with hardware flow control (RTS)
     pub fn new_blocking_with_rts<T: Instance>(
         uarte: Peri<'d, T>,
-        rxd: Peri<'d, impl GpioPin>,
-        rts: Peri<'d, impl GpioPin>,
+        rxd: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(uarte, rxd.into(), Some(rts.into()), config)
+        Self::new_inner(uarte, Flex::new(rxd), Some(Flex::new(rts)), config)
     }
 }
 
@@ -907,12 +882,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         ErrorSource::from_bits_truncate(err_bits.0).check()
     }
 
-    fn new_inner<T: Instance>(
-        _uarte: Peri<'d, T>,
-        rxd: Peri<'d, AnyPin>,
-        rts: Option<Peri<'d, AnyPin>>,
-        config: Config,
-    ) -> Self {
+    fn new_inner<T: Instance>(_uarte: Peri<'d, T>, rxd: Flex<'d>, rts: Option<Flex<'d>>, config: Config) -> Self {
         let r = T::regs();
 
         configure(r, config, rts.is_some());
@@ -967,7 +937,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.into(),
+            ppi_ch1,
             Event::from_reg(r.events_rxdrdy()),
             timer.task_clear(),
             timer.task_start(),
@@ -975,7 +945,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.into(),
+            ppi_ch2,
             timer.cc(0).event_compare(),
             Task::from_reg(r.tasks_dma().rx().stop()),
         );
@@ -1117,8 +1087,8 @@ impl<'d, M: Mode> Drop for UarteRx<'d, M> {
 pub struct UarteRxWithIdle<'d, M: Mode> {
     rx: UarteRx<'d, M>,
     timer: Timer<'d>,
-    ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
-    _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
+    ppi_ch1: Ppi<'d, 1, 2>,
+    _ppi_ch2: Ppi<'d, 1, 1>,
     r: pac::uarte::Uarte,
     state: &'static State,
 }
@@ -1165,7 +1135,7 @@ impl<'d> UarteRxWithIdle<'d, Async> {
 
         self.ppi_ch1.enable();
 
-        let drop = OnDrop::new(|| {
+        let drop = DropGuard::new((), |()| {
             self.timer.stop();
 
             r.intenclr().write(|w| {
@@ -1215,7 +1185,7 @@ impl<'d> UarteRxWithIdle<'d, Async> {
         self.timer.stop();
         r.events_dma().rx().ready().write_value(0);
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         result.map(|_| n)
     }
@@ -1395,6 +1365,30 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// TX pin trait.
+    TxPin,
+    Instance
+);
+
+pin_trait!(
+    /// RX pin trait.
+    RxPin,
+    Instance
+);
+
+pin_trait!(
+    /// CTS pin trait.
+    CtsPin,
+    Instance
+);
+
+pin_trait!(
+    /// RTS pin trait.
+    RtsPin,
+    Instance
+);
 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {

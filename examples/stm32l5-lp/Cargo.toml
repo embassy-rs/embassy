@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32l552ze to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "dual-bank", "low-power", "executor-thread"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "memory-x", "dual-bank", "low-power", "executor-thread"]  }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 

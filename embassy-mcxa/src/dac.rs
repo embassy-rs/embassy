@@ -1,5 +1,5 @@
 use embassy_hal_internal::{Peri, PeripheralType};
-use nxp_pac::dac::{BufSpdCtrl, Dacrfs, Fifoen, Fiforst, Swrst, Trgsel};
+use nxp_pac::dac::Dacrfs;
 use nxp_pac::port::Mux;
 
 use super::clocks::PoweredClock;
@@ -111,20 +111,20 @@ impl Dac {
         let dac = <P as sealed::SealedInstance>::regs();
 
         dac.rcr().modify(|w| {
-            w.set_swrst(Swrst::SoftwareReset);
-            w.set_fiforst(Fiforst::FifoReset);
+            w.set_swrst(true);
+            w.set_fiforst(true);
         });
         dac.rcr().modify(|w| {
-            w.set_swrst(Swrst::NoEffect);
-            w.set_fiforst(Fiforst::NoEffect);
+            w.set_swrst(false);
+            w.set_fiforst(false);
         });
 
         dac.gcr().write(|w| {
             w.set_dacrfs(Dacrfs::Vrefh0);
-            w.set_fifoen(Fifoen::BufferMode);
+            w.set_fifoen(false);
             w.set_buf_en(true);
-            w.set_buf_spd_ctrl(BufSpdCtrl::LlpMode);
-            w.set_trgsel(Trgsel::Hardware);
+            w.set_buf_spd_ctrl(false);
+            w.set_trgsel(false);
             w.set_iref_ptat_ext_sel(true);
             w.set_latch_cyc(1);
             w.set_dacen(true);

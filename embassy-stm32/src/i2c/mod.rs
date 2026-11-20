@@ -138,8 +138,8 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx_dma: Option<ChannelAndRequest<'d>>,
-    rx_dma: Option<ChannelAndRequest<'d>>,
+    tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+    rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
     #[cfg(feature = "time")]
     timeout: Duration,
     _marker: PhantomData<M>,
@@ -175,7 +175,10 @@ impl<'d> I2c<'d, Async, Master> {
         )
     }
 
-    /// Create a new I2C driver.
+    /// Create a new I2C driver without DMA.
+    ///
+    /// Async transfers move each byte from the event interrupt instead.
+    #[cfg(any(i2c_v2, i2c_v3))]
     pub fn new_no_dma<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
@@ -215,8 +218,8 @@ impl<'d> I2c<'d, Blocking, Master> {
             peri,
             new_pin!(scl, config.scl_af()),
             new_pin!(sda, config.sda_af()),
-            None,
-            None,
+            (),
+            (),
             config,
         )
     }
@@ -228,8 +231,8 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
         _peri: Peri<'d, T>,
         _scl: Option<Flex<'d>>,
         _sda: Option<Flex<'d>>,
-        tx_dma: Option<ChannelAndRequest<'d>>,
-        rx_dma: Option<ChannelAndRequest<'d>>,
+        tx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
+        rx_dma: M::IfAsync<Option<ChannelAndRequest<'d>>>,
         config: Config,
     ) -> Self {
         let mut this = Self {

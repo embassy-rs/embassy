@@ -13,6 +13,7 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
+use embassy_usb::EndpointOptions;
 use embassy_usb::class::gud::device::{
     self as gud, Config as GudConfig, ConnectorState, GudClass, GudConnector, GudEvent, PixelFormat, State,
 };
@@ -102,7 +103,6 @@ async fn main(_spawner: Spawner) {
 
         static GUD_CONFIG: StaticCell<GudConfig> = StaticCell::new();
         let gud_config = GUD_CONFIG.init(GudConfig {
-            max_packet_size: 64, // full-speed bulk
             min_width: 640,
             max_width: 1920,
             min_height: 480,
@@ -114,6 +114,7 @@ async fn main(_spawner: Spawner) {
             connectors,
             // The discard sink has no constraints.
             validate_mode_blocking: |_, _| true,
+            out_endpoint_options: EndpointOptions::new(),
         });
 
         GudClass::new(&mut builder, state, gud_config)

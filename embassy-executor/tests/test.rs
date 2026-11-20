@@ -331,6 +331,17 @@ fn recursive_task() {
     }
 }
 
+#[test]
+fn task_name_arg() {
+    // The `name` argument is accepted whether or not `metadata-name` is enabled.
+    #[task(name = "named")]
+    async fn task1() {}
+
+    let (executor, _) = setup();
+    executor.spawner().spawn(task1().unwrap());
+    unsafe { executor.poll() };
+}
+
 #[cfg(feature = "metadata-name")]
 #[test]
 fn task_metadata() {
@@ -340,9 +351,19 @@ fn task_metadata() {
         assert_eq!(MetadataRef::for_current_task().await.name(), expected_name);
     }
 
-    // check no task name
+    #[task(name = "custom")]
+    async fn task2(expected_name: Option<&'static str>) {
+        use embassy_executor::MetadataRef;
+        assert_eq!(MetadataRef::for_current_task().await.name(), expected_name);
+    }
+
+    // check the default task name
     let (executor, _) = setup();
-    executor.spawner().spawn(task1(None).unwrap());
+    executor.spawner().spawn(task1(Some("task1")).unwrap());
+    unsafe { executor.poll() };
+
+    // check the `name` argument
+    executor.spawner().spawn(task2(Some("custom")).unwrap());
     unsafe { executor.poll() };
 
     // check setting task name
@@ -356,8 +377,8 @@ fn task_metadata() {
     executor.spawner().spawn(token);
     unsafe { executor.poll() };
 
-    // check name is cleared if the task pool slot is recycled.
+    // check the name goes back to the default if the task pool slot is recycled.
     let (executor, _) = setup();
-    executor.spawner().spawn(task1(None).unwrap());
+    executor.spawner().spawn(task1(Some("task1")).unwrap());
     unsafe { executor.poll() };
 }

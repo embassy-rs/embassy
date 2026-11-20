@@ -12,7 +12,6 @@ use embassy_mcxa::gpio::Output;
 use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use hal::pac::adc::Mode;
 use hal::peripherals::ADC0;
 use panic_probe as _;
 
@@ -37,7 +36,7 @@ async fn main(_spawner: Spawner) {
     let commands = &[Command::new_single(
         p.P2_4,
         CommandConfig {
-            resolution: Mode::Data16Bits,
+            resolution: true,
             ..Default::default()
         },
     )];

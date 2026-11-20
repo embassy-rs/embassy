@@ -36,7 +36,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
 embassy-boot = { version = "0.7.0", path = "../embassy-boot" }
-embassy-usb = { version = "0.6.0", path = "../embassy-usb", default-features = false }
+embassy-usb = { version = "0.6.0", path = "../embassy-usb", default-features = false, features = ["device", "class-dfu"] }
 embedded-storage = { version = "0.3.1" }
 
 [dev-dependencies]

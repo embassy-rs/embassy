@@ -7,9 +7,7 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use panic_probe as _;
 
 // The known-answer blobs take a while to load.
 teleprobe_meta::timeout!(60);
@@ -31,11 +29,7 @@ macro_rules! suites {
     }};
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let _p: embassy_stm32::Peripherals = init();
 

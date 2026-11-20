@@ -25,7 +25,7 @@ fn main() -> ! {
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.blocking_read(&mut channel, SampleTime::Cycles125);
+        let v = adc.blocking_read(&mut channel, SampleTime::Cycles12_5);
         info!("--> {}", v);
         embassy_time::block_for(Duration::from_millis(200));
     }

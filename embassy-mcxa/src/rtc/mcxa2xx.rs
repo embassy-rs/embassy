@@ -1,7 +1,7 @@
 //! RTC DateTime driver.
 use core::convert::Infallible;
-use core::future::Future;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -12,7 +12,6 @@ use maitake_sync::WaitCell;
 use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
-use crate::pac::rtc2xx::{Swr, Um};
 
 /// RTC interrupt handler.
 pub struct InterruptHandler<I: Instance> {
@@ -33,13 +32,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 }
 
 struct Info {
-    regs: pac::rtc2xx::Rtc,
+    regs: pac::rtc::Rtc,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> pac::rtc2xx::Rtc {
+    fn regs(&self) -> pac::rtc::Rtc {
         self.regs
     }
 
@@ -91,27 +90,15 @@ pub struct DateTime {
     pub second: u8,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct Config {
     #[allow(dead_code)]
     wakeup_select: bool,
-    update_mode: Um,
+    update_mode: bool,
     #[allow(dead_code)]
     supervisor_access: bool,
     compensation_interval: u8,
     compensation_time: u8,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            wakeup_select: false,
-            update_mode: Um::Um0,
-            supervisor_access: false,
-            compensation_interval: 0,
-            compensation_time: 0,
-        }
-    }
 }
 
 /// RTC interrupt enable flags
@@ -237,7 +224,30 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> DateTime {
     }
 }
 
-/// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
+/// Provides read-only access to the current time, independently of alarm waits.
+///
+/// Created together with [`Rtc`]. Clones can be shared with other tasks without
+/// allowing them to replace an outstanding alarm.
+#[derive(Clone)]
+pub struct RtcTimeProvider<'a> {
+    info: &'static Info,
+    _inst: PhantomData<&'a ()>,
+    _wg: Option<WakeGuard>,
+}
+
+impl RtcTimeProvider<'_> {
+    /// Return the current date and time.
+    pub fn now(&self) -> DateTime {
+        read_datetime(self.info)
+    }
+}
+
+fn read_datetime(info: &Info) -> DateTime {
+    let seconds = info.regs().tsr().read().0;
+    convert_seconds_to_datetime(seconds)
+}
+
+/// Exclusive RTC configuration and alarm handle.
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static Info,
@@ -246,12 +256,12 @@ pub struct Rtc<'a> {
 }
 
 impl<'a> Rtc<'a> {
-    /// Create a new instance of the real time clock.
+    /// Create an exclusive RTC handle and a cloneable, read-only time provider.
     pub fn new<T: Instance>(
         _inst: Peri<'a, T>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
         config: Config,
-    ) -> Self {
+    ) -> (Self, RtcTimeProvider<'a>) {
         let info = T::info();
 
         // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
@@ -276,12 +286,18 @@ impl<'a> Rtc<'a> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        inst
+        let time_provider = RtcTimeProvider {
+            info,
+            _inst: PhantomData,
+            _wg: inst._wg.clone(),
+        };
+
+        (inst, time_provider)
     }
 
     fn set_configuration(&mut self, config: &Config) {
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr1));
-        self.info.regs().cr().modify(|w| w.set_swr(Swr::Swr0));
+        self.info.regs().cr().modify(|w| w.set_swr(true));
+        self.info.regs().cr().modify(|w| w.set_swr(false));
         self.info.regs().tsr().write(|w| w.0 = 1);
 
         self.info.regs().cr().modify(|w| w.set_um(config.update_mode));
@@ -324,7 +340,7 @@ impl<'a> Rtc<'a> {
         // TIF, so the counter can now be enabled.
         //
         // Starting here is what makes timekeeping actually run: previously the
-        // only caller of start() was wait_for_alarm_unlocked(), so the counter
+        // only caller of start() was the alarm wait, so the counter
         // stayed frozen at the value set here until an alarm was armed, and an
         // alarm at "now + N" then fired N seconds after arming rather than N
         // seconds after the time was set.
@@ -341,8 +357,7 @@ impl<'a> Rtc<'a> {
     ///
     /// Reads the current Unix timestamp from the time seconds register and converts it.
     pub fn get_datetime(&self) -> DateTime {
-        let seconds = self.info.regs().tsr().read().0;
-        convert_seconds_to_datetime(seconds)
+        read_datetime(self.info)
     }
 
     /// Set the alarm date and time
@@ -473,28 +488,31 @@ impl<'a> Rtc<'a> {
         self.info.regs().ier().modify(|w| w.set_taie(false));
     }
 
-    /// Program the RTC alarm and return a future that does not borrow the RTC.
+    /// Set an RTC alarm and wait for it to trigger.
     ///
-    /// This allows callers that protect the RTC with a mutex to release the
-    /// mutex before waiting for the alarm interrupt.
+    /// The RTC is exclusively borrowed until this future completes or is dropped,
+    /// preventing another caller from replacing the alarm. Use [`RtcTimeProvider`]
+    /// to read the clock while waiting, without acquiring the RTC's mutex.
+    /// Dropping the future disables the alarm interrupt.
     ///
     /// # Arguments
     ///
     /// * `alarm` - The date and time when the alarm should trigger
-    pub fn wait_for_alarm_unlocked(&mut self, alarm: DateTime) -> impl Future<Output = ()> + 'static {
-        self.set_alarm(alarm);
-        self.start();
-
-        let info = self.info;
-        async move {
-            let _ = info.wait_cell().wait_for(|| info.regs().sr().read().taf()).await;
-            info.regs().ier().modify(|w| w.set_taie(false));
-        }
-    }
-
-    /// Set an RTC alarm and wait for it to trigger.
     pub async fn wait_for_alarm(&mut self, alarm: DateTime) {
-        self.wait_for_alarm_unlocked(alarm).await
+        let info = self.info;
+        let _cleanup = DropGuard::new(info, |info| {
+            critical_section::with(|_| {
+                info.regs().ier().modify(|w| w.set_taie(false));
+            });
+        });
+
+        critical_section::with(|_| {
+            self.disable_interrupt(RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE);
+            self.set_alarm(alarm);
+            self.start();
+        });
+
+        let _ = info.wait_cell().wait_for(|| info.regs().sr().read().taf()).await;
     }
 }
 
@@ -504,11 +522,18 @@ impl<'a> Rtc<'a> {
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
-        let rtc = pac::RTC0;
-        // Check if this is actually a time alarm interrupt
-        let sr = rtc.sr().read();
-        if sr.taf() {
-            rtc.ier().modify(|w| w.set_taie(false));
+        // Include the status read: a higher-priority alarm owner must not cancel
+        // and rearm between sampling the old alarm and disabling its interrupt.
+        let fired = critical_section::with(|_| {
+            let rtc = T::info().regs();
+            if rtc.sr().read().taf() {
+                rtc.ier().modify(|w| w.set_taie(false));
+                true
+            } else {
+                false
+            }
+        });
+        if fired {
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }

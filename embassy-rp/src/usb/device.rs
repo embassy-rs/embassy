@@ -1,13 +1,18 @@
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
+use critical_section::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
+use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
+    EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use super::{Dir, In, Instance, Out};
@@ -17,10 +22,243 @@ use crate::{Peri, RegExt, interrupt, pac};
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
 const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
+const ISO_FRAME_SPAN: u32 = 1 << 11;
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
+static EP_IN_XFERS: Mutex<RefCell<[Option<InXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
+static EP_OUT_XFERS: Mutex<RefCell<[Option<OutXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
+static ISO_IN_STATE: Mutex<RefCell<[IsoInState; EP_COUNT]>> = Mutex::new(RefCell::new([IsoInState::new(); EP_COUNT]));
+static ISO_SOF: Mutex<RefCell<IsoSofState>> = Mutex::new(RefCell::new(IsoSofState {
+    last_sof: 0,
+    seen: false,
+}));
+
+#[derive(Clone, Copy)]
+struct IsoInState {
+    /// True while this endpoint is enabled as an isochronous IN endpoint.
+    enabled: bool,
+    /// True while an isochronous IN packet is armed in DPRAM.
+    armed: bool,
+    /// Frame counter value in `0..ISO_FRAME_SPAN` at which the armed packet expires if uncollected.
+    expiry_frame: u16,
+    /// Locked host polling phase in `0..interval`, or `None` until the first completion.
+    phase: Option<u16>,
+    /// Service interval in frames.
+    interval: u16,
+    /// True while [`IsoEndpointIn::ready`] is waiting on SOF.
+    arm_wait: bool,
+    /// Set on endpoint disable or bus reset so [`IsoEndpointIn::ready`] resets its [`IsoSchedule`].
+    reset: bool,
+}
+
+impl IsoInState {
+    const fn new() -> Self {
+        Self {
+            enabled: false,
+            armed: false,
+            expiry_frame: 0,
+            phase: None,
+            interval: 1,
+            arm_wait: false,
+            reset: true,
+        }
+    }
+
+    fn reset_state(&mut self) {
+        self.armed = false;
+        self.phase = None;
+        self.arm_wait = false;
+        self.reset = true;
+    }
+}
+
+struct IsoSofState {
+    last_sof: u16,
+    seen: bool,
+}
+
+fn update_dev_sof_irq<T: Instance>(cs: critical_section::CriticalSection<'_>) {
+    let active = ISO_IN_STATE
+        .borrow(cs)
+        .borrow()
+        .iter()
+        .any(|s| s.enabled || s.armed || s.arm_wait);
+    if active {
+        T::regs().inte().write_set(|w| w.set_dev_sof(true));
+    } else {
+        T::regs().inte().write_clear(|w| w.set_dev_sof(true));
+        ISO_SOF.borrow(cs).borrow_mut().seen = false;
+    }
+}
+
+struct OutXfer {
+    buf_ptr: *mut u8,
+    buf_len: usize,
+    total: usize,
+    max_packet_size: u16,
+    dpram_addr: u16,
+    dpram_len: u16,
+    rearm_always: bool,
+    result: Option<Result<usize, EndpointError>>,
+}
+
+// SAFETY: `OutXfer` is only kept active while the owning future holds `&mut [u8]`
+// and is cleared by `OutXferGuard` on drop inside a critical section.
+unsafe impl Send for OutXfer {}
+
+impl OutXfer {
+    fn new(buf: &mut [u8], max_packet_size: u16, dpram_addr: u16, dpram_len: u16, rearm_always: bool) -> Self {
+        Self {
+            buf_ptr: buf.as_mut_ptr(),
+            buf_len: buf.len(),
+            total: 0,
+            max_packet_size,
+            dpram_addr,
+            dpram_len,
+            rearm_always,
+            result: None,
+        }
+    }
+
+    fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
+        if self.result.is_some() {
+            return false;
+        }
+        let rx_len = val.length(0) as usize;
+        let chunk_len = (self.buf_len - self.total).min(self.max_packet_size as usize);
+        if rx_len > chunk_len {
+            self.result = Some(Err(EndpointError::BufferOverflow));
+            return true;
+        }
+
+        // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+        // of the active transfer future, and `self.total + rx_len <= self.buf_len`.
+        let dst = unsafe { slice::from_raw_parts_mut(self.buf_ptr.add(self.total), rx_len) };
+        EndpointBuffer::<T>::new(self.dpram_addr, self.dpram_len).read(dst);
+        self.total += rx_len;
+
+        let ended = rx_len < self.max_packet_size as usize || self.total == self.buf_len;
+        if self.rearm_always || !ended {
+            arm_ep_out_buffer::<T>(index, !val.pid(0), self.max_packet_size);
+        }
+
+        if ended {
+            self.result = Some(Ok(self.total));
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct OutXferGuard(usize);
+
+impl Drop for OutXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[self.0] = None;
+        });
+    }
+}
+
+struct InXfer {
+    buf_ptr: *const u8,
+    buf_len: usize,
+    offset: usize,
+    send_zlp: bool,
+    max_packet_size: u16,
+    dpram_addr: u16,
+    dpram_len: u16,
+    wait_last_complete: bool,
+    done: bool,
+    error: Option<EndpointDisabledError>,
+}
+
+// SAFETY: `InXfer` is only kept active while the owning future holds `&[u8]`
+// and is cleared by `InXferGuard` on drop inside a critical section.
+unsafe impl Send for InXfer {}
+
+impl InXfer {
+    fn has_more(&self) -> bool {
+        self.offset < self.buf_len || self.send_zlp
+    }
+
+    fn on_packet<T: Instance>(&mut self, index: usize, val: pac::usb_dpram::regs::EpBufferControl) -> bool {
+        if self.done || self.error.is_some() {
+            return false;
+        }
+
+        if self.offset < self.buf_len {
+            let chunk_len = (self.buf_len - self.offset).min(self.max_packet_size as usize);
+            // SAFETY: `self.buf_ptr..self.buf_ptr + self.buf_len` is borrowed for the lifetime
+            // of the active transfer future.
+            let chunk = unsafe { slice::from_raw_parts(self.buf_ptr.add(self.offset), chunk_len) };
+            EndpointBuffer::<T>::new(self.dpram_addr, self.dpram_len).write(chunk);
+            self.offset += chunk_len;
+            arm_ep_in_buffer::<T>(index, !val.pid(0), chunk_len as u16);
+
+            if !self.wait_last_complete && !self.has_more() {
+                self.done = true;
+                return true;
+            }
+            false
+        } else if self.send_zlp {
+            self.send_zlp = false;
+            arm_ep_in_buffer::<T>(index, !val.pid(0), 0);
+
+            if !self.wait_last_complete {
+                self.done = true;
+                return true;
+            }
+            false
+        } else {
+            self.done = true;
+            true
+        }
+    }
+}
+
+struct InXferGuard(usize);
+
+impl Drop for InXferGuard {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            EP_IN_XFERS.borrow(cs).borrow_mut()[self.0] = None;
+        });
+    }
+}
+
+fn arm_ep_out_buffer<T: Instance>(index: usize, pid: bool, len: u16) {
+    let bufcontrol = T::dpram().ep_out_buffer_control(index);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+    });
+    cortex_m::asm::delay(12);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_available(0, true);
+    });
+}
+
+fn arm_ep_in_buffer<T: Instance>(index: usize, pid: bool, len: u16) {
+    let bufcontrol = T::dpram().ep_in_buffer_control(index);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_full(0, true);
+    });
+    cortex_m::asm::delay(12);
+    bufcontrol.write(|w| {
+        w.set_length(0, len);
+        w.set_pid(0, pid);
+        w.set_full(0, true);
+        w.set_available(0, true);
+    });
+}
 
 struct EndpointBuffer<T: Instance> {
     addr: u16,
@@ -101,6 +339,16 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
         }
 
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            for s in iso.iter_mut() {
+                *s = IsoInState::new();
+            }
+            let mut sof = ISO_SOF.borrow(cs).borrow_mut();
+            sof.last_sof = 0;
+            sof.seen = false;
+        });
+
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -132,13 +380,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
-        interval_ms: u8,
+        interval: EndpointInterval,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            "allocating type={:?} mps={:?} interval={:?}, dir={:?}",
             ep_type,
             max_packet_size,
-            interval_ms,
+            interval,
             D::dir()
         );
 
@@ -224,13 +472,14 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         Ok(Endpoint {
             _phantom: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
+            info: EndpointInfo::new(
+                EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
-                interval_ms,
-            },
+                interval,
+            ),
             buf,
+            schedule: IsoSchedule::new(),
         })
     }
 }
@@ -250,6 +499,36 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         if ints.bus_reset() {
             regs.inte().write_clear(|w| w.set_bus_reset(true));
+            critical_section::with(|cs| {
+                let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                for (i, slot) in in_xfers.iter_mut().enumerate() {
+                    if let Some(xfer) = slot.as_mut() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+                let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                for (i, slot) in out_xfers.iter_mut().enumerate() {
+                    if let Some(xfer) = slot.as_mut() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                        EP_OUT_WAKERS[i].wake();
+                    }
+                }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for (i, state) in iso.iter_mut().enumerate() {
+                    if state.enabled || state.armed || state.arm_wait {
+                        state.enabled = false;
+                        state.reset_state();
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+                drop(iso);
+                update_dev_sof_irq::<T>(cs);
+            });
             BUS_WAKER.wake();
         }
         if ints.dev_resume_from_host() {
@@ -269,14 +548,98 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let s = regs.buff_status().read();
             regs.buff_status().write_value(s);
 
-            for i in 0..EP_COUNT {
-                if s.ep_in(i) {
-                    EP_IN_WAKERS[i].wake();
+            let sie_status = regs.sie_status().read();
+            let ep0_aborted = sie_status.setup_rec() || sie_status.bus_reset();
+
+            critical_section::with(|cs| {
+                let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+
+                for i in 0..EP_COUNT {
+                    if s.ep_in(i) {
+                        if i == 0 && ep0_aborted {
+                            if let Some(xfer) = in_xfers[0].as_mut() {
+                                if !xfer.done && xfer.error.is_none() {
+                                    xfer.error = Some(EndpointDisabledError);
+                                }
+                            }
+                            EP_IN_WAKERS[0].wake();
+                        } else if let Some(xfer) = in_xfers[i].as_mut() {
+                            if i > 0 && !T::dpram().ep_in_control(i - 1).read().enable() {
+                                xfer.error = Some(EndpointDisabledError);
+                                EP_IN_WAKERS[i].wake();
+                            } else {
+                                let val = T::dpram().ep_in_buffer_control(i).read();
+                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
+                                    EP_IN_WAKERS[i].wake();
+                                }
+                            }
+                        } else {
+                            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                            if iso[i].armed {
+                                iso[i].armed = false;
+                                if iso[i].phase.is_none() {
+                                    let now = ISO_SOF.borrow(cs).borrow().last_sof;
+                                    let interval = iso[i].interval.max(1);
+                                    iso[i].phase = Some(now % interval);
+                                }
+                            }
+                            EP_IN_WAKERS[i].wake();
+                        }
+                    }
+
+                    if s.ep_out(i) {
+                        if i == 0 && ep0_aborted {
+                            if let Some(xfer) = out_xfers[0].as_mut() {
+                                if xfer.result.is_none() {
+                                    xfer.result = Some(Err(EndpointError::Disabled));
+                                }
+                            }
+                            EP_OUT_WAKERS[0].wake();
+                        } else if let Some(xfer) = out_xfers[i].as_mut() {
+                            if i > 0 && !T::dpram().ep_out_control(i - 1).read().enable() {
+                                xfer.result = Some(Err(EndpointError::Disabled));
+                                EP_OUT_WAKERS[i].wake();
+                            } else {
+                                let val = T::dpram().ep_out_buffer_control(i).read();
+                                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(i, val) {
+                                    EP_OUT_WAKERS[i].wake();
+                                }
+                            }
+                        } else {
+                            EP_OUT_WAKERS[i].wake();
+                        }
+                    }
                 }
-                if s.ep_out(i) {
-                    EP_OUT_WAKERS[i].wake();
+            });
+        }
+
+        if ints.dev_sof() {
+            // Reading SOF_RD acknowledges DEV_SOF on RP2040/RP235x.
+            let now = regs.sof_rd().read().count();
+            critical_section::with(|cs| {
+                {
+                    let mut sof = ISO_SOF.borrow(cs).borrow_mut();
+                    sof.last_sof = now;
+                    sof.seen = true;
                 }
-            }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for i in 1..EP_COUNT {
+                    let state = &mut iso[i];
+                    let mut wake = state.arm_wait;
+                    if state.armed
+                        && forward(u32::from(state.expiry_frame), u32::from(now), ISO_FRAME_SPAN) < ISO_FRAME_SPAN / 2
+                    {
+                        // Drop an uncollected isochronous packet so it is never sent late.
+                        T::dpram().ep_in_buffer_control(i).write(|_| {});
+                        state.armed = false;
+                        wake = true;
+                    }
+                    if wake {
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+            });
         }
     }
 }
@@ -284,30 +647,17 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
-    type ControlPipe = ControlPipe<'d, T>;
     type Bus = Bus<'d, T>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
         let regs = T::regs();
         regs.inte().write(|w| {
             w.set_bus_reset(true);
@@ -326,18 +676,80 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         trace!("enabled");
 
-        (
-            Bus {
-                phantom: PhantomData,
-                inited: false,
-                ep_out: self.ep_out,
-            },
-            ControlPipe {
-                _phantom: PhantomData,
-                max_packet_size: control_max_packet_size,
-            },
-        )
+        Bus {
+            phantom: PhantomData,
+            inited: false,
+            ep_out: self.ep_out,
+            control_max_packet_size,
+        }
     }
+}
+
+/// Enables the bus event interrupts that `on_interrupt` masks when they fire, and the SETUP one.
+fn rearm_bus_irqs<T: Instance>() {
+    T::regs().inte().write_set(|w| {
+        w.set_bus_reset(true);
+        w.set_dev_resume_from_host(true);
+        w.set_dev_suspend(true);
+        w.set_setup_req(true);
+    });
+}
+
+/// Set or clear the STALL handshake of an endpoint.
+///
+/// `max_packet_size` is the max packet size of the endpoint, used to re-arm the buffer
+/// of an OUT endpoint when the stall is cleared. It is ignored for IN endpoints.
+///
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stalled`, so that a class
+/// driver can halt its own endpoint without access to the bus.
+fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: u16, stalled: bool) {
+    let n = ep_addr.index();
+
+    if n == 0 {
+        T::regs().ep_stall_arm().modify(|w| {
+            if ep_addr.is_in() {
+                w.set_ep0_in(stalled);
+            } else {
+                w.set_ep0_out(stalled);
+            }
+        });
+    }
+
+    let ctrl = if ep_addr.is_in() {
+        T::dpram().ep_in_buffer_control(n)
+    } else {
+        T::dpram().ep_out_buffer_control(n)
+    };
+
+    match (stalled, ep_addr.direction()) {
+        // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
+        (true, _) => ctrl.write(|w| w.set_stall(true)),
+
+        // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
+        (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
+
+        // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+        (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
+
+        // same, plus re-arm the buffer that stalling un-armed.
+        (false, Direction::Out) => arm_ep_out_buffer::<T>(n, false, max_packet_size),
+    }
+
+    let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
+    wakers[n].wake();
+}
+
+/// Get whether the STALL handshake is set on an endpoint.
+fn is_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress) -> bool {
+    let n = ep_addr.index();
+
+    let ctrl = if ep_addr.is_in() {
+        T::dpram().ep_in_buffer_control(n)
+    } else {
+        T::dpram().ep_out_buffer_control(n)
+    };
+
+    ctrl.read().stall()
 }
 
 /// Type representing the RP USB bus.
@@ -345,12 +757,14 @@ pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_out: [EndpointData; EP_COUNT],
     inited: bool,
+    control_max_packet_size: u16,
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
+            EP_OUT_WAKERS[0].register(cx.waker());
 
             // TODO: implement VBUS detection.
             if !self.inited {
@@ -383,13 +797,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     T::dpram().ep_out_control(i - 1).modify(|w| w.set_enable(false));
                 }
 
+                critical_section::with(|cs| {
+                    let mut in_xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                    for xfer in in_xfers.iter_mut().skip(1).flatten() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                    }
+                    let mut out_xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                    for xfer in out_xfers.iter_mut().skip(1).flatten() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                    }
+                });
+
                 for w in &EP_IN_WAKERS {
                     w.wake()
                 }
                 for w in &EP_OUT_WAKERS {
                     w.wake()
                 }
-                return Poll::Ready(Event::Reset);
+                return Poll::Ready(Event::Reset(Speed::Full));
             }
 
             if siestatus.suspended() && intrstatus.dev_suspend() {
@@ -397,78 +826,40 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 return Poll::Ready(Event::Suspend);
             }
 
-            // no pending event. Reenable all irqs.
-            regs.inte().write_set(|w| {
-                w.set_bus_reset(true);
-                w.set_dev_resume_from_host(true);
-                w.set_dev_suspend(true);
-            });
+            // Bus events come first: a reset or suspend makes a SETUP received before it stale.
+            if siestatus.setup_rec() {
+                let mut buf = [0; 8];
+                EndpointBuffer::<T>::new(0, 8).read(&mut buf);
+                regs.sie_status().write(|w| w.set_setup_rec(true));
+
+                // set PID to 0, so (after toggling) first DATA is PID 1
+                T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
+                T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
+
+                trace!("SETUP read ok");
+                // The control request that follows does not poll the bus, so a reset or suspend during
+                // it must wake the stage through its interrupt. Arm them here too: only the path below
+                // used to, because the control pipe was polled after the bus.
+                rearm_bus_irqs::<T>();
+                return Poll::Ready(Event::Setup(buf));
+            }
+
+            // no pending event. Reenable all irqs, including the one for SETUP.
+            rearm_bus_irqs::<T>();
             Poll::Pending
         })
         .await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        let n = ep_addr.index();
-
-        if n == 0 {
-            T::regs().ep_stall_arm().modify(|w| {
-                if ep_addr.is_in() {
-                    w.set_ep0_in(stalled);
-                } else {
-                    w.set_ep0_out(stalled);
-                }
-            });
-        }
-
-        let ctrl = if ep_addr.is_in() {
-            T::dpram().ep_in_buffer_control(n)
-        } else {
-            T::dpram().ep_out_buffer_control(n)
-        };
-
-        match (stalled, ep_addr.direction()) {
-            // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
-            (true, _) => ctrl.write(|w| w.set_stall(true)),
-
-            // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
-            (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
-
-            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
-            (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
-
-            // same, plus re-arm the buffer that stalling un-armed.
-            (false, Direction::Out) => {
-                ctrl.write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                });
-                cortex_m::asm::delay(12);
-                ctrl.write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                    w.set_available(0, true);
-                });
-            }
-        }
-
-        let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
-        wakers[n].wake();
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        set_endpoint_stalled::<T>(ep_addr, self.ep_out[ep_addr.index()].max_packet_size, stalled);
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        let n = ep_addr.index();
-
-        let ctrl = if ep_addr.is_in() {
-            T::dpram().ep_in_buffer_control(n)
-        } else {
-            T::dpram().ep_out_buffer_control(n)
-        };
-
-        ctrl.read().stall()
+        is_endpoint_stalled::<T>(ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
         if ep_addr.index() == 0 {
             return;
@@ -477,27 +868,50 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let n = ep_addr.index();
         match ep_addr.direction() {
             Direction::In => {
-                T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
-                T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
+                critical_section::with(|cs| {
+                    T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
+                    T::dpram().ep_in_buffer_control(n).write(|w| {
+                        w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
+                    });
+                    if let Some(xfer) = EP_IN_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
+                        if !xfer.done && xfer.error.is_none() {
+                            xfer.error = Some(EndpointDisabledError);
+                        }
+                    }
+                    let is_iso = T::dpram().ep_in_control(n - 1).read().endpoint_type()
+                        == pac::usb_dpram::vals::EpControlEndpointType::Isochronous;
+                    {
+                        let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                        iso[n].reset_state();
+                        iso[n].enabled = enabled && is_iso;
+                    }
+                    update_dev_sof_irq::<T>(cs);
                 });
                 EP_IN_WAKERS[n].wake();
             }
             Direction::Out => {
-                T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
-
-                T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                });
-                cortex_m::asm::delay(12);
-                T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
-                    w.set_pid(0, false);
-                    w.set_length(0, self.ep_out[n].max_packet_size);
-                    w.set_available(0, true);
+                critical_section::with(|cs| {
+                    T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
+                    arm_ep_out_buffer::<T>(n, false, self.ep_out[n].max_packet_size);
+                    if let Some(xfer) = EP_OUT_XFERS.borrow(cs).borrow_mut()[n].as_mut() {
+                        if xfer.result.is_none() {
+                            xfer.result = Some(Err(EndpointError::Disabled));
+                        }
+                    }
                 });
                 EP_OUT_WAKERS[n].wake();
             }
+        }
+    }
+
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        let n = ep_addr.index();
+        if n == 0 {
+            return true;
+        }
+        match ep_addr.direction() {
+            Direction::In => T::dpram().ep_in_control(n - 1).read().enable(),
+            Direction::Out => T::dpram().ep_out_control(n - 1).read().enable(),
         }
     }
 
@@ -522,307 +936,118 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         T::regs().sie_ctrl().modify(|w| w.set_resume(true));
         Ok(())
     }
-}
 
-/// Endpoint for RP USB driver.
-pub struct Endpoint<'d, T: Instance, D> {
-    _phantom: PhantomData<(&'d mut T, D)>,
-    info: EndpointInfo,
-    buf: EndpointBuffer<T>,
-}
-
-impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
-    }
-
-    async fn wait_enabled(&mut self) {
-        trace!("wait_enabled IN WAITING");
-        let index = self.info.addr.index();
-        poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_in_control(self.info.addr.index() - 1).read();
-            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
-        })
-        .await;
-        trace!("wait_enabled IN OK");
-    }
-}
-
-impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
-    }
-
-    async fn wait_enabled(&mut self) {
-        trace!("wait_enabled OUT WAITING");
-        let index = self.info.addr.index();
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_out_control(self.info.addr.index() - 1).read();
-            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
-        })
-        .await;
-        trace!("wait_enabled OUT OK");
-    }
-}
-
-impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        trace!("READ WAITING, buf.len() = {}", buf.len());
-        let index = self.info.addr.index();
-        let val = poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_out_buffer_control(index).read();
-            // stay parked while stalled, otherwise the re-arm below would clear the stall.
-            if val.available(0) || val.stall() {
-                Poll::Pending
-            } else {
-                Poll::Ready(val)
-            }
-        })
-        .await;
-
-        let rx_len = val.length(0) as usize;
-        if rx_len > buf.len() {
-            return Err(EndpointError::BufferOverflow);
-        }
-        self.buf.read(&mut buf[..rx_len]);
-
-        trace!("READ OK, rx_len = {}", rx_len);
-
-        let pid = !val.pid(0);
-        T::dpram().ep_out_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, self.info.max_packet_size);
-        });
-        cortex_m::asm::delay(12);
-        T::dpram().ep_out_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, self.info.max_packet_size);
-            w.set_available(0, true);
-        });
-
-        Ok(rx_len)
-    }
-}
-
-impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
-        }
-
-        trace!("WRITE WAITING");
-
-        let index = self.info.addr.index();
-        let val = poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let val = T::dpram().ep_in_buffer_control(index).read();
-            // stay parked while stalled, otherwise the write below would clear the stall.
-            if val.available(0) || val.stall() {
-                Poll::Pending
-            } else {
-                Poll::Ready(val)
-            }
-        })
-        .await;
-
-        self.buf.write(buf);
-
-        let pid = !val.pid(0);
-        T::dpram().ep_in_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, buf.len() as _);
-            w.set_full(0, true);
-        });
-        cortex_m::asm::delay(12);
-        T::dpram().ep_in_buffer_control(index).write(|w| {
-            w.set_pid(0, pid);
-            w.set_length(0, buf.len() as _);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
-
-        trace!("WRITE OK");
-
-        Ok(())
-    }
-}
-
-/// Control pipe for RP USB driver.
-pub struct ControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
-    max_packet_size: u16,
-}
-
-/// Tells if the transfer in progress can no longer complete, because the host abandoned it with a
-/// new SETUP or reset the bus. Without this the stage waits forever, wedging the whole USB task.
-fn control_aborted<T: Instance>() -> bool {
-    // on_interrupt masks setup_req when it fires, and only setup() re-arms it.
-    T::regs().inte().write_set(|w| w.set_setup_req(true));
-    let status = T::regs().sie_status().read();
-    // embassy-usb holds the bus across a control transfer, so it can't spot a reset itself.
-    // leave both flags set, setup() consumes setup_rec and Bus::poll consumes bus_reset.
-    status.setup_rec() || status.bus_reset()
-}
-
-/// Wake on the transfer completing, a new SETUP, or a bus reset.
-fn register_ep0_wakers(cx: &mut core::task::Context) {
-    EP_IN_WAKERS[0].register(cx.waker());
-    EP_OUT_WAKERS[0].register(cx.waker());
-    BUS_WAKER.register(cx.waker());
-}
-
-impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    fn max_packet_size(&self) -> usize {
+    fn control_max_packet_size(&self) -> usize {
         64
     }
 
-    async fn setup(&mut self) -> [u8; 8] {
-        trace!("SETUP read waiting");
-        let regs = T::regs();
-        regs.inte().write_set(|w| w.set_setup_req(true));
-
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs.sie_status().read().setup_rec() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("control: data_out len={}", buf.len());
+        let max_packet_size = self.control_max_packet_size.min(64);
+        let immediate = critical_section::with(|cs| {
+            if control_aborted::<T>() {
+                trace!("control: data_out aborted");
+                return Some(Err(EndpointError::Disabled));
             }
-        })
-        .await;
-
-        let mut buf = [0; 8];
-        EndpointBuffer::<T>::new(0, 8).read(&mut buf);
-
-        let regs = T::regs();
-        regs.sie_status().write(|w| w.set_setup_rec(true));
-
-        // set PID to 0, so (after toggling) first DATA is PID 1
-        T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
-        T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
-
-        trace!("SETUP read ok");
-        buf
-    }
-
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
-        let bufcontrol = T::dpram().ep_out_buffer_control(0);
-        let pid = !bufcontrol.read().pid(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, self.max_packet_size);
-            w.set_pid(0, pid);
+            let pid = !T::dpram().ep_out_buffer_control(0).read().pid(0);
+            arm_ep_out_buffer::<T>(0, pid, max_packet_size);
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[0] = Some(OutXfer::new(buf, max_packet_size, 0x100, 64, false));
+            None
         });
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, self.max_packet_size);
-            w.set_pid(0, pid);
-            w.set_available(0, true);
-        });
+        if let Some(res) = immediate {
+            return res;
+        }
 
-        trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
-        let val = poll_fn(|cx| {
+        let _guard = OutXferGuard(0);
+        poll_fn(|cx| {
             register_ep0_wakers(cx);
             if control_aborted::<T>() {
                 trace!("control: data_out aborted");
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
-            let val = T::dpram().ep_out_buffer_control(0).read();
-            if val.available(0) {
+            critical_section::with(|cs| {
+                let mut xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[0].as_mut().unwrap();
+                if let Some(res) = xfer.result {
+                    xfers[0] = None;
+                    return Poll::Ready(res);
+                }
                 Poll::Pending
-            } else {
-                Poll::Ready(Ok(val))
-            }
+            })
         })
-        .await?;
-
-        let rx_len = val.length(0) as _;
-        trace!("control data_out DONE, rx_len = {}", rx_len);
-
-        if rx_len > buf.len() {
-            return Err(EndpointError::BufferOverflow);
-        }
-        EndpointBuffer::<T>::new(0x100, 64).read(&mut buf[..rx_len]);
-
-        Ok(rx_len)
+        .await
     }
 
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in len={} first={} last={}", data.len(), first, last);
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("control: data_in len={} zlp={}", data.len(), needs_zlp);
 
-        if data.len() > 64 {
-            return Err(EndpointError::BufferOverflow);
-        }
-        EndpointBuffer::<T>::new(0x100, 64).write(data);
+        let max_packet_size = (self.control_max_packet_size as usize).min(64);
+        let first_len = data.len().min(max_packet_size);
+        let send_zlp = needs_zlp && !data.is_empty() && data.len().is_multiple_of(max_packet_size);
 
-        let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        let pid = !bufcontrol.read().pid(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, data.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-        });
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, data.len() as _);
-            w.set_pid(0, pid);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
-
-        poll_fn(|cx| {
-            register_ep0_wakers(cx);
+        let aborted = critical_section::with(|cs| {
             if control_aborted::<T>() {
                 trace!("control: data_in aborted");
-                return Poll::Ready(Err(EndpointError::Disabled));
+                return true;
             }
-            let bufcontrol = T::dpram().ep_in_buffer_control(0);
-            if bufcontrol.read().available(0) {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await?;
-        trace!("control: data_in DONE");
+            EndpointBuffer::<T>::new(0x100, 64).write(&data[..first_len]);
+            let pid = !T::dpram().ep_in_buffer_control(0).read().pid(0);
+            arm_ep_in_buffer::<T>(0, pid, first_len as u16);
 
-        if last {
-            // prepare status phase right away.
-            let bufcontrol = T::dpram().ep_out_buffer_control(0);
-            bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
+            EP_IN_XFERS.borrow(cs).borrow_mut()[0] = Some(InXfer {
+                buf_ptr: data.as_ptr(),
+                buf_len: data.len(),
+                offset: first_len,
+                send_zlp,
+                max_packet_size: max_packet_size as u16,
+                dpram_addr: 0x100,
+                dpram_len: 64,
+                wait_last_complete: true,
+                done: false,
+                error: None,
             });
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
-                w.set_available(0, true);
-            });
+            false
+        });
+        if aborted {
+            return Err(EndpointDisabledError);
         }
+
+        {
+            let _guard = InXferGuard(0);
+            poll_fn(|cx| {
+                register_ep0_wakers(cx);
+                if control_aborted::<T>() {
+                    trace!("control: data_in aborted");
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                critical_section::with(|cs| {
+                    let mut xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                    let xfer = xfers[0].as_mut().unwrap();
+                    if let Some(err) = xfer.error {
+                        xfers[0] = None;
+                        return Poll::Ready(Err(err));
+                    }
+                    if xfer.done {
+                        xfers[0] = None;
+                        return Poll::Ready(Ok(()));
+                    }
+                    Poll::Pending
+                })
+            })
+            .await?;
+        }
+
+        // prepare status phase right away.
+        arm_ep_out_buffer::<T>(0, true, 0);
 
         Ok(())
     }
 
-    async fn accept(&mut self) {
+    async fn control_accept(&mut self) {
         trace!("control: accept");
 
+        arm_ep_in_buffer::<T>(0, true, 0);
         let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-        });
-        cortex_m::asm::delay(12);
-        bufcontrol.write(|w| {
-            w.set_length(0, 0);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-            w.set_available(0, true);
-        });
 
         // wait for completion before returning, needed so
         // set_address() doesn't happen early.
@@ -842,7 +1067,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         .await;
     }
 
-    async fn reject(&mut self) {
+    async fn control_reject(&mut self) {
         trace!("control: reject");
 
         let regs = T::regs();
@@ -854,11 +1079,423 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
     }
 
-    async fn accept_set_address(&mut self, addr: u8) {
-        self.accept().await;
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.control_accept().await;
 
         let regs = T::regs();
         trace!("setting addr: {}", addr);
         regs.addr_endp().write(|w| w.set_address(addr))
     }
+}
+
+/// Endpoint for RP USB driver.
+pub struct Endpoint<'d, T: Instance, D> {
+    _phantom: PhantomData<(&'d mut T, D)>,
+    info: EndpointInfo,
+    buf: EndpointBuffer<T>,
+    schedule: IsoSchedule,
+}
+
+impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
+    fn info(&self) -> EndpointInfo {
+        self.info
+    }
+
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled IN WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            let val = T::dpram().ep_in_control(self.info.addr.index() - 1).read();
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
+        })
+        .await;
+        trace!("wait_enabled IN OK");
+    }
+
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        if index == 0 {
+            return true;
+        }
+        T::dpram().ep_in_control(index - 1).read().enable()
+    }
+
+    async fn set_stalled(&mut self, stalled: bool) {
+        set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
+    }
+
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
+    }
+}
+
+impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
+    fn info(&self) -> EndpointInfo {
+        self.info
+    }
+
+    async fn wait_enabled(&mut self) {
+        trace!("wait_enabled OUT WAITING");
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let val = T::dpram().ep_out_control(self.info.addr.index() - 1).read();
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
+        })
+        .await;
+        trace!("wait_enabled OUT OK");
+    }
+
+    fn is_enabled(&self) -> bool {
+        let index = self.info.addr.index();
+        if index == 0 {
+            return true;
+        }
+        T::dpram().ep_out_control(index - 1).read().enable()
+    }
+
+    async fn set_stalled(&mut self, stalled: bool) {
+        set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
+    }
+
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
+    }
+}
+
+impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        trace!("READ WAITING, buf.len() = {}", buf.len());
+        let index = self.info.addr.index();
+        let immediate = critical_section::with(|cs| {
+            if !T::dpram().ep_out_control(index - 1).read().enable() {
+                return Some(Err(EndpointError::Disabled));
+            }
+            let mut xfer = OutXfer::new(buf, self.info.max_packet_size, self.buf.addr, self.buf.len, true);
+            let val = T::dpram().ep_out_buffer_control(index).read();
+            // stay parked while stalled, otherwise the re-arm would clear the stall.
+            if !val.available(0) && !val.stall() {
+                xfer.on_packet::<T>(index, val);
+                if let Some(res) = xfer.result {
+                    return Some(res);
+                }
+            }
+            EP_OUT_XFERS.borrow(cs).borrow_mut()[index] = Some(xfer);
+            None
+        });
+        if let Some(res) = immediate {
+            return res;
+        }
+
+        let _guard = OutXferGuard(index);
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_OUT_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[index].as_mut().unwrap();
+                if let Some(res) = xfer.result {
+                    xfers[index] = None;
+                    return Poll::Ready(res);
+                }
+                if !T::dpram().ep_out_control(index - 1).read().enable() {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                Poll::Pending
+            })
+        })
+        .await
+    }
+}
+
+impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        trace!("WRITE WAITING, buf.len() = {}, zlp = {}", buf.len(), needs_zlp);
+        let index = self.info.addr.index();
+        let max_packet_size = self.info.max_packet_size as usize;
+
+        let needs_wait = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                let val = T::dpram().ep_in_buffer_control(index).read();
+                // stay parked while stalled, otherwise the write below would clear the stall.
+                if val.available(0) || val.stall() {
+                    return Poll::Pending;
+                }
+
+                let first_len = buf.len().min(max_packet_size);
+                self.buf.write(&buf[..first_len]);
+                arm_ep_in_buffer::<T>(index, !val.pid(0), first_len as u16);
+
+                let send_zlp = needs_zlp && !buf.is_empty() && buf.len().is_multiple_of(max_packet_size);
+                if first_len == buf.len() && !send_zlp {
+                    return Poll::Ready(Ok(false));
+                }
+
+                EP_IN_XFERS.borrow(cs).borrow_mut()[index] = Some(InXfer {
+                    buf_ptr: buf.as_ptr(),
+                    buf_len: buf.len(),
+                    offset: first_len,
+                    send_zlp,
+                    max_packet_size: self.info.max_packet_size,
+                    dpram_addr: self.buf.addr,
+                    dpram_len: self.buf.len,
+                    wait_last_complete: false,
+                    done: false,
+                    error: None,
+                });
+                Poll::Ready(Ok(true))
+            })
+        })
+        .await?;
+
+        if !needs_wait {
+            trace!("WRITE OK");
+            return Ok(());
+        }
+
+        let _guard = InXferGuard(index);
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let mut xfers = EP_IN_XFERS.borrow(cs).borrow_mut();
+                let xfer = xfers[index].as_mut().unwrap();
+                if let Some(err) = xfer.error {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(err));
+                }
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    xfers[index] = None;
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if xfer.done {
+                    xfers[index] = None;
+                    trace!("WRITE OK");
+                    return Poll::Ready(Ok(()));
+                }
+                let val = T::dpram().ep_in_buffer_control(index).read();
+                if !val.available(0) && !val.stall() && xfer.on_packet::<T>(index, val) {
+                    xfers[index] = None;
+                    trace!("WRITE OK");
+                    return Poll::Ready(Ok(()));
+                }
+                Poll::Pending
+            })
+        })
+        .await
+    }
+}
+
+/// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
+pub struct IsoSlot<'a, 'd, T: Instance> {
+    ep: &'a mut Endpoint<'d, T, In>,
+    frame: u32,
+    skipped: Option<NonZeroU32>,
+}
+
+impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
+    fn skipped(&self) -> Option<NonZeroU32> {
+        self.skipped
+    }
+
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        let index = self.ep.info.addr.index();
+        if data.len() > usize::from(self.ep.info.max_packet_size) {
+            return Err(IsoWriteError::BufferOverflow);
+        }
+
+        let interval = self.ep.iso_interval();
+        let res = critical_section::with(|cs| {
+            if !T::dpram().ep_in_control(index - 1).read().enable() {
+                return Err(IsoWriteError::Disabled);
+            }
+            let sof = ISO_SOF.borrow(cs).borrow();
+            if !sof.seen || forward(u32::from(sof.last_sof), self.frame, ISO_FRAME_SPAN) != 1 {
+                return Err(IsoWriteError::TooLate);
+            }
+            drop(sof);
+
+            self.ep.buf.write(data);
+            // Full-speed isochronous IN packets always use DATA0 (USB 2.0 §5.6.4).
+            arm_ep_in_buffer::<T>(index, false, data.len() as u16);
+
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            let state = &mut iso[index];
+            state.armed = true;
+            state.interval = interval as u16;
+            // Before phase lock for interval > 1, keep the packet armed across the whole interval
+            // so the host's first IN token locks the phase; afterward drop at the end of the slot.
+            let window = if state.phase.is_some() || interval == 1 {
+                1
+            } else {
+                interval
+            };
+            state.expiry_frame = ((self.frame + window) % ISO_FRAME_SPAN) as u16;
+            drop(iso);
+            update_dev_sof_irq::<T>(cs);
+            Ok(())
+        });
+
+        res?;
+        self.ep.schedule.accept();
+        Ok(())
+    }
+}
+
+struct IsoArmWaitGuard<T: Instance> {
+    index: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> Drop for IsoArmWaitGuard<T> {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            ISO_IN_STATE.borrow(cs).borrow_mut()[self.index].arm_wait = false;
+            update_dev_sof_irq::<T>(cs);
+        });
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    fn iso_interval(&self) -> u32 {
+        self.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2)
+    }
+}
+
+impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
+    type Slot<'a>
+        = IsoSlot<'a, 'd, T>
+    where
+        Self: 'a;
+
+    fn queue_depth(&self) -> u8 {
+        if self.info.ep_type == EndpointType::Isochronous {
+            1
+        } else {
+            0
+        }
+    }
+
+    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+        assert_eq!(
+            self.info.ep_type,
+            EndpointType::Isochronous,
+            "IsoEndpointIn requires an isochronous endpoint"
+        );
+        let index = self.info.addr.index();
+        assert!(index != 0);
+
+        let interval = self.iso_interval();
+        let _guard = IsoArmWaitGuard::<T> {
+            index,
+            _phantom: PhantomData,
+        };
+
+        // Wait until any previous armed packet has been sent or dropped and SOF is live.
+        let now = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                let sof = ISO_SOF.borrow(cs).borrow();
+                if !iso[index].armed && sof.seen {
+                    iso[index].arm_wait = false;
+                    Poll::Ready(Ok(u32::from(sof.last_sof)))
+                } else {
+                    iso[index].arm_wait = true;
+                    drop(sof);
+                    drop(iso);
+                    update_dev_sof_irq::<T>(cs);
+                    Poll::Pending
+                }
+            })
+        })
+        .await?;
+
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            if iso[index].reset {
+                iso[index].reset = false;
+                self.schedule.reset();
+            }
+            if let Some(phase) = iso[index].phase {
+                self.schedule.lock_phase(u32::from(phase), interval);
+            }
+        });
+
+        let mut total_skipped: u32 = 0;
+        let mut current = now;
+        loop {
+            let offer = self.schedule.offer(current, interval, ISO_FRAME_SPAN);
+            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let frame = offer.frame;
+
+            let ready = poll_fn(|cx| {
+                EP_IN_WAKERS[index].register(cx.waker());
+                critical_section::with(|cs| {
+                    if !T::dpram().ep_in_control(index - 1).read().enable() {
+                        return Poll::Ready(Err(EndpointDisabledError));
+                    }
+                    let sof = ISO_SOF.borrow(cs).borrow();
+                    if !sof.seen {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = true;
+                        drop(sof);
+                        update_dev_sof_irq::<T>(cs);
+                        return Poll::Pending;
+                    }
+                    let now = u32::from(sof.last_sof);
+                    let ahead = forward(now, frame, ISO_FRAME_SPAN);
+                    if ahead == 1 {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(Some(now)))
+                    } else if ahead == 0 || ahead > interval {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(None))
+                    } else {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = true;
+                        drop(sof);
+                        update_dev_sof_irq::<T>(cs);
+                        Poll::Pending
+                    }
+                })
+            })
+            .await?;
+
+            if ready.is_some() {
+                return Ok(IsoSlot {
+                    ep: self,
+                    frame,
+                    skipped: NonZeroU32::new(total_skipped),
+                });
+            }
+
+            current = critical_section::with(|cs| u32::from(ISO_SOF.borrow(cs).borrow().last_sof));
+        }
+    }
+}
+
+/// Tells if the transfer in progress can no longer complete, because the host abandoned it with a
+/// new SETUP, reset the bus, or the bus got suspended. Without this the stage waits forever, wedging
+/// the whole USB task.
+fn control_aborted<T: Instance>() -> bool {
+    // on_interrupt masks setup_req when it fires, and only Bus::poll re-arms it.
+    T::regs().inte().write_set(|w| w.set_setup_req(true));
+    let status = T::regs().sie_status().read();
+    let intr = T::regs().intr().read();
+    // embassy-usb holds the bus across a control transfer, so it can't spot these itself.
+    // Leave the flags set, Bus::poll consumes all of them.
+    status.setup_rec() || status.bus_reset() || (status.suspended() && intr.dev_suspend())
+}
+
+/// Wake on the transfer completing, a new SETUP, or a bus reset.
+fn register_ep0_wakers(cx: &mut core::task::Context) {
+    EP_IN_WAKERS[0].register(cx.waker());
+    EP_OUT_WAKERS[0].register(cx.waker());
+    BUS_WAKER.register(cx.waker());
 }

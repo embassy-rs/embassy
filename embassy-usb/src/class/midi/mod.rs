@@ -1,11 +1,17 @@
-//! USB MIDI 1.0 class.
+//! USB MIDI 1.0 and 2.0 class.
 
+pub mod gtb;
 mod packet;
+pub mod ump;
 
+#[cfg(feature = "device")]
 pub mod device;
+#[cfg(feature = "host")]
 pub mod host;
 
+pub use gtb::*;
 pub use packet::*;
+pub use ump::*;
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_AUDIO_CLASS: u8 = 0x01;
@@ -23,6 +29,7 @@ pub(crate) const MIDI_OUT_JACK_SUBTYPE: u8 = 0x03;
 pub(crate) const MS_GENERAL: u8 = 0x01;
 
 /// USB-MIDI specification release 1.0, in binary-coded decimal.
+#[allow(dead_code)] // Used by the device role only.
 pub(crate) const MIDI_VERSION: u16 = 0x0100;
 
 // Class-specific descriptor lengths, including bLength and bDescriptorType.

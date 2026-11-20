@@ -75,9 +75,22 @@ impl From<u32> for Prescaler {
 }
 
 impl Prescaler {
+    /// Smallest prescaler in /1, /2, ..., /128 for which `ticks / prescaler` fits in the 16-bit reload.
+    ///
+    /// Panics if even /128 leaves the reload above [`u16::MAX`].
     pub fn from_ticks(ticks: u32) -> Self {
-        // We need to scale down to a 16-bit range
-        (ticks >> 16).next_power_of_two().into()
+        // `(ticks >> 16).next_power_of_two()` is one step too small when that
+        // shift is 1, 2, or already a power of two: /2 of 160000 ticks is 80000.
+        let mut div = 1u32;
+        while div <= 128 && ticks / div > u32::from(u16::MAX) {
+            div *= 2;
+        }
+        assert!(
+            div <= 128,
+            "LPTIM period of {} clock ticks does not fit in the 16-bit reload",
+            ticks
+        );
+        div.into()
     }
 
     pub fn scale_down(&self, ticks: u32) -> u16 {

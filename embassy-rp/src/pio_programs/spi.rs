@@ -91,8 +91,8 @@ pub struct Spi<'d, PIO: Instance, const SM: usize, M: Mode> {
     cfg: crate::pio::Config<'d, PIO>,
     program: Option<PioSpiProgram<'d, PIO>>,
     clk_pin: Pin<'d, PIO>,
-    tx_dma: Option<dma::Channel<'d, mode::Async>>,
-    rx_dma: Option<dma::Channel<'d, mode::Async>>,
+    tx_dma: M::IfAsync<dma::Channel<'d, mode::Async>>,
+    rx_dma: M::IfAsync<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<M>,
 }
 
@@ -104,8 +104,8 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         clk_pin: Peri<'d, impl PioPin>,
         mosi_pin: Peri<'d, impl PioPin>,
         miso_pin: Peri<'d, impl PioPin>,
-        tx_dma: Option<dma::Channel<'d, mode::Async>>,
-        rx_dma: Option<dma::Channel<'d, mode::Async>>,
+        tx_dma: M::IfAsync<dma::Channel<'d, mode::Async>>,
+        rx_dma: M::IfAsync<dma::Channel<'d, mode::Async>>,
         config: Config,
     ) -> Self {
         let program = PioSpiProgram::new(pio, config.phase);
@@ -297,7 +297,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Blocking> {
         miso: Peri<'d, impl PioPin>,
         config: Config,
     ) -> Self {
-        Self::new_inner(pio, sm, clk, mosi, miso, None, None, config)
+        Self::new_inner(pio, sm, clk, mosi, miso, (), (), config)
     }
 }
 
@@ -319,7 +319,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
-        Self::new_inner(pio, sm, clk, mosi, miso, Some(tx_dma_ch), Some(rx_dma_ch), config)
+        Self::new_inner(pio, sm, clk, mosi, miso, tx_dma_ch, rx_dma_ch, config)
     }
 
     /// Read data from SPI using DMA.
@@ -328,10 +328,10 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
 
         let len = buffer.len();
 
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
+        let mut rx_ch = self.rx_dma.reborrow();
         let rx_transfer = rx.dma_pull(&mut rx_ch, buffer, false);
 
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let mut tx_ch = self.tx_dma.reborrow();
         let tx_transfer = tx.dma_push_zeros::<u8>(&mut tx_ch, len);
 
         join(tx_transfer, rx_transfer).await;
@@ -343,10 +343,10 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let (rx, tx) = self.sm.rx_tx();
 
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
+        let mut rx_ch = self.rx_dma.reborrow();
         let rx_transfer = rx.dma_pull_discard::<u8>(&mut rx_ch, buffer.len());
 
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let mut tx_ch = self.tx_dma.reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
 
         join(tx_transfer, rx_transfer).await;
@@ -367,7 +367,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
     async fn transfer_inner(&mut self, rx_buffer: *mut [u8], tx_buffer: *const [u8]) -> Result<(), Error> {
         let (rx, tx) = self.sm.rx_tx();
 
-        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
+        let mut rx_ch = self.rx_dma.reborrow();
         let rx_transfer = async {
             rx.dma_pull(&mut rx_ch, unsafe { &mut *rx_buffer }, false).await;
 
@@ -378,7 +378,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
             }
         };
 
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let mut tx_ch = self.tx_dma.reborrow();
         let tx_transfer = async {
             tx.dma_push(&mut tx_ch, unsafe { &*tx_buffer }, false).await;
 

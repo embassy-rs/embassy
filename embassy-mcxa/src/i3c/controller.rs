@@ -1,9 +1,9 @@
 //! I3C Controller driver.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
@@ -14,9 +14,7 @@ use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i3c::{
-    Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
-};
+use crate::pac::i3c::{Hkeep, Ibiresp, Ibitype, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type};
 
 const MAX_CHUNK_SIZE: usize = 256;
 
@@ -163,11 +161,11 @@ pub enum Payload {
     Yes,
 }
 
-impl From<Payload> for crate::pac::i3c::Nobyte {
-    fn from(value: Payload) -> Self {
+impl From<Payload> for bool {
+    fn from(value: Payload) -> bool {
         match value {
-            Payload::Yes => Self::Ibibyte,
-            Payload::No => Self::NoIbibyte,
+            Payload::Yes => false,
+            Payload::No => true,
         }
     }
 }
@@ -203,11 +201,11 @@ enum Dir {
     Read,
 }
 
-impl From<Dir> for I3cDir {
-    fn from(value: Dir) -> Self {
+impl From<Dir> for bool {
+    fn from(value: Dir) -> bool {
         match value {
-            Dir::Write => Self::Dirwrite,
-            Dir::Read => Self::Dirread,
+            Dir::Write => false,
+            Dir::Read => true,
         }
     }
 }
@@ -393,7 +391,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_odbaud(odbaud as u8);
             w.set_i2cbaud(i2cbaud as u8);
             w.set_mstena(Mstena::MasterOn);
-            w.set_disto(Disto::Enable);
+            w.set_disto(false);
             w.set_hkeep(Hkeep::None);
             w.set_odstop(false);
             w.set_odhpp(odhpp_enabled);
@@ -930,7 +928,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         }
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
         });
 
@@ -989,8 +987,8 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             let _ = self.async_stop(bus_type).await;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         result
     }
@@ -1003,7 +1001,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         send_stop: SendStop,
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
         });
 
@@ -1048,8 +1046,8 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             self.async_stop(bus_type).await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }
@@ -1110,7 +1108,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         }
 
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
             self.info
                 .regs()
@@ -1259,8 +1257,8 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             let _ = self.async_stop(bus_type).await;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         result
     }
@@ -1273,7 +1271,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         send_stop: SendStop,
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.blocking_remediation(bus_type);
             self.info
                 .regs()
@@ -1371,8 +1369,8 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             self.async_stop(bus_type).await?;
         }
 
-        // defuse it if the future is not dropped
-        on_drop.defuse();
+        // dismiss it if the future is not dropped
+        DropGuard::dismiss(on_drop);
 
         Ok(())
     }

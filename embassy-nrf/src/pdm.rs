@@ -5,16 +5,15 @@
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
+use crate::gpio::{DISCONNECTED, Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pdm::vals;
 #[cfg(not(feature = "_nrf54l"))]
 pub use crate::pac::pdm::vals::Freq as Frequency;
@@ -169,23 +168,26 @@ impl<'d> Pdm<'d> {
     /// Create PDM driver
     pub fn new<T: Instance>(
         pdm: Peri<'d, T>,
-        clk: Peri<'d, impl GpioPin>,
-        din: Peri<'d, impl GpioPin>,
+        clk: Peri<'d, impl ClkPin<T>>,
+        din: Peri<'d, impl DinPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(pdm, clk.into(), din.into(), config)
+        Self::new_inner(pdm, Flex::new(clk), Flex::new(din), config)
     }
 
-    fn new_inner<T: Instance>(_pdm: Peri<'d, T>, clk: Peri<'d, AnyPin>, din: Peri<'d, AnyPin>, config: Config) -> Self {
+    fn new_inner<T: Instance>(_pdm: Peri<'d, T>, mut clk: Flex<'d>, mut din: Flex<'d>, config: Config) -> Self {
         let r = T::regs();
 
         // setup gpio pins
-        din.conf().write(|w| w.set_input(gpiovals::Input::Connect));
+        // The pins are left configured on drop.
+        din.set_as_input(Pull::None);
         r.psel().din().write_value(din.psel_bits());
+        din.persist();
         clk.set_low();
-        clk.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
+        clk.set_as_input_output(Pull::None, OutputDrive::Standard);
         r.psel().clk().write_value(clk.psel_bits());
+        clk.persist();
 
         // configure
         #[cfg(not(feature = "_nrf54l"))]
@@ -291,7 +293,7 @@ impl<'d> Pdm<'d> {
         }
 
         let r = self.r;
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.intenclr().write(|w| w.set_end(true));
             r.events_stopped().write_value(0);
 
@@ -313,7 +315,7 @@ impl<'d> Pdm<'d> {
         // wait till the user buffer is sampled
         self.wait_for_sample().await;
 
-        drop.defuse();
+        DropGuard::dismiss(drop);
 
         Ok(())
     }
@@ -393,7 +395,7 @@ impl<'d> Pdm<'d> {
         let mut done = false;
 
         let r = self.r;
-        let drop = OnDrop::new(move || {
+        let drop = DropGuard::new((), move |()| {
             r.tasks_stop().write_value(1);
             // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped().read() == 0 {}
@@ -438,7 +440,7 @@ impl<'d> Pdm<'d> {
             Poll::Pending
         })
         .await;
-        drop.defuse();
+        DropGuard::dismiss(drop);
         Ok(())
     }
 }
@@ -575,6 +577,18 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// CLK pin trait.
+    ClkPin,
+    Instance
+);
+
+pin_trait!(
+    /// DIN pin trait.
+    DinPin,
+    Instance
+);
 
 macro_rules! impl_pdm {
     ($type:ident, $pac_type:ident, $irq:ident) => {

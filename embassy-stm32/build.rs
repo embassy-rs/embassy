@@ -509,17 +509,50 @@ fn main() {
     // Generate FLASH regions
     cfgs.declare("flash");
     cfgs.declare("flash_dual_bank");
+    // How an uncorrectable (double) ECC error on a flash read is reported: a bus error on the
+    // read, or an NMI.
+    cfgs.declare("flash_ecc_bus_error");
+    cfgs.declare("flash_ecc_nmi");
+    // The EDATA area: flash with 16-bit words, enabled in the option bytes.
+    cfgs.declare("flash_edata");
     let mut has_flash = false;
     // Only chips with a flash controller supported by the driver get the `flash` module.
-    let flash_supported = METADATA.peripherals.iter().any(|p| {
-        p.name == "FLASH"
-            && p.registers
-                .as_ref()
-                .is_some_and(|r| r.kind == "flash" && r.version.starts_with('v'))
+    let flash_version = METADATA.peripherals.iter().find_map(|p| {
+        let r = p.registers.as_ref()?;
+        (p.name == "FLASH" && r.kind == "flash" && r.version.starts_with('v')).then_some(r.version)
     });
-    if flash_supported {
+    if let Some(flash_version) = flash_version {
         cfgs.enable("flash");
         has_flash = true;
+
+        match flash_version {
+            "v5_h7" | "v5_h7ab" | "v5_h7rs" => cfgs.enable("flash_ecc_bus_error"),
+            // C0 has no ECC.
+            "v4_c0" => {}
+            v if v.starts_with("v4_") || matches!(v, "v5_h5" | "v5_h50" | "v5_c5") => cfgs.enable("flash_ecc_nmi"),
+            // F0/F1/F3/F2/F4/F7 have no ECC. L0/L1 correct single errors, but don't report
+            // double errors.
+            _ => {}
+        }
+
+        if matches!(flash_version, "v5_h5" | "v5_c5") {
+            cfgs.enable("flash_edata");
+        }
+        // On H5 the EDATA sectors of a bank are erased as the last 8 sectors of the bank, counting
+        // the sectors of the largest part of the line: 24-31 on H52x/H53x, 120-127 on H56x/H57x
+        // (RM0481 §7.3.10).
+        if flash_version == "v5_h5" {
+            let first_sector: u8 = if chip_name.starts_with("stm32h52") || chip_name.starts_with("stm32h53") {
+                24
+            } else if chip_name.starts_with("stm32h56") || chip_name.starts_with("stm32h57") {
+                120
+            } else {
+                panic!("EDATA sectors of {chip_name} are unknown");
+            };
+            g.extend(quote! {
+                pub(crate) const EDATA_FIRST_SECTOR: u8 = #first_sector;
+            });
+        }
 
         let mut flash_regions = TokenStream::new();
         let flash_memory_regions: Vec<_> = memory
@@ -625,11 +658,38 @@ fn main() {
             })
             .unzip();
 
+        // Drivers for the memories controlled by the flash controller that are not flash regions.
+        let mut extra_fields = Vec::new();
+        let mut extra_inits = Vec::new();
+        if memory.iter().any(|x| x.kind == MemoryRegionKind::Eeprom) {
+            extra_fields.push(quote! {
+                /// The data EEPROM.
+                pub eeprom: crate::flash::Eeprom<'d, M>
+            });
+            extra_inits.push(quote! {
+                eeprom: crate::flash::Eeprom::new(unsafe { p.clone_unchecked() })
+            });
+        }
+        if matches!(flash_version, "v5_h5" | "v5_c5") {
+            for (field, bank) in [("edata_bank1", "Bank1"), ("edata_bank2", "Bank2")] {
+                let doc = format!("The EDATA area of flash bank {}.", &bank[4..]);
+                let (field, bank) = (format_ident!("{}", field), format_ident!("{}", bank));
+                extra_fields.push(quote! {
+                    #[doc = #doc]
+                    pub #field: crate::flash::Edata<'d, M>
+                });
+                extra_inits.push(quote! {
+                    #field: crate::flash::Edata::new(unsafe { p.clone_unchecked() }, crate::flash::FlashBank::#bank)
+                });
+            }
+        }
+
         let regions_len = flash_memory_regions.len();
         flash_regions.extend(quote! {
             #[cfg(flash)]
             pub struct FlashLayout<'d, M: crate::mode::Mode> {
                 #(#fields),*,
+                #(#extra_fields,)*
                 _mode: core::marker::PhantomData<M>,
             }
 
@@ -641,6 +701,7 @@ fn main() {
                 ) -> Self {
                     Self {
                         #(#inits),*,
+                        #(#extra_inits,)*
                         _mode: core::marker::PhantomData,
                     }
                 }
@@ -883,23 +944,23 @@ fn main() {
             }
         }
 
-        fn gen_prescaled_mux(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
-            let mux_expr = self.gen_mux(
-                peripheral,
-                &PeripheralRccRegister {
-                    register: mux.register,
-                    field: mux.field,
-                },
-            );
-
+        /// Wrap a kernel clock expression in a runtime read of its prescaler field,
+        /// dividing/multiplying accordingly (e.g. F1 `CFGR/ADCPRE`, C5
+        /// `CCIPR2/ADCDACPRE`).
+        fn wrap_prescaler(
+            &mut self,
+            peripheral: &str,
+            freq: TokenStream,
+            prescaler: &PeripheralRccRegister,
+        ) -> TokenStream {
             let ir = &self.rcc_registers.ir;
-            let fieldset_name = mux.prescaler.register.to_ascii_lowercase();
+            let fieldset_name = prescaler.register.to_ascii_lowercase();
             let fieldset = ir
                 .fieldsets
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
                 .unwrap();
-            let field_name = mux.prescaler.field.to_ascii_lowercase();
+            let field_name = prescaler.field.to_ascii_lowercase();
             let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
             let enum_name = field.enumm.unwrap();
             let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
@@ -926,7 +987,7 @@ fn main() {
 
             quote! {
                 {
-                    let freq = #mux_expr;
+                    let freq = #freq;
                     match crate::pac::RCC.#fieldset_name().read().#field_name() {
                         #match_arms
                         #[allow(unreachable_patterns)]
@@ -937,6 +998,25 @@ fn main() {
                         )
                     }
                 }
+            }
+        }
+
+        /// Kernel clock from the consolidated metapac `PeripheralRccMux`: a mux, a
+        /// parent clock (no mux), or either of those behind a prescaler.
+        fn gen_kernel(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
+            let base = if let (Some(register), Some(field)) = (mux.register, mux.field) {
+                self.gen_mux(peripheral, &PeripheralRccRegister { register, field })
+            } else if let Some(clock) = mux.clock {
+                self.gen_clock(peripheral, clock)
+            } else {
+                panic!(
+                    "peripheral '{}' has a kernel clock with neither a mux field nor a parent clock",
+                    peripheral
+                )
+            };
+            match &mux.prescaler {
+                Some(prescaler) => self.wrap_prescaler(peripheral, base, prescaler),
+                None => base,
             }
         }
     }
@@ -1001,9 +1081,8 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
-                PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(p.name, mux),
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
@@ -1127,6 +1206,75 @@ fn main() {
             }
         }
     });
+
+    // The kernel clock selected for an LPTIM time driver, so the driver can check that it can run
+    // and whether it keeps running in Stop mode.
+    if let Some(p) = METADATA.peripherals.iter().find(|p| p.name == time_driver_singleton)
+        && p.registers.as_ref().is_some_and(|r| r.kind == "lptim")
+        && let Some(rcc) = &p.rcc
+        && let PeripheralRccKernelClock::Mux(mux) = &rcc.kernel_clock
+        && let (Some(register), Some(field)) = (mux.register, mux.field)
+    {
+        let ir = &clock_gen.rcc_registers.ir;
+        let fieldset_name = register.to_ascii_lowercase();
+        let fieldset = ir
+            .fieldsets
+            .iter()
+            .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+            .unwrap();
+        let field_name = field.to_ascii_lowercase();
+        let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+        let enum_name = field.enumm.unwrap();
+        let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+        let mut name_arms = TokenStream::new();
+        for v in enumm.variants {
+            let variant = format_ident!("{}", v.name);
+            let name = pascal_to_upper_snake(v.name);
+            name_arms.extend(quote!(Sel::#variant => #name,));
+        }
+        let has = |name: &str| enumm.variants.iter().any(|v| v.name == name);
+        let is_lsi = if has("Lsi") {
+            quote!(sel() == Sel::Lsi)
+        } else {
+            quote!(false)
+        };
+        let is_lse = if has("Lse") {
+            quote!(sel() == Sel::Lse)
+        } else {
+            quote!(false)
+        };
+
+        let fieldset_name = format_ident!("{}", fieldset_name);
+        let field_name = format_ident!("{}", field_name);
+        let enum_name = format_ident!("{}", enum_name);
+        g.extend(quote! {
+            pub(crate) mod time_driver_clock {
+                use crate::pac::rcc::vals::#enum_name as Sel;
+
+                fn sel() -> Sel {
+                    crate::pac::RCC.#fieldset_name().read().#field_name()
+                }
+
+                /// Name of the selected clock.
+                pub(crate) fn name() -> &'static str {
+                    #[allow(unreachable_patterns)]
+                    match sel() {
+                        #name_arms
+                        _ => "?",
+                    }
+                }
+
+                pub(crate) fn is_lsi() -> bool {
+                    #is_lsi
+                }
+
+                pub(crate) fn is_lse() -> bool {
+                    #is_lse
+                }
+            }
+        });
+    }
 
     // Generate RCC
     clock_gen.clock_names.insert("sys".to_string());
@@ -1914,9 +2062,7 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
-        if (matches!(regs.kind, "hash" | "opamp") || (regs.kind == "dac" && regs.version == "v9"))
-            && chip_name.starts_with("stm32c5")
-        {
+        if matches!(regs.kind, "hash") && chip_name.starts_with("stm32c5") {
             continue;
         }
 
@@ -2312,6 +2458,8 @@ fn main() {
         (("timer", "TIMX_TI2_IN"), quote!(crate::timer::TimerInputTrigger<Ch2>)),
         (("timer", "TIMX_TI3_IN"), quote!(crate::timer::TimerInputTrigger<Ch3>)),
         (("timer", "TIMX_TI4_IN"), quote!(crate::timer::TimerInputTrigger<Ch4>)),
+        (("gpdma", "GPDMA_TRG"), quote!(crate::dma::Trigger)),
+        (("lpdma", "LPDMA_TRG"), quote!(crate::dma::Trigger)),
     ]
     .into();
 
@@ -2333,9 +2481,7 @@ fn main() {
 
     let mut has_dfsdm_adc = false;
     for (p, regs) in &peripheral_list {
-        if (matches!(regs.kind, "hash" | "opamp") || (regs.kind == "dac" && regs.version == "v9"))
-            && chip_name.starts_with("stm32c5")
-        {
+        if matches!(regs.kind, "hash") && chip_name.starts_with("stm32c5") {
             continue;
         }
 
@@ -2654,7 +2800,7 @@ fn main() {
         let pin_port = (port_num * 16 + pin_num) as u8;
         if pin.name != "PA13" && pin.name != "PA14" {
             init_gpio_analog.extend(quote! {
-                crate::gpio::set_as_analog(#pin_port);
+                crate::gpio::PinNumber::new(#pin_port).set_as_analog();
             });
         }
 

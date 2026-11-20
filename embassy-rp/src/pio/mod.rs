@@ -1,6 +1,7 @@
 //! PIO driver.
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 use core::pin::Pin as FuturePin;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use core::task::{Context, Poll};
@@ -10,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use pio::{Program, SideSet, Wrap};
 
 use crate::dma::{self, Transfer, Word};
-use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
+use crate::gpio::{self, Drive, Flex, Level, Pull, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
 use crate::{RegExt, mode, pac, peripherals};
@@ -21,7 +22,7 @@ mod instr;
 pub use pio as program;
 
 /// Wakers for interrupts and FIFOs.
-pub struct Wakers([AtomicWaker; 12]);
+struct Wakers([AtomicWaker; 12]);
 
 impl Wakers {
     #[inline(always)]
@@ -114,7 +115,7 @@ impl<PIO: Instance> Handler<PIO::Interrupt> for InterruptHandler<PIO> {
         let ints = PIO::PIO.irqs(0).ints().read().0;
         for bit in 0..12 {
             if ints & (1 << bit) != 0 {
-                PIO::wakers().0[bit].wake();
+                PIO::state().wakers.0[bit].wake();
             }
         }
         PIO::PIO.irqs(0).inte().write_clear(|m| m.0 = ints);
@@ -142,7 +143,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PI
         if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
         } else {
-            PIO::wakers().fifo_out()[SM].register(cx.waker());
+            PIO::state().wakers.fifo_out()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = TXNFULL_MASK << SM;
             });
@@ -178,7 +179,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO
         if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
-            PIO::wakers().fifo_in()[SM].register(cx.waker());
+            PIO::state().wakers.fifo_in()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = RXNEMPTY_MASK << SM;
             });
@@ -214,7 +215,7 @@ impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
             return Poll::Ready(());
         }
 
-        PIO::wakers().irq()[self.irq_no as usize].register(cx.waker());
+        PIO::state().wakers.irq()[self.irq_no as usize].register(cx.waker());
         PIO::PIO.irqs(0).inte().write_set(|m| {
             m.0 = SMIRQ_MASK << self.irq_no;
         });
@@ -232,7 +233,9 @@ impl<'a, 'd, PIO: Instance> Drop for IrqFuture<'a, 'd, PIO> {
 
 /// Type representing a PIO pin.
 pub struct Pin<'l, PIO: Instance> {
-    pin: Peri<'l, AnyPin>,
+    /// Never dropped: the pin stays connected to the PIO for as long as its state machines may
+    /// use it, see [`Common::make_pio_pin()`].
+    pin: ManuallyDrop<Flex<'l>>,
     pio: PhantomData<PIO>,
 }
 
@@ -240,63 +243,37 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
-        self.pin.pad_ctrl().modify(|w| {
-            w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2mA,
-                Drive::_4mA => pac::pads::vals::Drive::_4mA,
-                Drive::_8mA => pac::pads::vals::Drive::_8mA,
-                Drive::_12mA => pac::pads::vals::Drive::_12mA,
-            });
-        });
+        self.pin.set_drive_strength(strength)
     }
 
     /// Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
-        self.pin.pad_ctrl().modify(|w| {
-            w.set_slewfast(slew_rate == SlewRate::Fast);
-        });
+        self.pin.set_slew_rate(slew_rate)
     }
 
     /// Set the pin's pull.
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
-        self.pin.pad_ctrl().modify(|w| {
-            w.set_pue(pull == Pull::Up);
-            w.set_pde(pull == Pull::Down);
-        });
+        self.pin.set_pull(pull)
     }
 
     /// Set the pin's schmitt trigger.
     #[inline]
     pub fn set_schmitt(&mut self, enable: bool) {
-        self.pin.pad_ctrl().modify(|w| {
-            w.set_schmitt(enable);
-        });
+        self.pin.set_schmitt(enable)
     }
 
     /// Configure the output logic inversion of this pin.
     #[inline]
     pub fn set_output_inversion(&mut self, invert: bool) {
-        self.pin.gpio().ctrl().modify(|w| {
-            w.set_outover(if invert {
-                pac::io::vals::Outover::Invert
-            } else {
-                pac::io::vals::Outover::Normal
-            })
-        });
+        self.pin.set_output_inversion(invert)
     }
 
     /// Configure the output enable inversion of this pin
     #[inline]
     pub fn set_output_enable_inversion(&mut self, invert: bool) {
-        self.pin.gpio().ctrl().modify(|w| {
-            w.set_oeover(if invert {
-                pac::io::vals::Oeover::Invert
-            } else {
-                pac::io::vals::Oeover::Normal
-            })
-        })
+        self.pin.set_output_enable_inversion(invert)
     }
 
     /// Set the pin's input sync bypass.
@@ -332,18 +309,12 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
 
     /// Set the pin's input sync bypass.
     pub fn set_input_inversion(&mut self, invert: bool) {
-        self.pin.gpio().ctrl().modify(|w| {
-            w.set_inover(if invert {
-                pac::io::vals::Inover::Invert
-            } else {
-                pac::io::vals::Inover::Normal
-            })
-        })
+        self.pin.set_input_inversion(invert)
     }
 
     /// Get the underlying pin number.
     pub fn pin(&self) -> u8 {
-        self.pin._pin()
+        self.pin.pin_number().pin()
     }
 }
 
@@ -1338,15 +1309,14 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// all [`StateMachine`]s for this block have been dropped. **Other members
     /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: Peri<'d, impl PioPin + 'd>) -> Pin<'d, PIO> {
+        let mut pin = Flex::new_unconfigured(pin);
         // enable the outputs
-        pin.pad_ctrl().write(|w| w.set_od(false));
+        pin.write_pad(|w| w.set_od(false));
         // especially important on the 235x, where IE defaults to 0
-        pin.pad_ctrl().write(|w| w.set_ie(true));
+        pin.write_pad(|w| w.set_ie(true));
 
-        pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
-        pin.pad_ctrl().write(|w| {
-            #[cfg(feature = "_rp235x")]
-            w.set_iso(false);
+        pin.set_function(PIO::FUNCSEL as _);
+        pin.write_pad(|w| {
             w.set_schmitt(true);
             w.set_slewfast(false);
             // TODO rp235x errata E9 recommends to not enable IE if we're not
@@ -1361,11 +1331,11 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             let val = PIO::state().used_pins.load(Ordering::Relaxed);
             PIO::state()
                 .used_pins
-                .store(val | 1 << pin.pin_bank(), Ordering::Relaxed);
+                .store(val | 1 << pin.pin_number().pin(), Ordering::Relaxed);
         });
 
         Pin {
-            pin: pin.into(),
+            pin: ManuallyDrop::new(pin),
             pio: PhantomData,
         }
     }
@@ -1599,16 +1569,26 @@ impl AtomicU64 {
     }
 }
 
-/// Representation of the PIO state keeping a record of which pins are assigned to
-/// each PIO.
-// make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
-// cannot be treated as an owned resource since dropping it would have to deconfigure
-// the pin, breaking running state machines in the process. pins are also shared
-// between all state machines, which makes ownership even messier to track any
-// other way.
-pub struct State {
+/// Per-PIO-block state.
+pub(crate) struct State {
     users: AtomicU8,
+    // make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
+    // cannot be treated as an owned resource since dropping it would have to deconfigure
+    // the pin, breaking running state machines in the process. pins are also shared
+    // between all state machines, which makes ownership even messier to track any
+    // other way.
     used_pins: AtomicU64,
+    wakers: Wakers,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            users: AtomicU8::new(0),
+            used_pins: AtomicU64::new(0),
+            wakers: Wakers([const { AtomicWaker::new() }; 12]),
+        }
+    }
 }
 
 fn on_pio_drop<PIO: Instance>() {
@@ -1633,47 +1613,7 @@ trait SealedInstance {
     const PIO_NO: u8;
     const PIO: &'static crate::pac::pio::Pio;
     const FUNCSEL: crate::pac::io::vals::Gpio0CtrlFuncsel;
-
-    #[inline]
-    fn wakers() -> &'static Wakers {
-        static WAKERS: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
-        &WAKERS
-    }
-
-    #[inline]
-    fn state() -> &'static State {
-        match Self::PIO_NO {
-            0 => {
-                static STATE_0: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_0
-            }
-            1 => {
-                static STATE_1: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_1
-            }
-            #[cfg(feature = "_rp235x")]
-            2 => {
-                static STATE_2: State = State {
-                    users: AtomicU8::new(0),
-                    used_pins: AtomicU64::new(0),
-                };
-
-                &STATE_2
-            }
-            #[cfg(feature = "_rp235x")]
-            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1,2", Self::PIO_NO),
-            #[cfg(not(feature = "_rp235x"))]
-            _ => panic!("Invalid PIO_NO: {}, expected one of 0,1", Self::PIO_NO),
-        }
-    }
+    fn state() -> &'static State;
 }
 
 /// PIO instance.
@@ -1689,6 +1629,10 @@ macro_rules! impl_pio {
             const PIO_NO: u8 = $pio;
             const PIO: &'static pac::pio::Pio = &pac::$pac;
             const FUNCSEL: pac::io::vals::Gpio0CtrlFuncsel = pac::io::vals::Gpio0CtrlFuncsel::$funcsel;
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
         }
         impl Instance for peripherals::$name {
             type Interrupt = crate::interrupt::typelevel::$irq;

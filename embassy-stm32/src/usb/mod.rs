@@ -85,6 +85,11 @@ fn common_init<T: Instance>() {
         while !crate::pac::PWR.csr2().read().usb33rdy() {}
     }
 
+    // Point the CRS at the port that is actually being started: `sync_from_usb` can only
+    // select one of the two SOF inputs, and which one 0b10 means differs per family.
+    #[cfg(any(stm32h7, stm32h7rs))]
+    crs_sync_from::<T>();
+
     #[cfg(any(stm32u5, stm32u3))]
     {
         // Enable USB power
@@ -147,9 +152,9 @@ fn common_init<T: Instance>() {
         critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33vmen(true)));
 
         // Wait for USB power to stabilize
-        while crate::pac::PWR.svmcr3().read().usb33rdy() != Usb33rdy::B0x1 {}
+        while crate::pac::PWR.svmcr3().read().usb33rdy() != Usb33rdy::Ready {}
 
-        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33sv(Usb33sv::B0x1)));
+        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33sv(Usb33sv::Valid)));
     }
 
     // Bring the PHY up before the core. On the N6 this selects the reference clock
@@ -163,4 +168,48 @@ fn common_init<T: Instance>() {
     unsafe { T::Interrupt::enable() };
 
     rcc::enable_and_reset::<T>();
+}
+
+/// H7/H7RS: point the CRS at this port's start-of-frame packets.
+///
+/// `Hsi48Config::sync_from_usb` selects `Syncsrc::Usb` (0b10), which is only one of the two
+/// OTG ports; which one depends on the family:
+///
+/// - H742/743/745/747/750/753/755/757: 0b10 is USB1 (OTG_HS), USB2 (OTG_FS) is 0b11
+///   (RM0433 table 98, RM0399 table 98 both have USB1 SOF on crs_sync2 and USB2 SOF on
+///   crs_sync3, though 9.8.2 lists 0b11 as reserved).
+/// - H7R/H7S: the other way round - 0b10 is OTG_FS SOF, OTG_HS SOF is 0b11
+///   (RM0477 §9.4.2).
+///
+/// Measured on an STM32H753: with 0b10 and OTG_FS no SYNC ever arrives and HSI48 stays
+/// untrimmed; with 0b11 the CRS locks.
+/// Only a CRS left by `sync_from_usb` is changed, so the first port started wins.
+#[cfg(any(stm32h7, stm32h7rs))]
+fn crs_sync_from<T: Instance>() {
+    use crate::pac::CRS;
+    use crate::pac::crs::vals::Syncsrc;
+
+    // 0b11 is not in the SVD, so the PAC calls it `_RESERVED_3`.
+    let other_port = Syncsrc::_RESERVED_3;
+    // On H7 0b10 is the OTG_HS port, on H7RS it is the OTG_FS one.
+    let hs_is_default = !cfg!(stm32h7rs);
+    let src = if T::HIGH_SPEED == hs_is_default {
+        Syncsrc::Usb
+    } else {
+        other_port
+    };
+    critical_section::with(|_| {
+        // CRS is gated by APB1HENR on H7, but by APB1ENR2 on H7RS.
+        #[cfg(stm32h7)]
+        let crs_clocked = crate::pac::RCC.apb1henr().read().crsen();
+        #[cfg(stm32h7rs)]
+        let crs_clocked = crate::pac::RCC.apb1enr2().read().crsen();
+        if !crs_clocked || !CRS.cr().read().cen() || CRS.cfgr().read().syncsrc() != Syncsrc::Usb {
+            return;
+        }
+        // CRS_CFGR is write-protected while CEN is set (RM0433 9.8.2).
+        CRS.cr().modify(|w| w.set_cen(false));
+        CRS.cfgr().modify(|w| w.set_syncsrc(src));
+        CRS.cr().modify(|w| w.set_cen(true));
+    });
 }

@@ -42,7 +42,6 @@ impl<T: CoreInstance> Default for Config<T> {
 ///
 /// This extends [`Config`] with optional encoder-index controls on timer variants
 /// that expose TIMx_ECR/TIMx_SR index fields.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
 pub struct AdvancedConfig<T: CoreInstance> {
     /// Base QEI configuration.
@@ -105,7 +104,6 @@ impl From<QeiMode> for Sms {
 
 #[cfg(timer_v2)]
 /// Encoder index configuration (TIMx_ECR fields).
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
 pub struct IndexConfig {
     /// Index-direction selection.
@@ -162,12 +160,6 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
         config: AdvancedConfig<T>,
     ) -> Self {
-        // Configure the pins to be used for the QEI peripheral.
-        critical_section::with(|_| {
-            ch1.set_low();
-            ch2.set_low();
-        });
-
         let inner = Timer::new(tim);
         let r = inner.regs_gp16();
 
@@ -207,8 +199,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
 
         Self {
             inner,
-            _ch1: new_pin!(ch1, AfType::input(config.base.ch1_pull)).unwrap(),
-            _ch2: new_pin!(ch2, AfType::input(config.base.ch2_pull)).unwrap(),
+            _ch1: set_as_af!(ch1, AfType::input(config.base.ch1_pull), Flex::set_low),
+            _ch2: set_as_af!(ch2, AfType::input(config.base.ch2_pull), Flex::set_low),
             _wake_guard: T::RCC_INFO.wake_guard(),
         }
     }

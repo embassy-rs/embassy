@@ -3,6 +3,7 @@
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_time::Timer;
@@ -20,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("=== RTC Alarm Example ===");
 
-    let mut rtc = Rtc::new(p.RTC0, Irqs, Default::default());
+    let (mut rtc, time_provider) = Rtc::new(p.RTC0, Irqs, Default::default());
 
     let now = DateTime {
         year: 2025,
@@ -44,8 +45,19 @@ async fn main(_spawner: Spawner) {
     // so the alarm lands as the clock ticks to 14:30:21, about 6 s from here.
     defmt::info!("Alarm set for: 2025-10-15 14:30:20, waiting...");
 
-    rtc.wait_for_alarm(alarm).await;
-    let at = rtc.get_datetime();
+    // Clock readers do not need the exclusive alarm handle (or its mutex).
+    join(rtc.wait_for_alarm(alarm), async {
+        Timer::after_secs(1).await;
+        let at = time_provider.now();
+        defmt::info!(
+            "Clock remains readable while waiting: {=u8}:{=u8}:{=u8}",
+            at.hour,
+            at.minute,
+            at.second
+        );
+    })
+    .await;
+    let at = time_provider.now();
     defmt::info!(
         "*** ALARM TRIGGERED at {=u8}:{=u8}:{=u8} ***",
         at.hour,
