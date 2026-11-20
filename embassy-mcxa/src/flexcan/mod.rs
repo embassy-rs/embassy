@@ -98,7 +98,7 @@ macro_rules! impl_flexcan_pin {
 #[macro_export]
 macro_rules! impl_can_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             // Peripheral identity
             impl $crate::flexcan::sealed::SealedInstance for $crate::peripherals::[<CAN $n>] {}
 

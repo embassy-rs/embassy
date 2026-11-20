@@ -193,21 +193,51 @@ pub unsafe fn pulse_reset<G: Gate>() {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! impl_cc_gate {
-    ($name:ident, $clk_reg:ident, $field:ident, $config:ident) => {
+    (@clock_control cc, $clk_reg:ident, $field:ident) => {
+        pastey::paste! {
+            #[inline]
+            unsafe fn enable_clock() {
+                // CC SET/CLR are write-only aliases. Build a zero-based mask;
+                // reading the shared bank would reintroduce a lost-update race.
+                let mut mask = $crate::clocks::default_register_value($crate::pac::MRCC0.$clk_reg());
+                mask.[<set_ $field>](true);
+                $crate::pac::MRCC0.[<$clk_reg _set>]().write(|w| w.set_data(mask.0));
+            }
+
+            #[inline]
+            unsafe fn disable_clock() {
+                let mut mask = $crate::clocks::default_register_value($crate::pac::MRCC0.$clk_reg());
+                mask.[<set_ $field>](true);
+                $crate::pac::MRCC0.[<$clk_reg _clr>]().write(|w| w.set_data(mask.0));
+            }
+        }
+    };
+    (@clock_control acc, $clk_reg:ident, $field:ident) => {
+        pastey::paste! {
+            #[inline]
+            unsafe fn enable_clock() {
+                // ACC has no SET/CLR aliases. Mask interrupts across the entire
+                // shared-word RMW, not just the caller's clock configuration.
+                critical_section::with(|_| {
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                });
+            }
+
+            #[inline]
+            unsafe fn disable_clock() {
+                critical_section::with(|_| {
+                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                });
+            }
+        }
+    };
+    ($name:ident, $gate_kind:ident, $clk_reg:ident, $field:ident, $config:ident) => {
         impl $crate::clocks::Gate for $crate::peripherals::$name {
             type MrccPeriphConfig = $crate::clocks::periph_helpers::$config;
 
-            paste::paste! {
-                #[inline]
-                unsafe fn enable_clock() {
-                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
-                }
+            $crate::impl_cc_gate!(@clock_control $gate_kind, $clk_reg, $field);
 
-                #[inline]
-                unsafe fn disable_clock() {
-                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
-                }
-
+            pastey::paste! {
                 #[inline]
                 unsafe fn release_reset() {}
 
@@ -227,21 +257,13 @@ macro_rules! impl_cc_gate {
         }
     };
 
-    ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ident) => {
+    ($name:ident, $gate_kind:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ident) => {
         impl $crate::clocks::Gate for $crate::peripherals::$name {
             type MrccPeriphConfig = $crate::clocks::periph_helpers::$config;
 
-            paste::paste! {
-                #[inline]
-                unsafe fn enable_clock() {
-                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
-                }
+            $crate::impl_cc_gate!(@clock_control $gate_kind, $clk_reg, $field);
 
-                #[inline]
-                unsafe fn disable_clock() {
-                    $crate::pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
-                }
-
+            pastey::paste! {
                 #[inline]
                 unsafe fn release_reset() {
                     // MRCC_GLB_RSTn_SET sets only the selected bit without a
