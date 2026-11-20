@@ -107,12 +107,10 @@
 
 use core::task::Waker;
 
-mod tick;
-
 /// Ticks per second of the global timebase.
 ///
 /// This value is specified by the [`tick-*` Cargo features](crate#tick-rate)
-pub const TICK_HZ: u64 = tick::TICK_HZ;
+pub const TICK_HZ: u64 = include!(concat!(env!("OUT_DIR"), "/tick_rate.rs"));
 
 /// Time driver
 pub trait Driver: Send + Sync + 'static {

@@ -20,6 +20,14 @@ fn main() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    if env::var("CARGO_FEATURE_TIME_DRIVER_PIT").is_ok() {
+        assert_eq!(embassy_time_driver::TICK_HZ, 1_000_000);
+    }
+
+    if env::var("CARGO_FEATURE_TIME_DRIVER_RTC").is_ok() {
+        assert_eq!(embassy_time_driver::TICK_HZ, 32_768);
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_MIMXRT") || x.starts_with("CARGO_FEATURE_LPC"))
