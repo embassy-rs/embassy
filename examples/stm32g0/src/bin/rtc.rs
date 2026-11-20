@@ -5,7 +5,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcConfig};
+use embassy_stm32::rtc::{RawDateTime, Rtc, RtcConfig};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -16,16 +16,26 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let now = DateTime::from(2023, 6, 14, DayOfWeek::Friday, 15, 59, 10, 0);
+    // The raw API does no validation: these values are written to the RTC registers as is.
+    let now = RawDateTime {
+        year: 23, // 2023
+        month: 6,
+        day: 14,
+        day_of_week: 3, // Wednesday
+        hour: 15,
+        minute: 59,
+        second: 10,
+        subsecond: 0,
+    };
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
-    rtc.set_datetime(now.unwrap()).expect("datetime not set");
+    rtc.set_raw(now);
 
     loop {
-        let now: DateTime = time_provider.now().unwrap().into();
+        let now = rtc.read_raw();
 
-        info!("{}:{}:{}", now.hour(), now.minute(), now.second());
+        info!("{}:{}:{}", now.hour, now.minute, now.second);
 
         Timer::after_millis(1000).await;
     }

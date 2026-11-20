@@ -4,10 +4,10 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(not(feature = "_nrf54l"))]
@@ -264,7 +264,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         const { core::assert!(N <= DMA_SIZE, "buffer is too long for the SAADC EasyDMA") }
 
         // In case the future is dropped, stop the task and wait for it to end.
-        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = DropGuard::new((), |()| Self::stop_sampling_immediately());
 
         let r = Self::regs();
 
@@ -381,7 +381,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         F: FnMut(&[[i16; N]]) -> CallbackResult,
     {
         // In case the future is dropped, stop the task and wait for it to end.
-        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+        let on_drop = DropGuard::new((), |()| Self::stop_sampling_immediately());
 
         let r = Self::regs();
 

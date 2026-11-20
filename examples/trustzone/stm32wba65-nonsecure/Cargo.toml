@@ -1,0 +1,19 @@
+[package]
+edition = "2024"
+name = "embassy-stm32wba65-trustzone-nonsecure"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cortex-m = { version = "0.7.9", features = ["inline-asm"] }
+cortex-m-rt = "0.7.0"
+cortex-m-semihosting = "0.5"
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/trustzone/stm32wba65-nonsecure" }
+]

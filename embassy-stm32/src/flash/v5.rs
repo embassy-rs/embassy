@@ -125,6 +125,19 @@ pub(super) unsafe fn start_write(address: u32, data: &[u8; WRITE_SIZE], interrup
     cortex_m::asm::dsb();
 }
 
+/// Programs 2 or 4 bytes of the EDATA area. It has no write buffer: a 16- or 32-bit write is
+/// programmed right away, a 32-bit one in the same time as a 16-bit one.
+#[cfg(flash_edata)]
+pub(super) unsafe fn start_write_edata(address: u32, data: &[u8], interrupt: bool) {
+    start_program(0, interrupt);
+    match *data {
+        [a, b] => write_volatile(address as *mut u16, u16::from_le_bytes([a, b])),
+        [a, b, c, d] => write_volatile(address as *mut u32, u32::from_le_bytes([a, b, c, d])),
+        _ => unreachable!(),
+    }
+    cortex_m::asm::dsb();
+}
+
 pub(super) unsafe fn start_erase(sector: &FlashSector, config: &Config, interrupt: bool) {
     let _ = config;
     let set = set_of(sector.start);
@@ -140,6 +153,14 @@ pub(super) unsafe fn start_erase(sector: &FlashSector, config: &Config, interrup
         });
         #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
         w.set_bksel(bksel(sector.bank));
+        // The EDATA pages have their own page numbers. On H5, the EDATA sectors are user flash
+        // sectors.
+        #[cfg(flash_v5_c5)]
+        w.set_edatasel(if sector.start >= super::edata::BASE {
+            Edatasel::Edata
+        } else {
+            Edatasel::Main
+        });
     });
     set_interrupts(set, interrupt);
     reg!(set, cr).modify(|w| w.set_strt(true));
@@ -213,6 +234,43 @@ pub(super) fn finish() -> Result<(), Error> {
     res
 }
 
+/// Whether a double ECC error has been detected since the flags were last cleared.
+#[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+pub(super) fn ecc_double_error() -> bool {
+    #[cfg(any(flash_v5_h7, flash_v5_h7ab))]
+    return (0..SETS).any(|set| reg!(set, sr).read().dbeccerr());
+    #[cfg(flash_v5_h7rs)]
+    return pac::FLASH.isr().read().dbeccerr();
+    #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+    return pac::FLASH.eccdetr().read().eccd();
+}
+
+/// The data of the 16-bit word that gave the last double ECC error, in the areas with 16-bit
+/// words (EDATA, OTP).
+#[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+pub(super) fn ecc_data() -> u16 {
+    pac::FLASH.eccdr().read().data_ecc()
+}
+
+/// Clears the ECC double error flags (and on H5/C5 the correction flag).
+#[cfg(any(flash_ecc_bus_error, flash_ecc_nmi))]
+pub(super) fn ecc_clear() {
+    #[cfg(any(flash_v5_h7, flash_v5_h7ab))]
+    for set in 0..SETS {
+        reg!(set, ccr).write(|w| w.set_clr_dbeccerr(true));
+    }
+    #[cfg(flash_v5_h7rs)]
+    pac::FLASH.icr().write(|w| w.set_clr_dbeccerr(true));
+    #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+    {
+        // The flags are write-1-to-clear, the other fields are read-only or keep their value.
+        let r = pac::FLASH.ecccorr();
+        r.write_value(r.read());
+        let r = pac::FLASH.eccdetr();
+        r.write_value(r.read());
+    }
+}
+
 #[cfg(flash_dual_bank)]
 pub(super) fn banks_swapped() -> bool {
     pac::FLASH.optcr().read().swap_bank()
@@ -222,40 +280,6 @@ pub(super) fn banks_swapped() -> bool {
 pub(super) fn dual_bank_mode() -> bool {
     #[cfg(flash_v5_c5)]
     return !pac::FLASH.optsr_cur().read().single_bank();
-}
-
-/// Runs one EDATA operation to completion. The flash must be unlocked.
-#[cfg(flash_v5_c5)]
-unsafe fn edata_op(start: impl FnOnce()) -> Result<(), Error> {
-    wait_idle();
-    let _ = finish();
-    start();
-    cortex_m::asm::dsb();
-    wait_idle();
-    finish()
-}
-
-/// Programs one half-word of the EDATA area. The flash must be unlocked.
-#[cfg(flash_v5_c5)]
-pub(super) unsafe fn edata_write(address: u32, value: u16) -> Result<(), Error> {
-    edata_op(|| {
-        start_program(0, false);
-        write_volatile(address as *mut u16, value);
-    })
-}
-
-/// Erases one EDATA page of a physical bank. The flash must be unlocked.
-#[cfg(flash_v5_c5)]
-pub(super) unsafe fn edata_erase(bank: FlashBank, page: u8) -> Result<(), Error> {
-    edata_op(|| {
-        reg!(0, cr).modify(|w| {
-            w.set_per(true);
-            w.set_pnb(page);
-            w.set_edatasel(Edatasel::Edata);
-            w.set_bksel(bksel(bank));
-        });
-        reg!(0, cr).modify(|w| w.set_strt(true));
-    })
 }
 
 /// Swaps flash banks 1 and 2, persistently.

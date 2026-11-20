@@ -95,13 +95,15 @@ impl AtomicClear for AtomicBool {
 
     #[cfg(not(target_has_atomic = "8"))]
     fn clear(&self) -> bool {
-        if self.load(Ordering::Acquire) {
-            self.store(false, Ordering::Relaxed);
+        critical_section::with(|_| {
+            if self.load(Ordering::Acquire) {
+                self.store(false, Ordering::Relaxed);
 
-            true
-        } else {
-            false
-        }
+                true
+            } else {
+                false
+            }
+        })
     }
 }
 

@@ -4,6 +4,7 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -121,6 +122,79 @@ pub struct PllFreq {
     pub pll_p: Option<Hertz>,
     pub pll_q: Option<Hertz>,
     pub pll_r: Option<Hertz>,
+}
+
+/// The clocks to bring back after Stop.
+///
+/// G4 wakes up on HSI16 with HSE, the PLL and HSI48 off. The configuration registers, the voltage
+/// range and boost mode, and the flash latency are kept (RM0440 6.3.6, 7.3). HSI16 runs at 0 wait
+/// states in range 1, which is the only range used here, so the latency never needs raising
+/// before Stop.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    #[cfg(crs)]
+    hsi48: bool,
+    sw: Sysclk,
+    /// Switching to a PLL with HCLK above 80 MHz needs a 1 us step with the AHB prescaler at 2
+    /// (RM0440 7.2.7).
+    hpre_step: bool,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cfgr = RCC.cfgr().read();
+        Self {
+            cr: RCC.cr().read(),
+            #[cfg(crs)]
+            hsi48: super::hsi48_enabled(),
+            sw: cfgr.sws(),
+            hpre_step: unsafe { super::get_freqs() }.hclk1.to_hertz().unwrap().0 > 80_000_000
+                && cfgr.hpre() == AHBPrescaler::Div1,
+        }
+    }
+
+    pub(crate) fn enter(&self) {}
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+        });
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_enable();
+        }
+        while (s.hseon() && !RCC.cr().read().hserdy()) || (s.hsion() && !RCC.cr().read().hsirdy()) {}
+
+        if s.pllon() {
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+        }
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_wait_ready();
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            if self.hpre_step {
+                RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::Div2));
+            }
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+            if self.hpre_step {
+                cortex_m::asm::delay(unsafe { super::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000);
+                RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::Div1));
+            }
+        }
+
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
 }
 
 pub(crate) unsafe fn init(config: Config) {
@@ -332,8 +406,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi48: hsi48,
         rtc: rtc,
         i2s_ckin: None,
-        lsi: None,
-        lse: None,
+        lsi: config.ls.lsi.then_some(LSI_FREQ),
+        lse: config.ls.lse.map(|l| l.frequency),
     );
 }
 

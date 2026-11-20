@@ -1,12 +1,18 @@
 //! Cache maintenance around flash program and erase operations.
 //!
 //! The caches between the CPU and the flash are not kept coherent with program and erase
-//! operations, so they are disabled while an operation runs and flushed before they are
-//! re-enabled:
+//! operations, so they are flushed after each operation:
 //!
 //! - Flash accelerator caches in `FLASH_ACR` (F2/F4, L4, G0/G4, C0, U0, WB, WL): the I/D-cache
-//!   resets may only be used while the caches are disabled. On dual-bank F42x/F43x this is also
-//!   the workaround for the data cache corruption erratum (ES0206 2.2.12).
+//!   resets may only be used while the caches are disabled. The data cache is also disabled
+//!   while the operation runs, the workaround for the data cache corruption errata on dual-bank
+//!   F42x/F43x (ES0206 2.2.12) and L4, as ST's L4 and G4 HALs do. The instruction cache stays
+//!   enabled, as in all of ST's HALs.
+//!
+//!   Running with the instruction cache disabled and the prefetch enabled is not supported:
+//!   on WB and WL, an operation started from code running in flash can then stay pending
+//!   forever (BSY and CFGBSY set) while the loop polling for completion runs, depending on the
+//!   loop's alignment. This is not documented; it was found by testing on hardware.
 //! - The ART accelerator on F7.
 //! - The ICACHE peripheral (L5, U5, U3, WBA, H5, C5). The reference manuals recommend
 //!   modifying the flash with the ICACHE disabled; disabling it invalidates it.
@@ -104,13 +110,8 @@ pub(super) fn before_op() -> State {
         state.icache = acr.icen();
         acr_dcache! {
             state.dcache = acr.dcen();
+            pac::FLASH.acr().modify(|w| w.set_dcen(false));
         }
-        pac::FLASH.acr().modify(|w| {
-            w.set_icen(false);
-            acr_dcache! {
-                w.set_dcen(false);
-            }
-        });
     }
 
     #[cfg(flash_v2_f7)]
@@ -139,6 +140,7 @@ pub(super) fn after_op(state: &State, range: (u32, u32)) {
     let _ = (state, range);
 
     acr_icache! {
+        pac::FLASH.acr().modify(|w| w.set_icen(false));
         pac::FLASH.acr().modify(|w| {
             w.set_icrst(true);
             acr_dcache! {

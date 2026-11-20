@@ -6,4 +6,6 @@
 //! CDC-ACM they carry no class descriptors, so device discovery is
 //! VID/PID based.
 
+pub mod ch34x;
 pub mod cp210x;
+pub mod ftdi;

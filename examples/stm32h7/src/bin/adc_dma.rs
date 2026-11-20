@@ -68,9 +68,9 @@ async fn main(_spawner: Spawner) {
             dma.reborrow(),
             Irqs,
             [
-                (vrefint.reborrow_adc(), SampleTime::Cycles3875),
-                (p.PC0.reborrow_adc(), SampleTime::Cycles8105),
-                (pc1.reborrow_adc(), SampleTime::Cycles8105),
+                (vrefint.reborrow_adc(), SampleTime::Cycles387_5),
+                (p.PC0.reborrow_adc(), SampleTime::Cycles810_5),
+                (pc1.reborrow_adc(), SampleTime::Cycles810_5),
             ]
             .into_iter(),
             None,

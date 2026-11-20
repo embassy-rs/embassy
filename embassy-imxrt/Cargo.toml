@@ -38,7 +38,11 @@ rt = [
 ]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mimxrt685s-pac?/defmt", "mimxrt633s-pac?/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
+## Implement `defmt::Format` for PAC types.
+pac-defmt = ["mimxrt685s-pac?/defmt", "mimxrt633s-pac?/defmt"]
+## Implement `core::fmt::Debug` for PAC types.
+pac-debug = ["mimxrt685s-pac?/debug", "mimxrt633s-pac?/debug"]
 
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]

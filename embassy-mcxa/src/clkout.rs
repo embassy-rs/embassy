@@ -12,7 +12,7 @@ use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::mrcc::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
+use crate::pac::mrcc::ClkoutClkselMux as Mux;
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
@@ -36,8 +36,11 @@ pub enum ClockOutSel {
     /// 16KHz oscillator
     #[cfg(feature = "_mcxa2xx")]
     Clk16K,
-    /// Either the 16K or 32K oscillator, depending on settings
-    #[cfg(feature = "_mcxa5xx")]
+    /// RTC-selected low-power clock output.
+    ///
+    /// Unsupported: CLK_SEL and CLKO_DIS belong to the independently owned RTC,
+    /// so CLKOUT cannot guarantee this route's frequency or availability.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     LpOsc,
     /// Output of PLL1
     #[cfg(feature = "_mcxa2xx")]
@@ -162,8 +165,8 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
                 ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::I1ClkrootFircDiv),
                 #[cfg(not(feature = "sosc-as-gpio"))]
                 ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::I2ClkrootSosc),
-                // TODO: we need this to be an lp_osc clock
-                ClockOutSel::LpOsc => (c.ensure_clk_32k_vdd_core_active(&level)?, Mux::I3ClkrootLposc),
+                #[cfg(not(feature = "rosc-32k-as-gpio"))]
+                ClockOutSel::LpOsc => return Err(ClockError::NotImplemented { clock: "lp_osc" }),
                 ClockOutSel::Pll1ClkDiv => (c.ensure_pll1_clk_div_active(&level)?, Mux::I5ClkrootSpllDiv),
                 ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::I6ClkrootSlow),
             };
@@ -200,13 +203,13 @@ fn setup_clkout(mux: Mux, div: Div4) {
 
     // Set up clkdiv
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::Off);
-        w.set_reset(ClkdivReset::Off);
+        w.set_halt(true);
+        w.set_reset(true);
         w.set_div(div.into_bits());
     });
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_halt(ClkdivHalt::On);
-        w.set_reset(ClkdivReset::On);
+        w.set_halt(false);
+        w.set_reset(false);
         w.set_div(div.into_bits());
     });
 
@@ -216,7 +219,7 @@ fn setup_clkout(mux: Mux, div: Div4) {
     // (MCXA2xx RM Rev 2 14.5.2.81, MCXA5xx RM Rev 1 22.5.2.112), so the loop
     // must spin while the field reads `Off`. Comparing against `On` spun while
     // the clock was already stable instead.
-    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::Off {}
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() {}
 }
 
 /// Stop the
@@ -226,8 +229,8 @@ fn disable_clkout() {
     // TODO: restore the pin to hi-z or something?
     let mrcc = crate::pac::MRCC0;
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.set_reset(ClkdivReset::Off);
-        w.set_halt(ClkdivHalt::Off);
+        w.set_reset(true);
+        w.set_halt(true);
         w.set_div(0);
     });
     mrcc.mrcc_clkout_clksel().write(|w| w.0 = 0b111);

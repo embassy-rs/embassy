@@ -19,7 +19,7 @@ use embassy_rp::peripherals::{UART0, USB};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
 use embassy_usb::class::cdc_acm::LineCoding;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
 use embedded_io_async::Write;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
     let class = {
         static STATE: StaticCell<State> = StaticCell::new();
         let state = STATE.init(State::new());
-        CdcAcmClass::new(&mut builder, state, 64)
+        CdcAcmClass::new(&mut builder, state, CdcAcmConfig::new())
     };
 
     let (mut usb_tx, mut usb_rx, usb_control) = class.split_with_control();

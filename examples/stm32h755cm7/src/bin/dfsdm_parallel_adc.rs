@@ -42,6 +42,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div8),
             divr: None,
@@ -50,6 +51,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            fracn: None,
             divp: Some(PllDiv::Div8),
             divq: None,
             divr: None,
@@ -103,7 +105,7 @@ async fn main(_spawner: Spawner) {
 
     // Start the ADC converting continuously, routed to the DFSDM; each EOC
     // feeds one DFSDM sample.
-    adc.start_dfsdm(&mut vrefint, SampleTime::Cycles3875, None);
+    adc.start_dfsdm(&mut vrefint, SampleTime::Cycles387_5, None);
 
     flt0.regular.start_conversion();
 

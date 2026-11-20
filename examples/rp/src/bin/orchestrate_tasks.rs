@@ -24,7 +24,8 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::gpio::{self, Input, Pull};
+use embassy_rp::peripherals::PIN_24;
 use embassy_rp::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -45,6 +46,7 @@ assign_resources! {
 
 // Interrupt binding - required for hardware peripherals like ADC
 bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_24>;
     ADC_IRQ_FIFO => InterruptHandler;
 });
 
@@ -293,7 +295,7 @@ async fn random_90s(_spawner: Spawner) {
 /// Task that monitors USB power connection. As an example of some Interrupt somewhere.
 #[embassy_executor::task]
 pub async fn usb_power(_spawner: Spawner, r: Vbus) {
-    let mut vbus_in = Input::new(r.pin_24, Pull::None);
+    let mut vbus_in = Input::new_async(r.pin_24, Irqs, Pull::None);
     let sender = EVENT_CHANNEL.sender();
 
     loop {

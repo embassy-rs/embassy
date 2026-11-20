@@ -11,29 +11,32 @@
 /// NOTE: *for now*, some items are here because we haven't validated them on the MCXA5xx yet.
 /// This note will be removed when the two reach parity.
 #[cfg(feature = "_mcxa2xx")]
-#[path = "."]
 mod mcxa2xx_exclusive {
     pub use crate::chips::mcxa2xx::init;
 }
 
 /// Module for MCXA5xx-specific HAL drivers
 #[cfg(feature = "_mcxa5xx")]
-#[path = "."]
 mod mcxa5xx_exclusive {
     pub use crate::chips::mcxa5xx::init;
 }
 
+#[cfg(any(feature = "_mcxa2xx", feature = "_mcxa5xx"))]
 pub mod rom;
 pub mod trace;
 
 #[cfg(mcxa_adc)]
 pub mod adc;
+#[cfg(mcxa_aoi)]
+pub mod aoi;
 #[cfg(mcxa_cdog)]
 pub mod cdog;
 #[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
 pub mod clkout; // TODO: Add dummy driver to metadata
-#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx))]
+#[cfg(any(mcxa_mrcc5xx, mcxa_mrcc2xx, feature = "_mcxn"))]
 pub mod clocks;
+#[cfg(mcxa_cmp)]
+pub mod cmp;
 pub mod config;
 #[cfg(mcxa_crc)]
 pub mod crc;
@@ -43,6 +46,10 @@ pub mod ctimer;
 pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
+#[cfg(mcxa_eim)]
+pub mod eim;
+#[cfg(mcxa_erm)]
+pub mod erm;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_can)]
@@ -51,7 +58,11 @@ pub mod flexcan;
 pub mod flexspi;
 #[cfg(mcxa_freqme)]
 pub mod freqme;
-#[cfg(mcxa_gpio)]
+#[cfg(mcxa_gdet)]
+pub mod gdet;
+#[cfg(mcxa_glikey)]
+pub mod glikey;
+#[cfg(any(mcxa_gpio, mcx_n_gpio))]
 pub mod gpio;
 #[cfg(mcxa_lpi2c)]
 pub mod i2c;
@@ -63,7 +74,9 @@ pub mod inputmux;
 pub mod lptmr;
 #[cfg(mcxa_lpuart)]
 pub mod lpuart;
-#[cfg(all(mcxa_ostimer, time_driver_ostimer))]
+#[cfg(mcxa_mbc)]
+pub mod mbc;
+#[cfg(all(any(mcxa_ostimer, mcx_n_ostimer), time_driver_ostimer))]
 pub mod ostimer;
 pub mod perf_counters;
 #[cfg(mcxa_cmc)]
@@ -83,6 +96,8 @@ pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
+#[cfg(feature = "_mcxn")]
+pub use chips::mcxn::init;
 #[cfg(feature = "_mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
 #[cfg(feature = "_mcxa5xx")]
@@ -122,7 +137,9 @@ pub(crate) fn init_time_driver(priority: interrupt::Priority) {
     let _ = priority;
 }
 
-const HALS_SELECTED: usize = const { cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize };
+const HALS_SELECTED: usize = const {
+    cfg!(feature = "_mcxa2xx") as usize + cfg!(feature = "_mcxa5xx") as usize + cfg!(feature = "_mcxn") as usize
+};
 
 /// Ensure exactly one chip feature is set.
 #[doc(hidden)]

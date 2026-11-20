@@ -24,14 +24,16 @@ use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType};
-use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
+use embassy_stm32_wpan::bluetooth::gap_init::GapInitParams;
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::values::AddressType;
+use stm32wb_hci::adv_data::AdvFlags;
 
 // ---- Test configuration ----
-const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
+const ADDR_TYPE: OwnAddressType = OwnAddressType::StaticRandom;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -81,46 +83,52 @@ async fn main(spawner: Spawner) {
     info!("GATT server initialized");
 
     // Create a custom service (UUID: 0x1234)
-    let service_uuid = Uuid::from_u16(0x1234);
+    let service_uuid = Uuid::Uuid16(0x1234);
     let service_handle = gatt
-        .add_service(service_uuid, ServiceType::Primary, 5)
+        .add_service(ble.controller(), service_uuid, ServiceType::Primary, 5)
+        .await
         .expect("Failed to add service");
     info!("Created service with handle: 0x{:04X}", service_handle.0);
 
     // Add a read/write characteristic (UUID: 0x5678)
-    let char_uuid = Uuid::from_u16(0x5678);
+    let char_uuid = Uuid::Uuid16(0x5678);
     let char_properties = CharProperties::READ | CharProperties::WRITE | CharProperties::NOTIFY;
     let char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
             char_uuid,
             20, // Max 20 bytes
             char_properties,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,    // No encryption
             true, // Variable length
         )
+        .await
         .expect("Failed to add characteristic");
     info!("Created characteristic with handle: 0x{:04X}", char_handle.0);
 
     // Set initial characteristic value
     let initial_value = b"Hello BLE!";
-    gatt.update_characteristic_value(service_handle, char_handle, 0, initial_value)
+    gatt.update_characteristic_value(ble.controller(), service_handle, char_handle, 0, initial_value)
+        .await
         .expect("Failed to set characteristic value");
     info!("Set initial characteristic value");
 
     // Create advertising data
     let mut adv_data = AdvData::new();
-    adv_data
-        .add_flags(0x06) // General discoverable, BR/EDR not supported
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED) // General discoverable, BR/EDR not supported
         .expect("Failed to add flags");
-    adv_data.add_name("Embassy-WBA6").expect("Failed to add name");
-    adv_data
-        .add_service_uuid_16(0x1234) // Advertise our custom service
+    adv_data = adv_data
+        .complete_local_name(b"Embassy-WBA6")
+        .expect("Failed to add name");
+    adv_data = adv_data
+        .complete_uuid16_list(&[0x1234]) // Advertise our custom service
         .expect("Failed to add service UUID");
 
-    info!("Advertising data created ({} bytes)", adv_data.len());
+    info!("Advertising data created ({} bytes)", adv_data.as_bytes().len());
 
     // Configure advertising parameters
     let adv_params = AdvParams {

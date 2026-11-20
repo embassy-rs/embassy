@@ -73,8 +73,8 @@ impl<'d, T: Instance> Mdios<'d, T> {
     ) -> Self {
         crate::rcc::enable_and_reset::<T>();
 
-        mdc.set_as_af(mdc.af_num(), AfType::input(Pull::None));
-        mdio.set_as_af(mdio.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(mdc, AfType::input(Pull::None)).persist();
+        set_as_af!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
 
         let r = T::regs();
 

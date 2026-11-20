@@ -14,7 +14,7 @@ use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
 use embassy_usb::class::uac::device as uac1;
 use embassy_usb::class::uac::device::speaker::{self, FeatureUnitControls, Speaker};
-use embassy_usb::driver::EndpointError;
+use embassy_usb::driver::{EndpointError, IsoWriteError};
 use heapless::Vec;
 use micromath::F32Ext;
 use panic_probe as _;
@@ -70,7 +70,7 @@ impl From<EndpointError> for Disconnected {
     fn from(val: EndpointError) -> Self {
         match val {
             EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+            _ => Disconnected {},
         }
     }
 }
@@ -99,8 +99,12 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
         packet.push((value >> 8) as u8).unwrap();
         packet.push((value >> 16) as u8).unwrap();
 
-        feedback.write_packet(&packet).await?;
-        debug!("feedback sent {}", value);
+        match feedback.write_packet(&packet).await {
+            Ok(_) => debug!("feedback sent {}", value),
+            Err(IsoWriteError::TooLate) => continue,
+            Err(IsoWriteError::BufferOverflow) => panic!("Buffer overflow"),
+            Err(_) => return Err(Disconnected {}),
+        }
     }
 }
 

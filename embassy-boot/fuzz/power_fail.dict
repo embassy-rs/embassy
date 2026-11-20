@@ -1,0 +1,17 @@
+# Step bytes of tests/power_fail/scenario.rs (Step::decode takes the byte modulo 6): download (then the chunk
+# size byte), mark_updated, boot, mark_booted, mark_dfu, cut (then after as u16 and the tear byte).
+"\x00"
+"\x01"
+"\x02"
+"\x03"
+"\x04"
+"\x05"
+# a whole update and its confirmation
+"\x00\x00\x01\x02\x03\x02"
+# the revert path: boot twice without confirming
+"\x01\x02\x02\x02"
+# a cut at the first few operations
+"\x05\x00\x00\x00"
+"\x05\x01\x00\x00"
+"\x05\x18\x00\x00"
+"\x05\x28\x00\x00"

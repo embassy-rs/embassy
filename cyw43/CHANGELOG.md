@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Breaking: `Control::init` takes a `Config`, whose `country` sets the radio's rules (channels and transmit power) instead of the worldwide ones; `countries` is public. Pass `Config::default()` to keep the worldwide rules.
 - Add support for the CYW43455 over SDIO (`Cyw43455`, `new_43455_sdio`).
 - Fix `reset_core` waiting for the backplane to be busy instead of idle, which timed out on SDIO chips with a Cortex-R4.
 - `State` is now `Send`, so it can be stored in a `ConstStaticCell`.

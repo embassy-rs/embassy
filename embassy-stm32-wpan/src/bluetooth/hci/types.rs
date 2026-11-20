@@ -1,16 +1,32 @@
 //! HCI types, constants, and opcodes
 
-/// HCI Packet types
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PacketType {
-    Command = 0x01,
-    AclData = 0x02,
-    SyncData = 0x03,
-    Event = 0x04,
+use bt_hci::param::{AllPhys, PhyMask};
+/// Advertising filter policy: the ACI `Advertising_Filter_Policy`,
+/// declared by `stm32wb-hci`.
+pub use stm32wb_hci::aci::values::AdvFilterPolicy;
+
+/// Translate the `HCI_LE_Set_PHY` `All_PHYs` bit field (bit 0: no TX PHY
+/// preference, bit 1: no RX PHY preference) into bt-hci's [`AllPhys`].
+pub fn all_phys_from_raw(raw: u8) -> AllPhys {
+    AllPhys::new()
+        .set_has_no_tx_phy_preference(raw & 0x01 != 0)
+        .set_has_no_rx_phy_preference(raw & 0x02 != 0)
 }
 
-/// HCI Status Codes
+/// Translate an `HCI_LE_Set_PHY` TX or RX PHY preference bit field (bit 0:
+/// LE 1M, bit 1: LE 2M, bit 2: LE Coded) into bt-hci's [`PhyMask`].
+pub fn phy_mask_from_raw(raw: u8) -> PhyMask {
+    PhyMask::new()
+        .set_le_1m_phy(raw & 0x01 != 0)
+        .set_le_2m_phy(raw & 0x02 != 0)
+        .set_le_coded_phy(raw & 0x04 != 0)
+}
+
+/// HCI status codes, named for the failure each one stands for.
+///
+/// bt-hci carries a status as the raw byte (`bt_hci::param::Status`) and
+/// `stm32wb-hci` names only the codes the BLE stack adds to the Core's, so
+/// the decoded set this crate matches on is defined here.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -72,37 +88,6 @@ impl Status {
     }
 }
 
-/// Advertising Type
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdvType {
-    /// Connectable and scannable undirected advertising
-    ConnectableUndirected = 0x00,
-    /// Connectable high duty cycle directed advertising
-    ConnectableDirectedHighDutyCycle = 0x01,
-    /// Scannable undirected advertising
-    ScannableUndirected = 0x02,
-    /// Non-connectable undirected advertising
-    NonConnectableUndirected = 0x03,
-    /// Connectable low duty cycle directed advertising
-    ConnectableDirectedLowDutyCycle = 0x04,
-}
-
-/// Advertising Filter Policy
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum AdvFilterPolicy {
-    /// Process scan and connection requests from all devices
-    All = 0x00,
-    /// Process connection requests from all devices and scan requests only from white list
-    ConnAllScanWhiteList = 0x01,
-    /// Process scan requests from all devices and connection requests only from white list
-    ScanAllConnWhiteList = 0x02,
-    /// Process scan and connection requests only from white list
-    WhiteListOnly = 0x03,
-}
-
 /// DTM packet payload pattern.                                                                                    
 /// BLE Core Spec v6.0, Vol 4, Part E, Section 7.8.29, page 2547.                                                  
 #[repr(u8)]
@@ -155,68 +140,4 @@ pub enum DtmRxPhy {
     Le2M = 0x02,
     /// LE Coded PHY
     LeCoded = 0x03,
-}
-
-/// Bitmask of radio activities reported through
-/// `ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT`.
-///
-/// Set with [`CommandSender::set_radio_activity_mask`](super::command::CommandSender::set_radio_activity_mask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(transparent)]
-pub struct RadioActivityMask(pub u16);
-
-impl RadioActivityMask {
-    /// No activities reported.
-    pub const NONE: Self = Self(0x0000);
-    /// Idle.
-    pub const IDLE: Self = Self(0x0001);
-    /// Advertising.
-    pub const ADVERTISING: Self = Self(0x0002);
-    /// Peripheral connection.
-    pub const PERIPHERAL_CONNECTION: Self = Self(0x0004);
-    /// Scanning.
-    pub const SCANNING: Self = Self(0x0008);
-    /// Central connection.
-    pub const CENTRAL_CONNECTION: Self = Self(0x0020);
-    /// TX test mode.
-    pub const TX_TEST: Self = Self(0x0040);
-    /// RX test mode.
-    pub const RX_TEST: Self = Self(0x0080);
-    /// Periodic advertising.
-    pub const PERIODIC_ADVERTISING: Self = Self(0x0200);
-    /// Periodic sync.
-    pub const PERIODIC_SYNC: Self = Self(0x0400);
-    /// ISO broadcast.
-    pub const ISO_BROADCAST: Self = Self(0x0800);
-    /// ISO sync.
-    pub const ISO_SYNC: Self = Self(0x1000);
-    /// ISO peripheral connection.
-    pub const ISO_PERIPHERAL_CONNECTION: Self = Self(0x2000);
-    /// ISO central connection.
-    pub const ISO_CENTRAL_CONNECTION: Self = Self(0x4000);
-
-    /// Create an empty mask.
-    pub const fn empty() -> Self {
-        Self(0)
-    }
-
-    /// Combine two masks.
-    pub const fn or(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-}
-
-impl core::ops::BitOr for RadioActivityMask {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
-    }
-}
-
-impl core::ops::BitOrAssign for RadioActivityMask {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
-    }
 }

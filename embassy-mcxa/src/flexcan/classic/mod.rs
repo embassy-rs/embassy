@@ -38,12 +38,12 @@ mod mailbox;
 mod timing;
 
 use core::cell::Cell;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
 pub use blocking::{Blocking, WithTimeout};
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, SendDynamicSender};
@@ -325,10 +325,7 @@ impl Info {
             w.set_erfwmiie(false);
             w.set_erfdaie(false);
         });
-        self.control
-            .regs()
-            .ctrl1()
-            .modify(|w| w.set_boffmsk(pac::Boffmsk::BusOffIntDisabled));
+        self.control.regs().ctrl1().modify(|w| w.set_boffmsk(false));
         self.control.regs().ctrl2().modify(|w| w.set_boffdonemsk(false));
 
         // Clear all sticky sources before the next construction enables this IRQ again.
@@ -336,12 +333,12 @@ impl Info {
         self.control.regs().erfsr().write(|w| {
             w.set_erfufw(true);
             w.set_erfovf(true);
-            w.set_erfwmi(pac::Erfwmi::WatermarkYes);
+            w.set_erfwmi(true);
             w.set_erfda(true);
         });
         self.control.regs().esr1().write(|w| {
             w.set_boffint(true);
-            w.set_boffdoneint(pac::Boffdoneint::BusOffDone);
+            w.set_boffdoneint(true);
         });
 
         self.rx_sender.lock(|sender| sender.set(None));
@@ -717,7 +714,7 @@ fn init<'d, T: Instance>(
     tx.as_tx();
     let rx: Peri<'_, AnyPin> = rx.into();
     let tx: Peri<'_, AnyPin> = tx.into();
-    let pin_rollback = OnDrop::new(|| {
+    let pin_rollback = DropGuard::new((), |()| {
         use crate::gpio::SealedPin;
 
         rx.set_as_disabled();
@@ -737,7 +734,7 @@ fn init<'d, T: Instance>(
     let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(InitError::ClockSetup)? };
     let src_clk_hz = parts.freq;
     let _wake_guard = parts.wake_guard;
-    let peripheral_rollback = OnDrop::new(|| match info.disable_peripheral() {
+    let peripheral_rollback = DropGuard::new((), |()| match info.disable_peripheral() {
         Ok(()) => (),
         Err(_err) => {
             #[cfg(feature = "defmt")]
@@ -768,15 +765,12 @@ fn init<'d, T: Instance>(
     }
 
     // Disable FDCAN
-    info.control
-        .regs()
-        .mcr()
-        .modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
+    info.control.regs().mcr().modify(|m| m.set_fden(false));
 
     // Route bus-off events to the ISR, and enable autorecovery.
     info.control.regs().ctrl1().modify(|w| {
-        w.set_boffmsk(pac::Boffmsk::BusOffIntEnabled);
-        w.set_boffrec(pac::Boffrec::AutoRecoverEnabled);
+        w.set_boffmsk(true);
+        w.set_boffrec(false);
     });
 
     // Enable BOFFDONE interrupt
@@ -804,8 +798,8 @@ fn init<'d, T: Instance>(
         .set(FlexCanPins::new(*tx, *rx))
         .map_err(|_| InitError::ReconstructionError)?;
 
-    peripheral_rollback.defuse();
-    pin_rollback.defuse();
+    DropGuard::dismiss(peripheral_rollback);
+    DropGuard::dismiss(pin_rollback);
     Ok((info, rx, tx, _wake_guard))
 }
 

@@ -1,14 +1,14 @@
 //! LPSPI Controller Driver.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
-use embassy_hal_internal::drop::OnDrop;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-use nxp_pac::lpspi::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Prescale, Rrf, Rtf, Rxmsk, Txmsk};
+use nxp_pac::lpspi::{Pcspol, Pincfg, Prescale};
 
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode as IoMode, SckPin, SdiPin, SdoPin};
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
@@ -183,14 +183,14 @@ impl<'d, M: IoMode> Spi<'d, M> {
         self.info.regs().cr().write(|w| {
             w.set_men(false);
             w.set_rst(true);
-            w.set_rtf(Rtf::TxfifoRst);
-            w.set_rrf(Rrf::RxfifoRst);
+            w.set_rtf(true);
+            w.set_rrf(true);
         });
 
         self.info.regs().cr().modify(|w| w.set_rst(false));
 
         self.info.regs().cfgr1().write(|w| {
-            w.set_master(Master::MasterMode);
+            w.set_master(true);
             w.set_pincfg(Pincfg::SinInSoutOut);
             w.set_pcspol(Pcspol::Discarded);
         });
@@ -212,18 +212,18 @@ impl<'d, M: IoMode> Spi<'d, M> {
             w.set_framesz(7);
 
             w.set_cpol(match config.mode.polarity {
-                Polarity::IdleLow => Cpol::InactiveLow,
-                Polarity::IdleHigh => Cpol::InactiveHigh,
+                Polarity::IdleLow => false,
+                Polarity::IdleHigh => true,
             });
 
             w.set_cpha(match config.mode.phase {
-                Phase::CaptureOnFirstTransition => Cpha::Captured,
-                Phase::CaptureOnSecondTransition => Cpha::Changed,
+                Phase::CaptureOnFirstTransition => false,
+                Phase::CaptureOnSecondTransition => true,
             });
 
             w.set_lsbf(match config.bit_order {
-                BitOrder::MsbFirst => Lsbf::MsbFirst,
-                BitOrder::LsbFirst => Lsbf::LsbFirst,
+                BitOrder::MsbFirst => false,
+                BitOrder::LsbFirst => true,
             });
 
             w.set_prescale(prescaler);
@@ -241,7 +241,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         if status.ref_() {
             // Empty the RX FIFO.
-            self.info.regs().cr().modify(|w| w.set_rrf(Rrf::RxfifoRst));
+            self.info.regs().cr().modify(|w| w.set_rrf(true));
             self.info.regs().sr().write(|w| w.set_ref_(true));
             Err(IoError::ReceiveError)
         } else if status.tef() {
@@ -260,8 +260,8 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
         // Queue zero-valued transmit frames through TDR to generate the receive clocks.
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for word in data {
@@ -285,8 +285,8 @@ impl<'d, M: IoMode> Spi<'d, M> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Mask);
+            w.set_txmsk(false);
+            w.set_rxmsk(true);
         });
 
         for word in data {
@@ -310,8 +310,8 @@ impl<'d, M: IoMode> Spi<'d, M> {
         let (write_common, write_tail) = write.split_at(common);
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for (rb, wb) in read_common.iter_mut().zip(write_common.iter()) {
@@ -341,7 +341,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
         if !write_tail.is_empty() {
             while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
             self.check_status()?;
-            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(true));
 
             for wb in write_tail {
                 while self.info.regs().fsr().read().txcount() >= LPSPI_FIFO_SIZE {}
@@ -360,8 +360,8 @@ impl<'d, M: IoMode> Spi<'d, M> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for word in data {
@@ -381,7 +381,7 @@ impl<'d, M: IoMode> Spi<'d, M> {
 
     /// Block execution until Spi is done.
     pub fn blocking_flush(&mut self) -> Result<(), IoError> {
-        while self.info.regs().sr().read().mbf() == Mbf::Busy {}
+        while self.info.regs().sr().read().mbf() {}
         self.check_status()
     }
 }
@@ -906,8 +906,8 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
 
         // Queue zero-valued transmit frames through TDR to generate the receive clocks.
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for word in data {
@@ -951,8 +951,8 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Mask);
+            w.set_txmsk(false);
+            w.set_rxmsk(true);
         });
 
         for word in data {
@@ -987,8 +987,8 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
         let (write_common, write_tail) = write.split_at(common);
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for (rb, wb) in read_common.iter_mut().zip(write_common.iter()) {
@@ -1068,7 +1068,7 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(true));
 
             for wb in write_tail {
                 self.info
@@ -1096,8 +1096,8 @@ impl<'d> AsyncEngine for Spi<'d, Async> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for word in data {
@@ -1135,15 +1135,15 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
-        self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::Tristated));
+        self.info.regs().cfgr1().modify(|w| w.set_outcfg(true));
 
-        let _on_drop = OnDrop::new(|| {
+        let _on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_rdde(false));
-            self.info.regs().cfgr1().modify(|w| w.set_outcfg(Outcfg::Tristated));
+            self.info.regs().cfgr1().modify(|w| w.set_outcfg(true));
         });
 
         for chunk in data.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
@@ -1159,11 +1159,11 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Mask);
+            w.set_txmsk(false);
+            w.set_rxmsk(true);
         });
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_tdde(false));
         });
 
@@ -1171,7 +1171,7 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
             self.write_dma_chunk(chunk).await?;
         }
 
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
 
         self.async_flush().await
     }
@@ -1186,11 +1186,11 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
         let (write_common, write_tail) = write.split_at(common);
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
-        let on_drop = OnDrop::new(|| {
+        let on_drop = DropGuard::new((), |()| {
             self.info.regs().der().modify(|w| w.set_tdde(false));
         });
 
@@ -1220,14 +1220,14 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
                 .await
                 .map_err(|_| IoError::Other)?;
             self.check_status()?;
-            self.info.regs().tcr().modify(|w| w.set_rxmsk(Rxmsk::Mask));
+            self.info.regs().tcr().modify(|w| w.set_rxmsk(true));
 
             for write_chunk in write_tail.chunks(DMA_MAX_TRANSFER_SIZE) {
                 self.write_dma_chunk(write_chunk).await?;
             }
         }
 
-        on_drop.defuse();
+        DropGuard::dismiss(on_drop);
 
         self.async_flush().await
     }
@@ -1238,8 +1238,8 @@ impl<'d> AsyncEngine for Spi<'d, Dma<'d>> {
         }
 
         self.info.regs().tcr().modify(|w| {
-            w.set_txmsk(Txmsk::Normal);
-            w.set_rxmsk(Rxmsk::Normal);
+            w.set_txmsk(false);
+            w.set_rxmsk(false);
         });
 
         for chunk in data.chunks_mut(DMA_MAX_TRANSFER_SIZE) {

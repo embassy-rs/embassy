@@ -219,8 +219,8 @@ impl MacEvent for DpsConfirm {
 pub struct SoundingConfirm {
     /// Results of the sounding measurement
     pub sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
-
-    status: u8,
+    /// The status of the sounding request
+    pub status: MacStatus,
 }
 
 impl MacEvent for SoundingConfirm {

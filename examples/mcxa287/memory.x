@@ -1,5 +1,5 @@
 MEMORY
 {
     FLASH : ORIGIN = 0x00000000, LENGTH = 2M
-    RAM   : ORIGIN = 0x20000000, LENGTH = 512K
+    /* The build script selects a bin-specific RAM script. */
 }

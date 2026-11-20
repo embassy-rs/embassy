@@ -64,9 +64,9 @@ async fn main(_spawner: Spawner) {
     let mut temperature = adc.enable_temperature();
 
     let sequence = [
-        (vrefint.reborrow_adc(), SampleTime::Cycles795),
-        (temperature.reborrow_adc(), SampleTime::Cycles795),
-        (p.PA0.reborrow_adc(), SampleTime::Cycles795),
+        (vrefint.reborrow_adc(), SampleTime::Cycles79_5),
+        (temperature.reborrow_adc(), SampleTime::Cycles79_5),
+        (p.PA0.reborrow_adc(), SampleTime::Cycles79_5),
     ]
     .into_iter();
 

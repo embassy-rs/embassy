@@ -6,15 +6,35 @@ use std::path::PathBuf;
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
 
-    // Generate memory.x - put "FLASH" at start of RAM, RAM after "FLASH"
-    // cortex-m-rt expects FLASH for code, RAM for data/bss/stack
-    // Both are in RAM, but separated to satisfy cortex-m-rt's expectations
-    // MCXA256 has 128KB RAM total
+    // Flash bounds are shared; RAM bounds are selected per binary below.
     File::create(out.join("memory.x"))
         .unwrap()
         .write_all(include_bytes!("memory.x"))
         .unwrap();
 
     println!("cargo:rustc-link-search={}", out.display());
+    // CI overrides target rustflags, so required linker scripts belong here.
+    println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rerun-if-changed=memory.x");
+    std::fs::write(out.join("ecc-scratch.x"), include_bytes!("ecc-scratch.x")).unwrap();
+    println!("cargo:rerun-if-changed=ecc-scratch.x");
+    std::fs::write(out.join("ram.x"), include_bytes!("ram.x")).unwrap();
+    println!("cargo:rerun-if-changed=ram.x");
+    std::fs::write(out.join("mbc-data.x"), include_bytes!("mbc-data.x")).unwrap();
+    println!("cargo:rerun-if-changed=mbc-data.x");
+    println!("cargo:rerun-if-changed=src/bin");
+    // Keep every other binary's RAM layout unchanged. flip-link needs literal
+    // RAM bounds, so select complete scripts rather than conditional expressions.
+    for entry in std::fs::read_dir("src/bin").unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "rs") {
+            let bin = path.file_stem().unwrap().to_str().unwrap();
+            let script = if bin == "erm-eim" { "ecc-scratch.x" } else { "ram.x" };
+            println!("cargo:rustc-link-arg-bin={bin}=-T{script}");
+            println!("cargo:rustc-link-arg-bin={bin}=-Tlink.x");
+            if bin == "mbc" {
+                println!("cargo:rustc-link-arg-bin={bin}=-Tmbc-data.x");
+            }
+        }
+    }
 }

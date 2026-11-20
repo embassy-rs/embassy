@@ -59,7 +59,8 @@ async fn main(_spawner: Spawner) {
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div3,
-            mul: PllMul::Mul150,      // 24 MHz / 3 * 150 = 1200 MHz.
+            mul: PllMul::Mul150, // 24 MHz / 3 * 150 = 1200 MHz.
+            fracn: None,
             divp: Some(PllDiv::Div2), // 600 MHz PLLCLK for SYSCLK.
             divq: None,
             divr: None,
@@ -80,6 +81,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div6,
             mul: PllMul::Mul200, // 24 MHz / 6 * 200 = 800 MHz
+            fracn: None,
             divp: None,
             divq: None,
             divr: None,

@@ -4,22 +4,22 @@
 
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::ptr;
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
-use crate::gpio::{self, Pin as GpioPin};
+use crate::gpio::Flex;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::qspi::vals;
 pub use crate::pac::qspi::vals::{
     Addrmode as AddressMode, Ppsize as WritePageSize, Readoc as ReadOpcode, Spimode as SpiMode, Writeoc as WriteOpcode,
 };
-use crate::{interrupt, pac};
+use crate::{gpio, interrupt, pac};
 
 /// Deep power-down config.
 pub struct DeepPowerDownConfig {
@@ -160,12 +160,12 @@ impl<'d> Qspi<'d> {
     /// Create a new QSPI driver.
     pub fn new<T: Instance>(
         _qspi: Peri<'d, T>,
-        sck: Peri<'d, impl GpioPin>,
-        csn: Peri<'d, impl GpioPin>,
-        io0: Peri<'d, impl GpioPin>,
-        io1: Peri<'d, impl GpioPin>,
-        io2: Peri<'d, impl GpioPin>,
-        io3: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl SckPin<T>>,
+        csn: Peri<'d, impl CsPin<T>>,
+        io0: Peri<'d, impl Io0Pin<T>>,
+        io1: Peri<'d, impl Io1Pin<T>>,
+        io2: Peri<'d, impl Io2Pin<T>>,
+        io3: Peri<'d, impl Io3Pin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -173,14 +173,17 @@ impl<'d> Qspi<'d> {
 
         macro_rules! config_pin {
             ($pin:ident) => {
+                let mut $pin = Flex::new($pin);
                 $pin.set_high();
-                $pin.conf().write(|w| {
+                $pin.set_cnf(|w| {
                     w.set_dir(gpiovals::Dir::Output);
                     w.set_drive(gpiovals::Drive::H0h1);
                     #[cfg(all(feature = "_nrf5340", feature = "_s"))]
                     w.set_mcusel(gpiovals::Mcusel::Peripheral);
                 });
                 r.psel().$pin().write_value($pin.psel_bits());
+                // Disconnected on drop by reading back PSEL (except CSN).
+                $pin.persist();
             };
         }
 
@@ -245,7 +248,7 @@ impl<'d> Qspi<'d> {
 
     /// Do a custom QSPI instruction.
     pub async fn custom_instruction(&mut self, opcode: u8, req: &[u8], resp: &mut [u8]) -> Result<(), Error> {
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         let len = core::cmp::max(req.len(), resp.len()) as u8;
         self.custom_instruction_start(opcode, req, len)?;
@@ -254,7 +257,7 @@ impl<'d> Qspi<'d> {
 
         self.custom_instruction_finish(resp)?;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -403,12 +406,12 @@ impl<'d> Qspi<'d> {
             return Ok(());
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_read(address, data)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -424,12 +427,12 @@ impl<'d> Qspi<'d> {
             return Ok(());
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_write(address, data)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -484,12 +487,12 @@ impl<'d> Qspi<'d> {
             return Err(Error::OutOfBounds);
         }
 
-        let ondrop = OnDrop::new(Self::blocking_wait_ready);
+        let ondrop = DropGuard::new((), |()| Self::blocking_wait_ready());
 
         self.start_erase(address)?;
         self.wait_ready().await;
 
-        ondrop.defuse();
+        DropGuard::dismiss(ondrop);
 
         Ok(())
     }
@@ -671,6 +674,42 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// SCK pin trait.
+    SckPin,
+    Instance
+);
+
+pin_trait!(
+    /// CS pin trait.
+    CsPin,
+    Instance
+);
+
+pin_trait!(
+    /// IO0 pin trait.
+    Io0Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO1 pin trait.
+    Io1Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO2 pin trait.
+    Io2Pin,
+    Instance
+);
+
+pin_trait!(
+    /// IO3 pin trait.
+    Io3Pin,
+    Instance
+);
 
 macro_rules! impl_qspi {
     ($type:ident, $pac_type:ident, $irq:ident) => {

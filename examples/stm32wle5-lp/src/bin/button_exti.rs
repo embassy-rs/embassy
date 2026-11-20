@@ -7,13 +7,13 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, peripherals};
 use panic_probe as _;
 use static_cell::StaticCell;
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+        EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
 });
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
@@ -21,6 +21,8 @@ async fn async_main(_spawner: Spawner) {
     // delay to allow probe-rs to connect for flashing
     cortex_m::asm::delay(1_000_000);
     let mut config = embassy_stm32::Config::default();
+    // The time driver runs from LSI (on by default) so it keeps counting in Stop mode.
+    config.rcc.mux.lptim1sel = embassy_stm32::rcc::mux::Lptimsel::Lsi;
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
     config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     #[cfg(feature = "defmt-serial")]
@@ -49,7 +51,7 @@ async fn async_main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 

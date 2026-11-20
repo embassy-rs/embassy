@@ -34,18 +34,6 @@ async fn main(_spawner: Spawner) {
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
         pll1_clk_div: Some(Div8::no_div()),
     });
-    // TODO: Figure out OSC32K
-    // let mut osc = Osc32KConfig::default();
-    // osc.mode = Osc32KMode::HighPower {
-    //     coarse_amp_gain: Osc32KCoarseGain::EsrRange0,
-    //     xtal_cap_sel: Osc32KCapSel::Cap12PicoF,
-    //     extal_cap_sel: Osc32KCapSel::Cap12PicoF,
-    // };
-    // osc.vsys_domain_active = true;
-    // osc.vdd_core_domain_active = true;
-    // osc.vbat_domain_active = true;
-    // cfg.clock_cfg.osc32k = Some(osc);
-
     defmt::info!("init...");
     let p = hal::init(cfg);
     defmt::info!("inited");
@@ -53,11 +41,6 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.P4_2;
     let mut clkout = p.CLKOUT;
 
-    // const K32_CONFIG: Config = Config {
-    //     sel: ClockOutSel::LpOsc,
-    //     div: Div4::no_div(),
-    //     level: PoweredClock::NormalEnabledDeepSleepDisabled,
-    // };
     const M4_CONFIG: Config = Config {
         sel: ClockOutSel::Fro12M,
         div: const { Div4::from_divisor(3).unwrap() },
@@ -76,8 +59,6 @@ async fn main(_spawner: Spawner) {
 
     #[rustfmt::skip]
     let configs = [
-        // TODO: re-enable
-        // ("32K -> /1 = 32K",  K32_CONFIG), // no output
         ("12M -> /3 = 4M",   M4_CONFIG), // good
         ("24M -> /12 = 2M", M2_CONFIG), // good
         ("12M-> /12 = 1M",   M1_CONFIG), // good

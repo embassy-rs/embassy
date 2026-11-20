@@ -20,6 +20,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div4), // SPI1 cksel defaults to pll1_q
             divr: None,
@@ -28,6 +29,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul25,
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(PllDiv::Div4), // 100mhz
@@ -51,9 +53,9 @@ async fn main(_spawner: Spawner) {
     let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vrefint = adc.blocking_read(&mut vrefint_channel, SampleTime::Cycles245);
+        let vrefint = adc.blocking_read(&mut vrefint_channel, SampleTime::Cycles24_5);
         info!("vrefint: {}", vrefint);
-        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles245);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles24_5);
         info!("measured: {}", measured);
         Timer::after_millis(500).await;
     }

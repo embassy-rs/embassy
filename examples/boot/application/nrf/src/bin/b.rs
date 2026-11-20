@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};

@@ -5,17 +5,13 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
-use nxp_pac::lpuart::Dozeen;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::DmaRequest;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
-use crate::pac::lpuart::{
-    Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
-    Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
-};
+use crate::pac::lpuart::Idlecfg as IdleConfig;
 
 pub(crate) mod bbq;
 mod blocking;
@@ -174,8 +170,8 @@ macro_rules! impl_lpuart_instance {
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
     // Software reset - set and clear RST bit (Global register)
-    info.regs().global().write(|w| w.set_rst(Rst::Reset));
-    info.regs().global().write(|w| w.set_rst(Rst::NoEffect));
+    info.regs().global().write(|w| w.set_rst(true));
+    info.regs().global().write(|w| w.set_rst(false));
 }
 
 /// Disable both transmitter and receiver
@@ -193,7 +189,7 @@ fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -
     // Configure BAUD register
     info.regs().baud().modify(|w| {
         // Clear and set OSR
-        w.set_osr(osr - 1);
+        w.set_osr((osr - 1).into());
         // Clear and set SBR
         w.set_sbr(sbr);
         // Set BOTHEDGE if OSR is between 4 and 7
@@ -226,23 +222,23 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
         // Allow the lpuart to wake from deep sleep if configured to
         // work in deep sleep mode.
         //
-        // NOTE: this is the default state, and setting this to `Dozeen::DISABLED`
+        // NOTE: this is the default state, and setting DOZEEN to true
         // seems to actively *stop* the uart, regardless of whether automatic clock
         // gating is used, or if the device never goes to deep sleep at all (e.g.
         // in WfeUngated configuration). For now, let's not touch this unless we
         // actually need to, e.g. *forcing* the lpuart to sleep!
-        w.set_dozeen(Dozeen::Enabled);
+        w.set_dozeen(false);
 
         // Data bits configuration
         match config.data_bits_count {
-            DataBits::Data8 => {
+            false => {
                 if config.parity_mode.is_some() {
-                    w.set_m(DataBits::Data9); // 8 data + 1 parity = 9 bits
+                    w.set_m(true); // 8 data + 1 parity = 9 bits
                 } else {
-                    w.set_m(DataBits::Data8); // 8 data bits only
+                    w.set_m(false); // 8 data bits only
                 }
             }
-            DataBits::Data9 => w.set_m(DataBits::Data9),
+            true => w.set_m(true),
         };
 
         // Idle configuration
@@ -251,9 +247,9 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
 
         // Swap TXD/RXD if configured
         if config.swap_txd_rxd {
-            w.set_swap(Swap::Swap);
+            w.set_swap(true);
         } else {
-            w.set_swap(Swap::Standard);
+            w.set_swap(false);
         }
     });
 }
@@ -274,8 +270,8 @@ fn configure_fifo(info: &'static Info, config: &Config) {
 
     // Flush FIFOs
     info.regs().fifo().modify(|w| {
-        w.set_txflush(Txflush::TxfifoRst);
-        w.set_rxflush(Rxflush::RxfifoRst);
+        w.set_txflush(true);
+        w.set_rxflush(true);
     });
 }
 
@@ -299,7 +295,7 @@ fn configure_flow_control(info: &'static Info, enable_tx_cts: bool, enable_rx_rt
 }
 
 /// Configure bit order (MSB first or LSB first)
-fn configure_bit_order(info: &'static Info, msb_first: MsbFirst) {
+fn configure_bit_order(info: &'static Info, msb_first: bool) {
     info.regs().stat().modify(|w| w.set_msbf(msb_first));
 }
 
@@ -358,7 +354,7 @@ fn wait_for_tx_complete(info: &'static Info) {
     }
 
     // Wait for last character to shift out (TC = Transmission Complete)
-    while info.regs().stat().read().tc() == Tc::Active {
+    while !info.regs().stat().read().tc() {
         // Wait for transmission to complete
     }
 }
@@ -550,7 +546,7 @@ impl core::fmt::Display for Error {
 impl core::error::Error for Error {}
 
 /// Lpuart config
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Power state required for this peripheral
     pub power: PoweredClock,
@@ -560,24 +556,28 @@ pub struct Config {
     pub div: Div4,
     /// Baud rate in bits per second
     pub baudrate_bps: u32,
-    /// Parity configuration
-    pub parity_mode: Option<Parity>,
-    /// Number of data bits
-    pub data_bits_count: DataBits,
-    /// MSB First or LSB First configuration
-    pub msb_first: MsbFirst,
-    /// Number of stop bits
-    pub stop_bits_count: StopBits,
+    /// Parity: `None` disables it, `Some(false)` selects even parity, and
+    /// `Some(true)` selects odd parity.
+    pub parity_mode: Option<bool>,
+    /// Data-bit mode: `false` selects eight bits and `true` selects nine bits.
+    pub data_bits_count: bool,
+    /// Bit order: `false` sends LSB first and `true` sends MSB first.
+    pub msb_first: bool,
+    /// Stop bits: `false` selects one stop bit and `true` selects two.
+    pub stop_bits_count: bool,
     /// TX FIFO watermark
     pub tx_fifo_watermark: u8,
     /// RX FIFO watermark
     pub rx_fifo_watermark: u8,
-    /// TX CTS source
-    pub tx_cts_source: TxCtsSource,
-    /// TX CTS configure
-    pub tx_cts_config: TxCtsConfig,
-    /// RX IDLE type
-    pub rx_idle_type: IdleType,
+    /// CTS source: `false` uses the CTS_B pin and `true` uses the internal
+    /// receiver address-match result.
+    pub tx_cts_source: bool,
+    /// CTS sampling: `false` samples at the start of each character and `true`
+    /// samples when the transmitter is idle.
+    pub tx_cts_config: bool,
+    /// Idle detection: `false` counts after the start bit and `true` counts
+    /// after the stop bit.
+    pub rx_idle_type: bool,
     /// RX IDLE configuration
     pub rx_idle_config: IdleConfig,
     /// Swap TXD and RXD pins
@@ -589,14 +589,14 @@ impl Default for Config {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::Data8,
-            msb_first: MsbFirst::LsbFirst,
-            stop_bits_count: StopBits::One,
+            data_bits_count: false,
+            msb_first: false,
+            stop_bits_count: false,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            tx_cts_source: TxCtsSource::Cts,
-            tx_cts_config: TxCtsConfig::Start,
-            rx_idle_type: IdleType::FromStart,
+            tx_cts_source: false,
+            tx_cts_config: false,
+            rx_idle_type: false,
             rx_idle_config: IdleConfig::Idle1,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,

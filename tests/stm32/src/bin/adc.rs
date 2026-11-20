@@ -8,14 +8,12 @@ mod common;
 
 use common::*;
 use defmt::assert;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Peri;
 use embassy_stm32::adc::{Adc, AdcChannel, BasicInstance, BorrowedAdcChannel, Config, Instance, RxDma, SampleTimes};
 use embassy_stm32::gpio::{Flex, Pull, Speed};
 use embassy_stm32::interrupt::typelevel::Binding;
 use embassy_stm32::mode::Async;
-use panic_probe as _;
 
 /// How a known level is put on the test pin.
 #[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
@@ -72,13 +70,14 @@ fn set_level(driver: &mut Driver<'_>, method: PinMethod, high: bool) {
     }
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
+
+    // The F1 ADC kernel clock is PCLK2 behind CFGR/ADCPRE (72 MHz / 6 by default);
+    // the generated accessor must report the prescaled frequency, not raw PCLK2.
+    #[cfg(feature = "stm32f103c8")]
+    assert!(embassy_stm32::rcc::frequency::<embassy_stm32::peripherals::ADC1>().0 == 12_000_000);
 
     let mut pin = peri!(p, ADC_PIN);
 

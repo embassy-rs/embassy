@@ -17,12 +17,11 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
-use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
-use crate::clocks::{PoweredClock, enable_and_reset};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
 use crate::pac::OSTIMER0;
-use crate::peripherals::OSTIMER0;
+const INTERRUPTS_BLOCKED: bool = false;
+const INTERRUPTS_ENABLED: bool = true;
 
 const COUNTER_MASK: u64 = (1 << 42) - 1;
 // Half-wrap checkpoints leave a half-cycle margin for interrupt latency.
@@ -96,24 +95,16 @@ impl OsTimer {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         critical_section::with(|cs| self.time.borrow(cs).set(0));
 
-        let parts = unsafe {
-            enable_and_reset::<OSTIMER0>(&OsTimerConfig {
-                power: PoweredClock::AlwaysEnabled,
-                // Split counter reads require bus >= 2 MHz, or the same 1 MHz source.
-                // MCXA2 RM 29.6.1.2; MCXA5 RM 36.6.1.2.
-                source: OstimerClockSel::Clk1M,
-            })
-            .expect("Enabling OsTimer clock should not fail")
-        };
-
-        // Currently does nothing as Clk1M is always enabled anyway, this is here
-        // to make sure that doesn't change in a refactoring.
-        core::mem::forget(parts.wake_guard);
+        // The family helper owns reset/mux semantics and the 1 MHz contract.
+        // Split reads require bus >= 2 MHz, or the documented same-clock case.
+        crate::clocks::enable_ostimer_clock().expect("Enabling OsTimer clock should not fail");
 
         interrupt::OS_EVENT.disable();
 
         // Make sure interrupt is masked
-        OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
+        OSTIMER0
+            .osevent_ctrl()
+            .modify(|w| w.set_ostimer_intena(INTERRUPTS_BLOCKED));
 
         interrupt::OS_EVENT.unpend();
         interrupt::OS_EVENT.set_priority(irq_prio);
@@ -123,7 +114,7 @@ impl OsTimer {
     fn program_match(&self, _cs: CriticalSection, deadline: u64) -> AlarmOutcome {
         // MCXA2 RM 29.3.2/29.6.1.8; MCXA5 RM 36.3.2/36.6.1.8.
         OSTIMER0.osevent_ctrl().modify(|w| {
-            w.set_ostimer_intena(false);
+            w.set_ostimer_intena(INTERRUPTS_BLOCKED);
             w.set_ostimer_intrflag(true);
         });
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
@@ -135,7 +126,9 @@ impl OsTimer {
         // MATCH_H transfers the shadow pair to the active comparator.
         while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
         if deadline <= self.now() {
-            OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
+            OSTIMER0
+                .osevent_ctrl()
+                .modify(|w| w.set_ostimer_intena(INTERRUPTS_BLOCKED));
             return AlarmOutcome::AlreadyDue;
         }
 
@@ -144,7 +137,7 @@ impl OsTimer {
         // Write zero here to preserve a match latched before enabling.
         OSTIMER0.osevent_ctrl().modify(|w| {
             w.set_ostimer_intrflag(false);
-            w.set_ostimer_intena(true);
+            w.set_ostimer_intena(INTERRUPTS_ENABLED);
         });
         AlarmOutcome::Armed
     }
@@ -175,7 +168,7 @@ impl OsTimer {
         critical_section::with(|cs| {
             if OSTIMER0.osevent_ctrl().read().ostimer_intrflag() {
                 OSTIMER0.osevent_ctrl().modify(|w| {
-                    w.set_ostimer_intena(false);
+                    w.set_ostimer_intena(INTERRUPTS_BLOCKED);
                     w.set_ostimer_intrflag(true)
                 });
                 crate::perf_counters::incr_interrupt_ostimer_alarm();

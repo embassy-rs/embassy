@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 #![allow(static_mut_refs)]
 
 /// This example demonstrates the LTDC lcd display peripheral and was tested to run on the CM7 core of an stm32h745I-disco (embassy-stm32 feature "stm32h745xi-cm7" and probe-rs chip "STM32H745XI")
@@ -317,6 +316,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // 25MHz / 5 = 5MHz
             mul: PllMul::Mul160,     // 5MHz * 160 = 800MHz
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div83), // 800MHz / 83 = 9.63MHz for LTDC

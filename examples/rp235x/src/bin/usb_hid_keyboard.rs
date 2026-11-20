@@ -8,8 +8,8 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{Input, Pull};
-use embassy_rp::peripherals::USB;
+use embassy_rp::gpio::{self, Input, Pull};
+use embassy_rp::peripherals::{PIN_16, USB};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
 use embassy_usb::class::hid::device::{HidReaderWriter, RequestHandler, State as HidState};
 use embassy_usb::class::hid::{HidBootProtocol, HidProtocolMode, HidSubclass, KeyboardReport, ReportId};
@@ -18,6 +18,7 @@ use embassy_usb::{Builder, Config, Handler};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_16>;
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
@@ -82,7 +83,7 @@ async fn main(_spawner: Spawner) {
     let usb_fut = usb.run();
 
     // Set up the signal pin that will be used to trigger the keyboard.
-    let mut signal_pin = Input::new(p.PIN_16, Pull::None);
+    let mut signal_pin = Input::new_async(p.PIN_16, Irqs, Pull::None);
 
     // Enable the schmitt trigger to slightly debounce.
     signal_pin.set_schmitt(true);

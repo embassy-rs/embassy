@@ -18,7 +18,7 @@ use crate::{Peri, peripherals};
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// Serializes operations done through [`FlashLayout`] regions, which can be used concurrently.
-static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
+pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 /// Flash interrupt handler.
 pub struct InterruptHandler {
@@ -76,7 +76,7 @@ impl<'d> Flash<'d, Async> {
 }
 
 /// Runs a program or erase operation, waiting for its completion with the interrupt.
-async fn op(op: Op<'_>) -> Result<(), Error> {
+pub(super) async fn op(op: Op<'_>) -> Result<(), Error> {
     op.check()?;
     // Stop mode is not allowed while a flash operation is ongoing.
     let _wake = crate::rcc::WakeGuard::new(

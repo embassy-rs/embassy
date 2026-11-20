@@ -10,13 +10,15 @@
 //!
 //! Mute and volume controls are optional and configured through [`Config::feature_unit`].
 
+use embassy_usb_driver::EndpointInterval;
+
 pub use super::Volume;
 use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
 use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
-use crate::Builder;
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
+use crate::{Builder, EndpointOptions};
 
 /// Speaker stream settings and optional host controls.
 #[derive(Clone)]
@@ -109,7 +111,15 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             state,
             max_packet_size,
             Some(feedback_refresh_period),
-            |alt, max_packet_size| alt.alloc_endpoint_out(EndpointType::Isochronous, None, max_packet_size, 1),
+            |alt, max_packet_size| {
+                alt.alloc_endpoint_out(
+                    EndpointType::Isochronous,
+                    None,
+                    max_packet_size,
+                    EndpointInterval::from_ms(1),
+                    EndpointOptions::new(),
+                )
+            },
         );
 
         Self {
@@ -128,7 +138,7 @@ pub struct Stream<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Stream<'d, D> {
     /// Reads a single packet from the OUT endpoint
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.streaming_endpoint.read(data).await
+        crate::class::read_packet(&mut self.streaming_endpoint, data).await
     }
 
     /// Waits for the USB host to enable this interface

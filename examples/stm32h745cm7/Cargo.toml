@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "stm32h745xi-cm7", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
+embassy-stm32 = { path = "../../embassy-stm32", features = ["defmt", "stm32h745xi-cm7", "time-driver-any", "memory-x", "unstable-pac"] }
 embassy-executor = { path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 

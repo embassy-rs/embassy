@@ -9,9 +9,8 @@ use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{Flex, OutputDrive, Pull};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::gpio::vals as gpiovals;
 use crate::pac::qdec::vals;
 use crate::{interrupt, pac};
 
@@ -65,49 +64,46 @@ impl<'d> Qdec<'d> {
     /// Create a new QDEC.
     pub fn new<T: Instance>(
         qdec: Peri<'d, T>,
-        a: Peri<'d, impl GpioPin>,
-        b: Peri<'d, impl GpioPin>,
+        a: Peri<'d, impl APin<T>>,
+        b: Peri<'d, impl BPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(qdec, a.into(), b.into(), None, config)
+        Self::new_inner(qdec, Flex::new(a), Flex::new(b), None, config)
     }
 
     /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led<T: Instance>(
         qdec: Peri<'d, T>,
-        a: Peri<'d, impl GpioPin>,
-        b: Peri<'d, impl GpioPin>,
-        led: Peri<'d, impl GpioPin>,
+        a: Peri<'d, impl APin<T>>,
+        b: Peri<'d, impl BPin<T>>,
+        led: Peri<'d, impl LedPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(qdec, a.into(), b.into(), Some(led.into()), config)
+        Self::new_inner(qdec, Flex::new(a), Flex::new(b), Some(Flex::new(led)), config)
     }
 
     fn new_inner<T: Instance>(
         _p: Peri<'d, T>,
-        a: Peri<'d, AnyPin>,
-        b: Peri<'d, AnyPin>,
-        led: Option<Peri<'d, AnyPin>>,
+        mut a: Flex<'d>,
+        mut b: Flex<'d>,
+        led: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
 
-        // Select pins.
-        a.conf().write(|w| {
-            w.set_input(gpiovals::Input::Connect);
-            w.set_pull(gpiovals::Pull::Pullup);
-        });
-        b.conf().write(|w| {
-            w.set_input(gpiovals::Input::Connect);
-            w.set_pull(gpiovals::Pull::Pullup);
-        });
+        // Select pins. They're left configured on drop.
+        a.set_as_input(Pull::Up);
+        b.set_as_input(Pull::Up);
         r.psel().a().write_value(a.psel_bits());
         r.psel().b().write_value(b.psel_bits());
-        if let Some(led_pin) = &led {
-            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
+        a.persist();
+        b.persist();
+        if let Some(mut led_pin) = led {
+            led_pin.set_as_input_output(Pull::None, OutputDrive::Standard);
             r.psel().led().write_value(led_pin.psel_bits());
+            led_pin.persist();
         }
 
         // Enables/disable input debounce filters
@@ -284,6 +280,24 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
+pin_trait!(
+    /// phase A pin trait.
+    APin,
+    Instance
+);
+
+pin_trait!(
+    /// phase B pin trait.
+    BPin,
+    Instance
+);
+
+pin_trait!(
+    /// LED pin trait.
+    LedPin,
+    Instance
+);
 
 macro_rules! impl_qdec {
     ($type:ident, $pac_type:ident, $irq:ident) => {

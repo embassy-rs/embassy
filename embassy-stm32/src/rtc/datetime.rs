@@ -1,262 +1,192 @@
-#[cfg(feature = "chrono")]
-use chrono::{Datelike, NaiveDate, Timelike, Weekday};
-
-/// Errors regarding the [`DateTime`] struct.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Raw contents of the RTC calendar registers.
+///
+/// This is a dumb container for the values in the RTC time and date registers, decoded from BCD.
+/// It does **no validation whatsoever**: it can hold dates that do not exist (February 30, month
+/// 0, hour 61...), and [`Rtc::set_raw`](super::Rtc::set_raw) writes whatever it holds to the
+/// hardware. Out-of-range values are truncated to the width of the register fields.
+///
+/// It is meant for code that cares about the last few hundred bytes of flash, or that needs the
+/// hardware day of week. For anything else, enable the `jiff` feature and use
+/// `RtcReader::read` and `Rtc::set`, which work with validated `jiff::civil::DateTime`
+/// values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    /// The [DateTime] contains an invalid year value. Must be between `0..=4095`.
-    InvalidYear,
-    /// The [DateTime] contains an invalid month value. Must be between `1..=12`.
-    InvalidMonth,
-    /// The [DateTime] contains an invalid day value. Must be between `1..=31`.
-    InvalidDay,
-    /// The [DateTime] contains an invalid day of week. Must be between `0..=6` where 0 is Sunday.
-    InvalidDayOfWeek(
-        /// The value of the DayOfWeek that was given.
-        u8,
-    ),
-    /// The [DateTime] contains an invalid hour value. Must be between `0..=23`.
-    InvalidHour,
-    /// The [DateTime] contains an invalid minute value. Must be between `0..=59`.
-    InvalidMinute,
-    /// The [DateTime] contains an invalid second value. Must be between `0..=59`.
-    InvalidSecond,
-    /// The [DateTime] contains an invalid microsecond value. Must be between `0..=999_999`.
-    InvalidMicrosecond,
-}
-
-/// Structure containing date and time information
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DateTime {
-    /// 0..4095
-    year: u16,
-    /// 1..12, 1 is January
-    month: u8,
-    /// 1..28,29,30,31 depending on month
-    day: u8,
+pub struct RawDateTime {
+    /// Year within the century, as stored in the RTC, `0..=99`. The `jiff` API takes it as the
+    /// years 2000 to 2099.
+    pub year: u8,
+    /// Month, `1..=12`, 1 is January.
+    pub month: u8,
+    /// Day of the month, `1..=31`.
+    pub day: u8,
+    /// Day of the week, `1..=7`, 1 is Monday. The hardware does not allow 0.
     ///
-    day_of_week: DayOfWeek,
-    /// 0..23
-    hour: u8,
-    /// 0..59
-    minute: u8,
-    /// 0..59
-    second: u8,
-    /// 0..999_999
-    usecond: u32,
+    /// The RTC does not check it against the date, it only increments it every day, wrapping
+    /// from 7 to 1.
+    pub day_of_week: u8,
+    /// Hour, `0..=23`.
+    pub hour: u8,
+    /// Minute, `0..=59`.
+    pub minute: u8,
+    /// Second, `0..=59`.
+    pub second: u8,
+    /// Subsecond counter, the `SS` field of `RTC_SSR`.
+    ///
+    /// It counts down from `PREDIV_S` (`RTC_PRER`) to 0 once per second, so the fraction of the
+    /// current second that has elapsed is `(PREDIV_S - subsecond) / (PREDIV_S + 1)`. Right after
+    /// `Rtc::synchronize` it can be above `PREDIV_S`, meaning the time is still before `second`.
+    ///
+    /// [`Rtc::set_raw`](super::Rtc::set_raw) ignores it: setting the calendar resets the counter.
+    pub subsecond: u16,
 }
 
-impl DateTime {
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-    pub(crate) const fn millis_from_unix_epoch(&self) -> i64 {
-        // overflows 292_471_209 years from 1_970 with a precision less than 1 / 256 (an RTC tick)
-
-        const fn julian(year: i32, month: i32, day: i32) -> i32 {
-            let (mut y, mut m) = (year, month);
-
-            // Adjust months so that March is month 1
-            if m <= 2 {
-                y -= 1;
-                m += 12;
-            }
-
-            let a = y / 100;
-            let b = 2 - a + (a / 4);
-
-            (36525 * (y + 4716)) / 100 + (306001 * (m + 1)) / 10000 + day + b - 1524
-        }
-
-        let days = julian(self.year as i32, self.month as i32, self.day as i32) - julian(1970i32, 1i32, 1i32);
-        let hour = self.hour;
-        let minute = self.minute;
-        let second = self.second;
-        let seconds = days as i64 * 86_400 + ((hour as i32) * 3_600 + (minute as i32) * 60 + (second as i32)) as i64;
-
-        seconds * 1_000i64 + (self.usecond / 1_000u32) as i64
-    }
-
-    /// Get the year (0..=4095)
-    pub const fn year(&self) -> u16 {
-        self.year
-    }
-
-    /// Get the month (1..=12, 1 is January)
-    pub const fn month(&self) -> u8 {
-        self.month
-    }
-
-    /// Get the day (1..=31)
-    pub const fn day(&self) -> u8 {
-        self.day
-    }
-
-    /// Get the day of week
-    pub const fn day_of_week(&self) -> DayOfWeek {
-        self.day_of_week
-    }
-
-    /// Get the hour (0..=23)
-    pub const fn hour(&self) -> u8 {
-        self.hour
-    }
-
-    /// Get the minute (0..=59)
-    pub const fn minute(&self) -> u8 {
-        self.minute
-    }
-
-    /// Get the second (0..=59)
-    pub const fn second(&self) -> u8 {
-        self.second
-    }
-
-    /// Get the microsecond (0..=999_999)
-    pub const fn microsecond(&self) -> u32 {
-        self.usecond
-    }
-
-    /// Create a new DateTime with the given information.
-    pub fn from(
-        year: u16,
-        month: u8,
-        day: u8,
-        day_of_week: DayOfWeek,
-        hour: u8,
-        minute: u8,
-        second: u8,
-        usecond: u32,
-    ) -> Result<Self, Error> {
-        if year > 4095 {
-            Err(Error::InvalidYear)
-        } else if !(1..=12).contains(&month) {
-            Err(Error::InvalidMonth)
-        } else if !(1..=31).contains(&day) {
-            Err(Error::InvalidDay)
-        } else if hour > 23 {
-            Err(Error::InvalidHour)
-        } else if minute > 59 {
-            Err(Error::InvalidMinute)
-        } else if second > 59 {
-            Err(Error::InvalidSecond)
-        } else if usecond > 999_999 {
-            Err(Error::InvalidMicrosecond)
-        } else {
-            Ok(Self {
-                year,
-                month,
-                day,
-                day_of_week,
-                hour,
-                minute,
-                second,
-                usecond,
-            })
-        }
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl From<chrono::NaiveDateTime> for DateTime {
-    fn from(date_time: chrono::NaiveDateTime) -> Self {
-        Self {
-            year: date_time.year() as u16,
-            month: date_time.month() as u8,
-            day: date_time.day() as u8,
-            day_of_week: date_time.weekday().into(),
-            hour: date_time.hour() as u8,
-            minute: date_time.minute() as u8,
-            second: date_time.second() as u8,
-            usecond: date_time.and_utc().timestamp_subsec_micros(),
-        }
-    }
-}
-
-#[cfg(feature = "chrono")]
-impl From<DateTime> for chrono::NaiveDateTime {
-    fn from(date_time: DateTime) -> Self {
-        NaiveDate::from_ymd_opt(date_time.year as i32, date_time.month as u32, date_time.day as u32)
-            .unwrap()
-            .and_hms_micro_opt(
-                date_time.hour as u32,
-                date_time.minute as u32,
-                date_time.second as u32,
-                date_time.usecond,
-            )
-            .unwrap()
-    }
-}
-
-/// A day of the week
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
+/// The RTC holds a date and time that does not exist.
+#[cfg(feature = "jiff")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[allow(missing_docs)]
-pub enum DayOfWeek {
-    Monday = 1,
-    Tuesday = 2,
-    Wednesday = 3,
-    Thursday = 4,
-    Friday = 5,
-    Saturday = 6,
-    Sunday = 7,
-}
+pub struct InvalidDateTimeError;
 
-#[cfg(feature = "chrono")]
-impl From<chrono::Weekday> for DayOfWeek {
-    fn from(weekday: Weekday) -> Self {
-        day_of_week_from_u8(weekday.number_from_monday() as u8).unwrap()
+/// The date and time is outside the range the RTC can store, the years 2000 to 2099.
+#[cfg(feature = "jiff")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OutOfRangeError;
+
+/// Converts `t` to a jiff `DateTime`, ignoring `day_of_week`. `prediv_s` is the `PREDIV_S` the
+/// subsecond counter runs with.
+#[cfg(feature = "jiff")]
+pub(super) fn to_jiff(t: RawDateTime, prediv_s: u16) -> Result<jiff::civil::DateTime, InvalidDateTimeError> {
+    // jiff checks the other fields: a `u8` above `i8::MAX` turns negative, which it rejects.
+    // The year would still be valid for jiff.
+    if t.year > 99 {
+        return Err(InvalidDateTimeError);
     }
+    // A subsecond counter above `prediv_s` (right after a shift) is taken as the start of
+    // the second. Below 1e9, as `elapsed <= prediv_s`.
+    let elapsed = prediv_s.saturating_sub(t.subsecond) as u64;
+    let nanosecond = (elapsed * 1_000_000_000 / (prediv_s as u64 + 1)) as i32;
+    jiff::civil::DateTime::new(
+        2000 + t.year as i16,
+        t.month as i8,
+        t.day as i8,
+        t.hour as i8,
+        t.minute as i8,
+        t.second as i8,
+        nanosecond,
+    )
+    .map_err(|_| InvalidDateTimeError)
 }
 
-#[cfg(feature = "chrono")]
-impl From<DayOfWeek> for chrono::Weekday {
-    fn from(weekday: DayOfWeek) -> Self {
-        match weekday {
-            DayOfWeek::Monday => Weekday::Mon,
-            DayOfWeek::Tuesday => Weekday::Tue,
-            DayOfWeek::Wednesday => Weekday::Wed,
-            DayOfWeek::Thursday => Weekday::Thu,
-            DayOfWeek::Friday => Weekday::Fri,
-            DayOfWeek::Saturday => Weekday::Sat,
-            DayOfWeek::Sunday => Weekday::Sun,
-        }
+/// Converts `t` to a [`RawDateTime`], truncated to whole seconds. Sets `day_of_week` to 1 instead
+/// of spending the code to compute it.
+#[cfg(feature = "jiff")]
+pub(super) fn from_jiff(t: jiff::civil::DateTime) -> Result<RawDateTime, OutOfRangeError> {
+    if !(2000..=2099).contains(&t.year()) {
+        return Err(OutOfRangeError);
     }
-}
-
-pub(super) const fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
-    Ok(match v {
-        1 => DayOfWeek::Monday,
-        2 => DayOfWeek::Tuesday,
-        3 => DayOfWeek::Wednesday,
-        4 => DayOfWeek::Thursday,
-        5 => DayOfWeek::Friday,
-        6 => DayOfWeek::Saturday,
-        7 => DayOfWeek::Sunday,
-        x => return Err(Error::InvalidDayOfWeek(x)),
+    Ok(RawDateTime {
+        year: (t.year() - 2000) as u8,
+        month: t.month() as u8,
+        day: t.day() as u8,
+        day_of_week: 1,
+        hour: t.hour() as u8,
+        minute: t.minute() as u8,
+        second: t.second() as u8,
+        subsecond: 0,
     })
 }
 
-pub(super) const fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
-    dotw as u8
-}
+#[cfg(all(test, feature = "jiff"))]
+mod tests {
+    use jiff::civil::date;
 
-#[cfg(all(feature = "low-power", feature = "chrono", not(feature = "_lp-time-driver")))]
-#[test]
-fn test_millis_from_unix_epoch() {
-    for d in 1..1_000_000 {
-        for (h, m, s) in [(1, 1, 1), (3, 4, 5), (13, 14, 15), (18, 19, 20)] {
-            let date_time = chrono::NaiveDate::from_epoch_days(d)
-                .unwrap()
-                .and_hms_opt(h, m, s)
-                .unwrap();
+    use super::*;
 
-            let chrono_millis = date_time.and_utc().timestamp_millis();
-
-            let date_time: DateTime = date_time.into();
-            let our_millis = date_time.millis_from_unix_epoch();
-
-            assert!(chrono_millis.abs_diff(our_millis) < 5);
+    fn raw(year: u8, month: u8, day: u8) -> RawDateTime {
+        RawDateTime {
+            year,
+            month,
+            day,
+            day_of_week: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            subsecond: 255,
         }
+    }
+
+    fn jiff(t: RawDateTime) -> Result<jiff::civil::DateTime, InvalidDateTimeError> {
+        to_jiff(t, 255)
+    }
+
+    #[test]
+    fn to_jiff_checks_the_day_exists() {
+        assert_eq!(jiff(raw(24, 2, 29)), Ok(date(2024, 2, 29).at(0, 0, 0, 0)));
+        assert_eq!(jiff(raw(23, 2, 29)), Err(InvalidDateTimeError));
+        assert_eq!(jiff(raw(24, 4, 31)), Err(InvalidDateTimeError));
+        assert_eq!(jiff(raw(24, 0, 1)), Err(InvalidDateTimeError));
+        assert_eq!(jiff(raw(24, 1, 0)), Err(InvalidDateTimeError));
+        assert_eq!(jiff(raw(100, 1, 1)), Err(InvalidDateTimeError));
+        assert_eq!(jiff(raw(24, 200, 1)), Err(InvalidDateTimeError));
+    }
+
+    #[test]
+    fn to_jiff_checks_time_fields() {
+        let ok = RawDateTime {
+            hour: 23,
+            minute: 59,
+            second: 59,
+            ..raw(99, 12, 31)
+        };
+        assert_eq!(jiff(ok), Ok(date(2099, 12, 31).at(23, 59, 59, 0)));
+        assert!(jiff(RawDateTime { hour: 24, ..ok }).is_err());
+        assert!(jiff(RawDateTime { minute: 60, ..ok }).is_err());
+        assert!(jiff(RawDateTime { second: 60, ..ok }).is_err());
+    }
+
+    #[test]
+    fn to_jiff_subseconds() {
+        let at = |subsecond, prediv_s| {
+            to_jiff(
+                RawDateTime {
+                    subsecond,
+                    ..raw(24, 1, 1)
+                },
+                prediv_s,
+            )
+            .unwrap()
+            .subsec_nanosecond()
+        };
+        // The counter starts the second at `prediv_s` and counts down.
+        assert_eq!(at(255, 255), 0);
+        assert_eq!(at(127, 255), 500_000_000);
+        assert_eq!(at(0, 255), 996_093_750);
+        assert_eq!(at(0, u16::MAX), 999_984_741);
+        // Right after a shift, the counter is above `prediv_s`.
+        assert_eq!(at(300, 255), 0);
+        // F2 has no subsecond counter, both are 0.
+        assert_eq!(at(0, 0), 0);
+    }
+
+    #[test]
+    fn from_jiff_checks_the_year() {
+        let t = date(2024, 5, 15).at(10, 30, 15, 123_456_789);
+        assert_eq!(
+            from_jiff(t),
+            Ok(RawDateTime {
+                year: 24,
+                month: 5,
+                day: 15,
+                day_of_week: 1,
+                hour: 10,
+                minute: 30,
+                second: 15,
+                subsecond: 0,
+            })
+        );
+        assert!(from_jiff(date(2000, 1, 1).at(0, 0, 0, 0)).is_ok());
+        assert!(from_jiff(date(2099, 12, 31).at(23, 59, 59, 0)).is_ok());
+        assert_eq!(from_jiff(date(1999, 12, 31).at(23, 59, 59, 0)), Err(OutOfRangeError));
+        assert_eq!(from_jiff(date(2100, 1, 1).at(0, 0, 0, 0)), Err(OutOfRangeError));
     }
 }

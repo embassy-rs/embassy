@@ -10,12 +10,14 @@ use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{
+    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+};
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, StateStorage,
+    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, StateStorage,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -83,45 +85,27 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d, V>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.inner.alloc_endpoint_in(config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.inner.alloc_endpoint_out(config)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        let (inner, cp) = self.inner.start(control_max_packet_size);
-        (
-            Bus {
-                inner,
-                usb_regs: self.usb_regs,
-                vbus_detect: self.vbus_detect,
-                power_present: false,
-                enabled: false,
-                core_ready: false,
-                _phantom: PhantomData,
-            },
-            cp,
-        )
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
+        let inner = self.inner.start(control_max_packet_size);
+        Bus {
+            inner,
+            usb_regs: self.usb_regs,
+            vbus_detect: self.vbus_detect,
+            power_present: false,
+            enabled: false,
+            core_ready: false,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -175,6 +159,30 @@ impl<'d, V: VbusDetect> Bus<'d, V> {
 }
 
 impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
+    fn control_max_packet_size(&self) -> usize {
+        self.inner.control_max_packet_size()
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.inner.control_data_out(buf).await
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        self.inner.control_data_in(data, needs_zlp).await
+    }
+
+    async fn control_accept(&mut self) {
+        self.inner.control_accept().await
+    }
+
+    async fn control_reject(&mut self) {
+        self.inner.control_reject().await
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.inner.control_accept_set_address(addr).await
+    }
+
     async fn enable(&mut self) {
         if self.enabled {
             return;
@@ -273,16 +281,20 @@ impl<'d, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, V> {
         }
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        self.inner.endpoint_set_stalled(ep_addr, stalled)
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        self.inner.endpoint_set_stalled(ep_addr, stalled).await
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         self.inner.endpoint_is_stalled(ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        self.inner.endpoint_set_enabled(ep_addr, enabled)
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        self.inner.endpoint_set_enabled(ep_addr, enabled).await
+    }
+
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        self.inner.endpoint_is_enabled(ep_addr)
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {

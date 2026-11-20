@@ -3,11 +3,16 @@
 //! The Neural-ART NPU is a data-flow machine: convolution accelerators,
 //! activation/pooling/arithmetic units and DMA "streaming engines" connected
 //! by a stream switch. For inference, ST's Edge AI tooling compiles a network
-//! into *epochs* — self-contained hardware schedules. With the (default,
-//! recommended) `--enable-epoch-controller` option, each hardware epoch is
-//! emitted as a **blob**: a command stream that the NPU's built-in *epoch
-//! controller* unit executes autonomously, programming all units and raising
-//! an interrupt when the epoch completes. The CPU's job is reduced to:
+//! into *epochs* — self-contained hardware schedules. This driver runs both
+//! schedules the compiler emits, mirroring ST's `LL_ATON` runtime
+//! (`LL_ATON_RT_RunEpochBlock` + `ATON_STD_IRQHandler`) with an async API.
+//!
+//! # Epoch-controller epochs
+//!
+//! With the (default, recommended) `--enable-epoch-controller` option, each
+//! hardware epoch is emitted as a **blob**: a command stream that the NPU's
+//! built-in *epoch controller* unit executes autonomously, programming all
+//! units and raising an interrupt when the epoch completes. The CPU's job is:
 //!
 //! 1. load (and optionally relocate/patch) the blobs — see [`ecloader`],
 //! 2. point the epoch controller at a blob and start it,
@@ -16,10 +21,22 @@
 //!    the tool, e.g. a final dequantize) and cache maintenance callbacks,
 //! 5. repeat for the next epoch block.
 //!
-//! This driver implements that execution model, mirroring ST's `LL_ATON`
-//! runtime (`LL_ATON_RT_RunEpochBlock` + `ATON_STD_IRQHandler`) with an async
-//! API. Networks compiled to *streaming-engine* epochs (without the epoch
-//! controller) are **not** supported.
+//! # Streaming-engine epochs
+//!
+//! Without `--enable-epoch-controller`, the compiler emits no blob. Each
+//! hardware epoch is a generated **pre-op** (`LL_ATON_Start_EpochBlock_*`)
+//! that programs the units over the control port and enables the output
+//! streaming engines, and a **post-op** (`LL_ATON_End_EpochBlock_*`) that
+//! disables them and performs cache maintenance. The epoch is complete when
+//! every output engine in the generated wait mask has raised end-of-transfer.
+//! [`Npu::run_streaming_epoch`] arms that mask, calls the pre-op, and sleeps
+//! until those engines finish.
+//!
+//! Unit programming stays in the generated pre-op, called as the epoch's
+//! `start` function. This driver does not write conv, activation, arithmetic,
+//! pool, or stream-switch registers. Do not also link ST's
+//! `ATON_STD_IRQHandler` or call `LL_ATON_RT_RunEpochBlock`: both claim `NPU0`
+//! and the interrupt controller, which this driver owns.
 //!
 //! # Prerequisites
 //!
@@ -72,9 +89,31 @@
 //! npu.run_epoch_blob(blob).await.unwrap();
 //! ```
 //!
+//! A streaming-engine epoch (compiled without `--enable-epoch-controller`)
+//! passes the generated pre-op and post-op to [`EpochBlock::streaming`], with
+//! the output-engine wait mask from the generated epoch list. Bit 0 is
+//! streaming engine 0. [`Npu::run_network`] arms the wait before calling the
+//! pre-op, so the pre-op is what enables the engines:
+//!
+//! ```rust,ignore
+//! extern "C" {
+//!     fn LL_ATON_Start_EpochBlock_0();
+//!     fn LL_ATON_End_EpochBlock_0();
+//! }
+//! fn pre_op() { unsafe { LL_ATON_Start_EpochBlock_0() } }
+//! fn post_op() { unsafe { LL_ATON_End_EpochBlock_0() } }
+//!
+//! // Output engines 0 and 2 signal the end of this epoch.
+//! let epochs = [
+//!     npu::EpochBlock::streaming(pre_op, Some(post_op), 1 << 0 | 1 << 2),
+//! ];
+//! npu.run_network(&epochs).await.unwrap();
+//! ```
+//!
 //! For multi-epoch networks, [`Npu::run_network`] executes a list of
-//! [`EpochBlock`]s (hardware blobs interleaved with software epochs), which
-//! is the direct equivalent of the generated `EpochBlock_ItemTypeDef` array.
+//! [`EpochBlock`]s (epoch-controller blobs, streaming-engine epochs, and
+//! software epochs), which is the direct equivalent of the generated
+//! `EpochBlock_ItemTypeDef` array.
 
 pub mod cache;
 pub mod ecloader;
@@ -112,6 +151,10 @@ const EVT_EC_DONE: u32 = 1 << 0;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 static EVENTS: AtomicU32 = AtomicU32::new(0);
+/// Streaming-engine end-of-transfer bits latched by the interrupt handler.
+/// Bit *n* is engine *n*. Epoch-controller blobs keep these events masked, so
+/// the handler records them only for [`Npu::run_streaming_epoch`].
+static STRENG_DONE: AtomicU32 = AtomicU32::new(0);
 static ERRORS: AtomicU32 = AtomicU32::new(0);
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -157,16 +200,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let raw_errors = irqs.0 & !(INT_ECTRL_EVT | INT_STRENG_EVT_MASK);
         if raw_errors != 0 {
             // Mask line 0 completely to guard against interrupt storms from
-            // sources that stay asserted; `run_epoch_blob` restores the mask.
+            // sources that stay asserted; the running wait restores the mask.
             pac::NPU
                 .intctrl()
                 .intormsk(0)
                 .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
             ERRORS.fetch_or(raw_errors, Ordering::Relaxed);
             error!(
-                "NPU fault: intreg=0x{:08x} ectrl_ctrl={:?} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
+                "NPU fault: intreg=0x{:08x} ectrl_ctrl=0x{:08x} ectrl_irq={:?} label=0x{:08x} bc=0x{:08x} streng_irq={:08x} busif_err={:08x}",
                 irqs.0,
-                ectrl_ctrl,
+                ectrl_ctrl.0,
                 ectrl_irq.map(|v| v.0),
                 ectrl_label.label(),
                 ectrl_bc.count(),
@@ -176,6 +219,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
         if irqs.ectrl_evt() {
             EVENTS.fetch_or(EVT_EC_DONE, Ordering::Relaxed);
+        }
+        let streng_done = u32::from(irqs.streng_evt());
+        if streng_done != 0 {
+            STRENG_DONE.fetch_or(streng_done, Ordering::Relaxed);
         }
 
         cortex_m::asm::dsb();
@@ -207,6 +254,11 @@ pub enum Error {
     BusInterface(u8),
     /// Unexpected interrupt source(s) (raw INTCTRL bitmask).
     Fault(u32),
+    /// A streaming-engine wait mask named no engine, or an engine above 9.
+    InvalidWaitMask,
+    /// An [`EpochBlock`] carries both an epoch-controller blob and a
+    /// streaming-engine wait mask.
+    ConflictingEpoch,
 }
 
 fn decode_errors(bits: u32) -> Error {
@@ -227,17 +279,25 @@ fn decode_errors(bits: u32) -> Error {
 /// One entry of a network's epoch list — the Rust equivalent of the generated
 /// `EpochBlock_ItemTypeDef`.
 ///
-/// `start` runs before the hardware epoch is started (typically MCU/NPU cache
-/// maintenance for the epoch's inputs), `end` after it completes (cache
-/// invalidation of outputs, or the body of a pure software epoch).
+/// `start` runs before an epoch-controller blob (typically MCU/NPU cache
+/// maintenance for the epoch's inputs) and *is* the pre-op of a
+/// streaming-engine epoch. `end` runs after the epoch completes: cache
+/// invalidation, the generated post-op, or the body of a pure software epoch.
 #[derive(Copy, Clone)]
 pub struct EpochBlock<'a> {
-    /// Called before the epoch (blob) is started.
+    /// Called before an epoch-controller blob, or the pre-op of a
+    /// streaming-engine epoch. [`Npu::run_streaming_epoch`] calls it only
+    /// after the completion wait is armed.
     pub start: Option<fn()>,
     /// Called after the epoch completes.
     pub end: Option<fn()>,
-    /// Epoch controller blob to execute; `None` for a pure software epoch.
+    /// Epoch controller blob to execute. `None` for a streaming-engine epoch
+    /// or a pure software epoch.
     pub blob: Option<&'a [u64]>,
+    /// Output streaming engines that signal completion of a streaming-engine
+    /// epoch. Bit *n* is engine *n*. `0` for epoch-controller and software
+    /// epochs.
+    pub streng_mask: u16,
 }
 
 impl<'a> EpochBlock<'a> {
@@ -247,6 +307,7 @@ impl<'a> EpochBlock<'a> {
             start: None,
             end: None,
             blob: Some(blob),
+            streng_mask: 0,
         }
     }
 
@@ -256,12 +317,91 @@ impl<'a> EpochBlock<'a> {
             start,
             end,
             blob: Some(blob),
+            streng_mask: 0,
+        }
+    }
+
+    /// A streaming-engine epoch.
+    ///
+    /// `start` is the generated pre-op (`LL_ATON_Start_EpochBlock_*`). It
+    /// programs the units and enables the output streaming engines named by
+    /// `streng_mask`. [`Npu::run_network`] calls it after arming the wait, so
+    /// the engines must be enabled from `start` and not before.
+    /// `end` is the generated post-op (`LL_ATON_End_EpochBlock_*`): it
+    /// disables those units and performs cache maintenance. It runs only
+    /// after every engine in `streng_mask` has completed.
+    ///
+    /// `streng_mask` is the generated epoch's output-engine wait mask. Bit 0
+    /// is streaming engine 0, and only bits 0 through 9 are valid. An empty
+    /// mask or a higher bit makes [`Npu::run_streaming_epoch`] return
+    /// [`Error::InvalidWaitMask`].
+    pub const fn streaming(start: fn(), end: Option<fn()>, streng_mask: u16) -> Self {
+        Self {
+            start: Some(start),
+            end,
+            blob: None,
+            streng_mask,
         }
     }
 
     /// A pure software epoch: `start`/`end` run on the CPU, no hardware use.
     pub const fn sw(start: Option<fn()>, end: Option<fn()>) -> Self {
-        Self { start, end, blob: None }
+        Self {
+            start,
+            end,
+            blob: None,
+            streng_mask: 0,
+        }
+    }
+}
+
+/// Restores the idle line-0 masks: streaming-engine completions blocked in
+/// the OR-mask, AND-group disabled. Also undoes the full-line mask the
+/// interrupt handler installs after a fault.
+fn restore_idle_masks() {
+    pac::NPU
+        .intctrl()
+        .intandmsk(0)
+        .write_value(pac::npu::regs::Intstatus(0xFFFF_FFFF));
+    pac::NPU
+        .intctrl()
+        .intormsk(0)
+        .write_value(pac::npu::regs::Intstatus(INT_STRENG_EVT_MASK));
+}
+
+/// OR-mask value that lets `wait_mask`'s completion events through and blocks
+/// every other streaming-engine completion. A 1-bit blocks that source.
+/// Errors and the epoch-controller event stay unblocked.
+fn streaming_or_mask(wait_mask: u16) -> u32 {
+    INT_STRENG_EVT_MASK & !u32::from(wait_mask)
+}
+
+/// Acknowledge a stale end-of-transfer on the engines in `wait_mask`, then
+/// clear the latched summary bits. Sources are acknowledged first: clearing
+/// the summary while the source is still pending re-latches it.
+fn ack_streaming_engines(wait_mask: u16) {
+    for i in 0..STRENG_COUNT {
+        if wait_mask & (1 << i) == 0 {
+            continue;
+        }
+        let v = pac::NPU.streng(i).irq().read();
+        if v.0 != 0 {
+            pac::NPU.streng(i).irq().write_value(v);
+        }
+    }
+    let mut clr = pac::npu::regs::Intstatus(0);
+    clr.set_streng_evt(wait_mask);
+    pac::NPU.intctrl().intclr().write_value(clr);
+    cortex_m::asm::dsb();
+}
+
+/// Puts the idle masks back when a streaming-engine wait is dropped, including
+/// when the future is cancelled while parked on the completion interrupt.
+struct RestoreIdleMasks;
+
+impl Drop for RestoreIdleMasks {
+    fn drop(&mut self) {
+        restore_idle_masks();
     }
 }
 
@@ -332,6 +472,7 @@ impl<'d, T: Instance> Npu<'d, T> {
         pac::NPU.intctrl().ctrl().modify(|w| w.set_en(true));
 
         EVENTS.store(0, Ordering::Relaxed);
+        STRENG_DONE.store(0, Ordering::Relaxed);
         ERRORS.store(0, Ordering::Relaxed);
 
         T::Interrupt::unpend();
@@ -425,6 +566,45 @@ impl<'d, T: Instance> Npu<'d, T> {
 
         // Re-mask the epoch event and restore the OR-mask (the IRQ handler
         // fully masks the line after an error).
+        restore_idle_masks();
+
+        teardown_error.map_or(res, Err)
+    }
+
+    /// Run one streaming-engine epoch and wait until every engine in
+    /// `streng_mask` reports end-of-transfer.
+    ///
+    /// `streng_mask` bit *n* waits for streaming engine *n*. Bits above engine
+    /// 9, and a mask of zero, return [`Error::InvalidWaitMask`].
+    ///
+    /// The wait is armed before `start` runs. `start` is the generated pre-op:
+    /// it programs the units and enables the output engines. Enabling those
+    /// engines before this call drops the completion on the floor, because
+    /// engine-completion events are masked until the wait is armed. `end` is
+    /// the generated post-op and runs only after every waited engine has
+    /// completed. On error the units are left as `start` configured them, and
+    /// the interrupt masks are restored to idle.
+    ///
+    /// No hardware timeout is applied; wrap the future in
+    /// `embassy_time::with_timeout` if needed.
+    pub async fn run_streaming_epoch(
+        &mut self,
+        streng_mask: u16,
+        start: Option<fn()>,
+        end: Option<fn()>,
+    ) -> Result<(), Error> {
+        if streng_mask == 0 || u32::from(streng_mask) & !INT_STRENG_EVT_MASK != 0 {
+            return Err(Error::InvalidWaitMask);
+        }
+
+        // Drop a completion left latched by a previous epoch before opening
+        // the mask, so it cannot satisfy this wait.
+        ack_streaming_engines(streng_mask);
+        STRENG_DONE.store(0, Ordering::Relaxed);
+        ERRORS.store(0, Ordering::Relaxed);
+
+        // AND-group stays disabled. The OR-mask blocks every streaming-engine
+        // completion except the ones in `streng_mask`.
         pac::NPU
             .intctrl()
             .intandmsk(0)
@@ -432,19 +612,59 @@ impl<'d, T: Instance> Npu<'d, T> {
         pac::NPU
             .intctrl()
             .intormsk(0)
-            .write_value(pac::npu::regs::Intstatus(INT_STRENG_EVT_MASK));
+            .write_value(pac::npu::regs::Intstatus(streaming_or_mask(streng_mask)));
+        // Cancelled waits must not leave those completions unmasked: a later
+        // epoch-controller blob does not rewrite the OR-mask until it ends.
+        let _restore = RestoreIdleMasks;
 
-        teardown_error.map_or(res, Err)
+        cortex_m::asm::dsb();
+        if let Some(f) = start {
+            f();
+        }
+        cortex_m::asm::dsb();
+
+        let res = poll_fn(|cx| {
+            WAKER.register(cx.waker());
+            let err = ERRORS.load(Ordering::Relaxed);
+            if err != 0 {
+                return Poll::Ready(Err(decode_errors(err)));
+            }
+            let done = STRENG_DONE.load(Ordering::Relaxed);
+            if done & u32::from(streng_mask) == u32::from(streng_mask) {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        if res.is_ok()
+            && let Some(f) = end
+        {
+            f();
+        }
+        res
     }
 
-    /// Run a network: execute a list of epoch blocks in order, awaiting each
-    /// hardware blob and invoking the software callbacks in between — the
-    /// equivalent of looping `LL_ATON_RT_RunEpochBlock()` until
-    /// `LL_ATON_RT_DONE`.
+    /// Run a network: execute a list of epoch blocks in order — the equivalent
+    /// of looping `LL_ATON_RT_RunEpochBlock()` until `LL_ATON_RT_DONE`.
     ///
-    /// Stops at the first hardware error.
+    /// An epoch-controller block runs `start`, the blob, then `end`. A
+    /// streaming-engine block ([`EpochBlock::streaming`]) arms its wait mask,
+    /// runs `start` as the pre-op, waits for the output engines, then runs
+    /// `end` as the post-op. A block with neither a blob nor a wait mask runs
+    /// `start` and `end` on the CPU.
+    ///
+    /// Stops at the first hardware error. A block that sets both `blob` and
+    /// `streng_mask` returns [`Error::ConflictingEpoch`] before it starts.
     pub async fn run_network(&mut self, epochs: &[EpochBlock<'_>]) -> Result<(), Error> {
         for eb in epochs {
+            if eb.blob.is_some() && eb.streng_mask != 0 {
+                return Err(Error::ConflictingEpoch);
+            }
+            if eb.streng_mask != 0 {
+                self.run_streaming_epoch(eb.streng_mask, eb.start, eb.end).await?;
+                continue;
+            }
             if let Some(f) = eb.start {
                 f();
             }

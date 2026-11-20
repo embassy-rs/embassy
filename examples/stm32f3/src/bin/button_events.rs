@@ -15,7 +15,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer, with_timeout};
@@ -23,7 +23,7 @@ use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+        EXTI0 => exti::InterruptHandler<peripherals::EXTI0>;
 });
 
 struct Leds<'a> {
@@ -107,7 +107,7 @@ static CHANNEL: Channel<ThreadModeRawMutex, ButtonEvent, 4> = Channel::new();
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Down, Irqs);
+    let button = ExtiInput::new_async(p.PA0, p.EXTI0, Pull::Down, Irqs);
     info!("Press the USER button...");
     let leds = [
         Output::new(p.PE9, Level::Low, Speed::Low),

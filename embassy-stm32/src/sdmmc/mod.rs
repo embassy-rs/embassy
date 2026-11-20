@@ -4,13 +4,13 @@
 use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
 use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -189,7 +189,8 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: Hertz) -> Result<(bool, u8, Hertz), Error> {
 
     let clk_div = match ker_ck.0.div_ceil(sdmmc_ck.0) {
         0 | 1 => Ok(0),
-        x @ 2..=258 => Ok((x - 2) as u8),
+        // CLKDIV is 8 bits, so the largest divisor is 255 + 2
+        x @ 2..=257 => Ok((x - 2) as u8),
         _ => Err(Error::BadClock),
     }?;
 
@@ -1657,7 +1658,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             return Ok(());
         }
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.dctrl().modify(|w| w.set_sdioen(false));
             self.info.regs.maskr().clear_bits(|w| w.set_sdioitie(false));
         });
@@ -1979,3 +1980,20 @@ foreach_peripheral!(
         }
     };
 );
+
+#[cfg(all(test, sdmmc_v1))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clk_div_v1_divider_range() {
+        // 48 MHz / 186_771 Hz rounds up to 257: CLKDIV 255, the largest value
+        let (bypass, div, f) = clk_div(Hertz(48_000_000), Hertz(186_771)).unwrap();
+        assert!(!bypass);
+        assert_eq!(div, 255);
+        assert_eq!(f, Hertz(48_000_000 / 257));
+
+        // 48 MHz / 186_047 Hz rounds up to 258, which CLKDIV cannot hold
+        assert!(clk_div(Hertz(48_000_000), Hertz(186_047)).is_err());
+    }
+}

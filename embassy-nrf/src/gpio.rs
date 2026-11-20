@@ -2,10 +2,17 @@
 #![macro_use]
 
 use core::convert::Infallible;
+use core::future::Future;
 use core::hint::unreachable_unchecked;
+use core::marker::PhantomData;
+use core::task::{Context, Poll};
 
-use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::gpiote::GpiotePin;
+use crate::interrupt::typelevel::{Binding, Handler};
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac;
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio;
@@ -45,17 +52,61 @@ pub enum Pull {
 }
 
 /// GPIO input driver.
-pub struct Input<'d> {
-    pub(crate) pin: Flex<'d>,
+pub struct Input<'d, M: Mode = Blocking> {
+    pub(crate) pin: Flex<'d, M>,
 }
 
-impl<'d> Input<'d> {
-    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
+impl<'d> Input<'d, Blocking> {
+    /// Create a blocking GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
-        let mut pin = Flex::new(pin);
-        pin.set_as_input(pull);
+        Self::new_inner(Flex::new(pin), pull)
+    }
+}
 
+impl<'d> Input<'d, Async> {
+    /// Create an async GPIO input driver for a [Pin] with the provided [Pull] configuration.
+    ///
+    /// The pin's GPIOTE interrupt must be bound to [`InterruptHandler`] for this pin.
+    #[inline]
+    pub fn new_async<T: GpiotePin>(
+        pin: Peri<'d, T>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        pull: Pull,
+    ) -> Self {
+        Self::new_inner(Flex::new_async(pin, irq), pull)
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
+    }
+}
+
+impl<'d, M: Mode> Input<'d, M> {
+    #[inline]
+    fn new_inner(mut pin: Flex<'d, M>, pull: Pull) -> Self {
+        pin.set_as_input(pull);
         Self { pin }
     }
 
@@ -78,10 +129,12 @@ impl<'d> Input<'d> {
     }
 }
 
-impl Input<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> Input<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -276,10 +329,12 @@ impl<'d> Output<'d> {
     }
 }
 
-impl Output<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d> Output<'d> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -291,19 +346,72 @@ impl Output<'static> {
 /// high, so the line can be shared with other open-drain devices (wired-and). The input buffer
 /// stays connected, so the actual line level can be read back with [`is_high`](Self::is_high) and
 /// friends.
-pub struct OutputOpenDrain<'d> {
-    pub(crate) pin: Flex<'d>,
+pub struct OutputOpenDrain<'d, M: Mode = Blocking> {
+    pub(crate) pin: Flex<'d, M>,
 }
 
-impl<'d> OutputOpenDrain<'d> {
-    /// Create GPIO output open-drain driver for a [Pin] with the provided [Level], [OutputDrive] and [Pull] configuration.
+impl<'d> OutputOpenDrain<'d, Blocking> {
+    /// Create a blocking GPIO output open-drain driver for a [Pin] with the provided [Level],
+    /// [OutputDrive] and [Pull] configuration.
     ///
     /// `drive` selects the drive strength used when driving the line low. It should be one of the
     /// `*Disconnect1` variants (typically [`OutputDrive::Standard0Disconnect1`]), otherwise the pin
     /// will actively drive the line high as well.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive, pull: Pull) -> Self {
-        let mut pin = Flex::new(pin);
+        Self::new_inner(Flex::new(pin), initial_output, drive, pull)
+    }
+}
+
+impl<'d> OutputOpenDrain<'d, Async> {
+    /// Create an async GPIO output open-drain driver for a [Pin] with the provided [Level],
+    /// [OutputDrive] and [Pull] configuration.
+    ///
+    /// The pin's GPIOTE interrupt must be bound to [`InterruptHandler`] for this pin.
+    ///
+    /// `drive` selects the drive strength used when driving the line low. It should be one of the
+    /// `*Disconnect1` variants (typically [`OutputDrive::Standard0Disconnect1`]), otherwise the pin
+    /// will actively drive the line high as well.
+    #[inline]
+    pub fn new_async<T: GpiotePin>(
+        pin: Peri<'d, T>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        initial_output: Level,
+        drive: OutputDrive,
+        pull: Pull,
+    ) -> Self {
+        Self::new_inner(Flex::new_async(pin, irq), initial_output, drive, pull)
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
+    }
+}
+
+impl<'d, M: Mode> OutputOpenDrain<'d, M> {
+    #[inline]
+    fn new_inner(mut pin: Flex<'d, M>, initial_output: Level, drive: OutputDrive, pull: Pull) -> Self {
         match initial_output {
             Level::High => pin.set_high(),
             Level::Low => pin.set_low(),
@@ -374,10 +482,12 @@ impl<'d> OutputOpenDrain<'d> {
     }
 }
 
-impl OutputOpenDrain<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
+impl<'d, M: Mode> OutputOpenDrain<'d, M> {
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    #[inline]
     pub fn persist(self) {
         self.pin.persist()
     }
@@ -428,25 +538,109 @@ fn convert_pull(pull: Pull) -> vals::Pull {
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-pub struct Flex<'d> {
-    pub(crate) pin: Peri<'d, AnyPin>,
+pub struct Flex<'d, M: Mode = Blocking> {
+    pub(crate) pin: PinNumber,
+    /// Waker for the pin's PORT event.
+    waker: M::IfAsync<&'static AtomicWaker>,
+    _lifetime: PhantomData<&'d mut ()>,
+    _mode: PhantomData<M>,
 }
 
-impl<'d> Flex<'d> {
-    /// Wrap the pin in a `Flex`.
+impl<'d> Flex<'d, Blocking> {
+    /// Wrap the pin in a blocking `Flex`.
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
+        Self::new_inner(pin.pin_number(), ())
+    }
+}
+
+impl<'d> Flex<'d, Async> {
+    /// Wrap the pin in an async `Flex`.
+    ///
+    /// The pin's GPIOTE interrupt must be bound to [`InterruptHandler`] for this pin.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
+    #[inline]
+    pub fn new_async<T: GpiotePin>(
+        pin: Peri<'d, T>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        crate::gpiote::enable_port_interrupt::<T>();
+        Self::new_inner(pin.pin_number(), T::waker())
+    }
+
+    /// Wait until the pin is high. If it is already high, return immediately.
+    pub async fn wait_for_high(&mut self) {
+        self.wait_for_sense(vals::Sense::High).await
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    pub async fn wait_for_low(&mut self) {
+        self.wait_for_sense(vals::Sense::Low).await
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.wait_for_low().await;
+        self.wait_for_high().await;
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.wait_for_high().await;
+        self.wait_for_low().await;
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    pub async fn wait_for_any_edge(&mut self) {
+        let sense = match self.is_high() {
+            true => vals::Sense::Low,
+            false => vals::Sense::High,
+        };
+        self.wait_for_sense(sense).await
+    }
+
+    fn wait_for_sense(&mut self, sense: vals::Sense) -> PortInputFuture<'_> {
+        // Discard a stale LATCH bit, so the PORT interrupt handler doesn't complete this wait early.
+        // SENSE is disabled here, so the bit's DETECT signal is low and the clear takes effect.
+        #[cfg(not(feature = "_nrf51"))]
+        {
+            let latch = self.pin.block().latch();
+            let mask = 1 << self.pin.pin();
+            if latch.read().0 & mask != 0 {
+                latch.write(|w| w.0 = mask);
+            }
+        }
+
+        self.pin.conf().modify(|w| w.set_sense(sense));
+        PortInputFuture {
+            pin: self.pin,
+            waker: self.waker,
+            _lifetime: PhantomData,
+        }
+    }
+}
+
+impl<'d, M: Mode> Flex<'d, M> {
+    #[inline]
+    fn new_inner(pin: PinNumber, waker: M::IfAsync<&'static AtomicWaker>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.into() }
+        Self {
+            pin,
+            waker,
+            _lifetime: PhantomData,
+            _mode: PhantomData,
+        }
     }
 
     /// Put the pin into input mode.
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Input);
             w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
@@ -461,7 +655,7 @@ impl<'d> Flex<'d> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self, drive: OutputDrive) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Output);
             w.set_input(vals::Input::Disconnect);
             w.set_pull(vals::Pull::Disabled);
@@ -481,7 +675,7 @@ impl<'d> Flex<'d> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_dir(vals::Dir::Output);
             w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
@@ -493,9 +687,37 @@ impl<'d> Flex<'d> {
     /// Put the pin into disconnected mode.
     #[inline]
     pub fn set_as_disconnected(&mut self) {
-        self.pin.conf().write(|w| {
+        self.set_cnf(|w| {
             w.set_input(vals::Input::Disconnect);
         });
+    }
+
+    /// Write the pin's `PIN_CNF` register. Fields `f` doesn't set keep their reset value.
+    ///
+    /// For configuring the pin for use by a peripheral, when none of the `set_as_*` methods writes
+    /// the value the peripheral needs.
+    #[inline]
+    pub(crate) fn set_cnf(&mut self, f: impl FnOnce(&mut gpio::regs::PinCnf)) {
+        self.pin.conf().write(f);
+    }
+
+    /// Peripheral pin select register value for this pin.
+    #[cfg(not(feature = "_nrf51"))]
+    #[inline]
+    pub(crate) fn psel_bits(&self) -> Psel {
+        self.pin.psel_bits()
+    }
+
+    /// Give up the pin, leaving it configured.
+    ///
+    /// Dropping disconnects the pin, this doesn't. The pin keeps its configuration after the
+    /// borrow it came from ends.
+    ///
+    /// Drivers that don't keep their pins use this too: they disconnect them on drop by reading
+    /// back the peripheral's PSEL registers, or leave them configured.
+    #[inline]
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 
     /// Is the pin configured as an input?
@@ -589,35 +811,130 @@ impl<'d> Flex<'d> {
     }
 }
 
-impl Flex<'static> {
-    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
-    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
-    /// reuse of the underlying peripheral.
-    pub fn persist(self) {
-        core::mem::forget(self);
-    }
-}
-
-impl<'d> Drop for Flex<'d> {
+impl<'d, M: Mode> Drop for Flex<'d, M> {
     fn drop(&mut self) {
         self.set_as_disconnected();
     }
 }
 
-pub(crate) trait SealedPin {
-    fn pin_port(&self) -> u8;
+/// GPIO interrupt handler for one pin.
+///
+/// Bind one handler per pin used with an async [`Input`], [`OutputOpenDrain`] or [`Flex`], on that
+/// pin's GPIOTE interrupt ([`GpiotePin::Interrupt`]). All pins served by a GPIOTE instance share
+/// its interrupt, so list one handler per pin:
+///
+/// ```rust,ignore
+/// bind_interrupts!(struct Irqs {
+///     GPIOTE => gpio::InterruptHandler<peripherals::P0_11>, gpio::InterruptHandler<peripherals::P0_12>;
+/// });
+/// ```
+///
+/// The handler only services its own pin, so the same interrupt can also be bound to
+/// [`gpiote::InterruptHandler`](crate::gpiote::InterruptHandler) for GPIOTE channels, and to your
+/// own [`Handler`] for pins used in blocking mode. If your handler uses the PORT event, it must
+/// clear `EVENTS_PORT` first and then clear only its own pins' bits in `LATCH`. While any `LATCH`
+/// bit of a port stays set, no new PORT event is generated for that port.
+pub struct InterruptHandler<T: GpiotePin> {
+    _phantom: PhantomData<T>,
+}
 
+impl<T: GpiotePin> Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let pin = T::PIN_NUMBER;
+
+        // Clear the event before any LATCH bit, so the PORT event generated when a LATCH clear
+        // leaves other bits set isn't lost.
+        crate::gpiote::clear_port_event(T::regs());
+
+        // On nRF51 there's no LATCH, check the level against the SENSE setting instead.
+        #[cfg(feature = "_nrf51")]
+        let fired = match pin.conf().read().sense() {
+            vals::Sense::High => pin.block().in_().read().pin(pin.pin() as _),
+            vals::Sense::Low => !pin.block().in_().read().pin(pin.pin() as _),
+            _ => false,
+        };
+        #[cfg(not(feature = "_nrf51"))]
+        let fired = pin.block().latch().read().0 & (1 << pin.pin()) != 0;
+
+        if fired {
+            // Disable SENSE before clearing LATCH: a LATCH bit doesn't clear while its DETECT signal is high.
+            // The future sees SENSE disabled and completes.
+            pin.conf().modify(|w| w.set_sense(vals::Sense::Disabled));
+            #[cfg(not(feature = "_nrf51"))]
+            pin.block().latch().write(|w| w.0 = 1 << pin.pin());
+            T::waker().wake();
+        }
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct PortInputFuture<'a> {
+    pin: PinNumber,
+    waker: &'static AtomicWaker,
+    _lifetime: PhantomData<&'a mut ()>,
+}
+
+impl<'a> Unpin for PortInputFuture<'a> {}
+
+impl<'a> Drop for PortInputFuture<'a> {
+    fn drop(&mut self) {
+        self.pin.conf().modify(|w| w.set_sense(vals::Sense::Disabled));
+    }
+}
+
+impl<'a> Future for PortInputFuture<'a> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.waker.register(cx.waker());
+
+        if self.pin.conf().read().sense() == vals::Sense::Disabled {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+/// Packed port and pin number of a GPIO pin (`port * 32 + pin`).
+///
+/// Plain data: holding one doesn't mean owning the pin.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PinNumber(u8);
+
+impl PinNumber {
     #[inline]
-    fn _pin(&self) -> u8 {
+    pub(crate) const fn new(pin_port: u8) -> Self {
+        Self(pin_port)
+    }
+
+    /// Number of the pin within the port (0..31)
+    #[inline]
+    pub(crate) fn pin(self) -> u8 {
         cfg_select! {
-            feature = "_gpio-p1" => self.pin_port() % 32,
-            _ => self.pin_port(),
+            feature = "_gpio-p1" => self.0 % 32,
+            _ => self.0,
+        }
+    }
+
+    /// Port of the pin
+    #[inline]
+    pub(crate) fn port(self) -> Port {
+        match self.0 / 32 {
+            0 => Port::Port0,
+            #[cfg(feature = "_gpio-p1")]
+            1 => Port::Port1,
+            #[cfg(feature = "_gpio-p2")]
+            2 => Port::Port2,
+            #[cfg(feature = "_gpio-p3")]
+            3 => Port::Port3,
+            _ => unsafe { unreachable_unchecked() },
         }
     }
 
     #[inline]
-    fn block(&self) -> gpio::Gpio {
-        match self.pin_port() / 32 {
+    pub(crate) fn block(self) -> gpio::Gpio {
+        match self.0 / 32 {
             #[cfg(feature = "_nrf51")]
             0 => pac::GPIO,
             #[cfg(not(feature = "_nrf51"))]
@@ -633,78 +950,91 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    fn conf(&self) -> Reg<gpio::regs::PinCnf, RW> {
-        self.block().pin_cnf(self._pin() as usize)
+    pub(crate) fn conf(self) -> Reg<gpio::regs::PinCnf, RW> {
+        self.block().pin_cnf(self.pin() as usize)
     }
 
     /// Set the output as high.
     #[inline]
-    fn set_high(&self) {
-        self.block().outset().write(|w| w.set_pin(self._pin() as _, true))
+    pub(crate) fn set_high(self) {
+        self.block().outset().write(|w| w.set_pin(self.pin() as _, true))
     }
 
     /// Set the output as low.
     #[inline]
-    fn set_low(&self) {
-        self.block().outclr().write(|w| w.set_pin(self._pin() as _, true))
+    pub(crate) fn set_low(self) {
+        self.block().outclr().write(|w| w.set_pin(self.pin() as _, true))
+    }
+
+    /// Peripheral pin select register value for this pin.
+    #[inline]
+    #[cfg(not(feature = "_nrf51"))]
+    pub(crate) fn psel_bits(self) -> Psel {
+        Psel(self.0 as u32)
     }
 }
 
-/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
+pub(crate) trait SealedPin {
+    fn pin_number(&self) -> PinNumber;
+}
+
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver.
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
-        self._pin()
+        self.pin_number().pin()
     }
 
     /// Port of the pin
     #[inline]
     fn port(&self) -> Port {
-        match self.pin_port() / 32 {
-            0 => Port::Port0,
-            #[cfg(feature = "_gpio-p1")]
-            1 => Port::Port1,
-            #[cfg(feature = "_gpio-p2")]
-            2 => Port::Port2,
-            #[cfg(feature = "_gpio-p3")]
-            3 => Port::Port3,
-            _ => unsafe { unreachable_unchecked() },
-        }
+        self.pin_number().port()
     }
 
     /// Peripheral port register value
     #[inline]
     #[cfg(not(feature = "_nrf51"))]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
-        pac::shared::regs::Psel(self.pin_port() as u32)
+        self.pin_number().psel_bits()
     }
 }
 
-/// Type-erased GPIO pin
-pub struct AnyPin {
-    pub(crate) pin_port: u8,
+// ====================
+
+/// Declare a per-signal pin trait for a peripheral.
+///
+/// On chips where any pin can be used with any peripheral, the trait is implemented for all pins.
+/// On nRF54L, it's implemented for pins in the same power domain as the peripheral; dedicated
+/// and cross-domain pins are added with `impl_pin_trait!` in the chip files.
+#[allow(unused_macros)]
+macro_rules! pin_trait {
+    ($(#[$attr:meta])* $signal:ident, $instance:path) => {
+        $(#[$attr])*
+        #[cfg_attr(
+            feature = "_nrf54l",
+            diagnostic::on_unimplemented(
+                message = "pin `{Self}` can't be used for this signal of `{T}`",
+                note = "on nRF54L, peripherals can only use pins in their own power domain, or their dedicated pins. See `embassy_nrf::domain`."
+            )
+        )]
+        pub trait $signal<T: $instance>: crate::gpio::Pin {}
+
+        #[cfg(not(feature = "_nrf54l"))]
+        impl<T: $instance, P: crate::gpio::Pin> $signal<T> for P {}
+
+        #[cfg(feature = "_nrf54l")]
+        impl<T: $instance + crate::domain::DomainPeripheral, P: crate::domain::DomainPin<T::Domain>> $signal<T> for P {}
+    };
 }
 
-impl AnyPin {
-    /// Create an [AnyPin] for a specific pin.
-    ///
-    /// # Safety
-    /// - `pin_port` should not in use by another driver.
-    #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
-        Peri::new_unchecked(Self { pin_port })
-    }
-}
-
-impl_peripheral!(AnyPin);
-impl Pin for AnyPin {}
-impl SealedPin for AnyPin {
-    #[inline]
-    fn pin_port(&self) -> u8 {
-        self.pin_port
-    }
+/// Implement a pin trait for a dedicated (or cross-domain) pin.
+#[cfg(feature = "_nrf54l")]
+macro_rules! impl_pin_trait {
+    ($pin:ident, $instance:ident, $($signal:ident)::+) => {
+        impl crate::$($signal)::+<peripherals::$instance> for peripherals::$pin {}
+    };
 }
 
 // ====================
@@ -715,7 +1045,7 @@ pub(crate) trait PselBits {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
+impl<'d, M: Mode> PselBits for Option<Flex<'d, M>> {
     #[inline]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         match self {
@@ -734,7 +1064,7 @@ pub(crate) fn deconfigure_pin(psel: Psel) {
     if psel.connect() == Connect::Disconnected {
         return;
     }
-    unsafe { AnyPin::steal(psel.0 as _) }.conf().write(|w| {
+    PinNumber::new(psel.0 as _).conf().write(|w| {
         w.set_input(vals::Input::Disconnect);
     })
 }
@@ -742,22 +1072,22 @@ pub(crate) fn deconfigure_pin(psel: Psel) {
 // ====================
 
 macro_rules! impl_pin {
+    ($type:ident, $port_num:expr, $pin_num:expr, $domain:ident) => {
+        impl_pin!($type, $port_num, $pin_num);
+        impl crate::domain::DomainPin<crate::domain::$domain> for peripherals::$type {}
+    };
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl crate::gpio::Pin for peripherals::$type {}
         impl crate::gpio::SealedPin for peripherals::$type {
             #[inline]
-            fn pin_port(&self) -> u8 {
-                $port_num * 32 + $pin_num
+            fn pin_number(&self) -> crate::gpio::PinNumber {
+                crate::gpio::PinNumber::new($port_num * 32 + $pin_num)
             }
         }
 
-        impl From<peripherals::$type> for crate::gpio::AnyPin {
-            fn from(_val: peripherals::$type) -> Self {
-                Self {
-                    pin_port: $port_num * 32 + $pin_num,
-                }
-            }
-        }
+        // On nRF54L only some ports have a GPIOTE, the chip file lists them with `impl_gpiote_pin!`.
+        #[cfg(not(feature = "_nrf54l"))]
+        impl_gpiote_pin!($type, $port_num, $pin_num);
     };
 }
 
@@ -766,7 +1096,7 @@ macro_rules! impl_pin {
 mod eh02 {
     use super::*;
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for Input<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -814,7 +1144,7 @@ mod eh02 {
     /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
     ///
     /// If the pin is not in input mode the result is unspecified.
-    impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for Flex<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -826,7 +1156,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::OutputPin for Flex<'d, M> {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -840,7 +1170,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, M> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -850,7 +1180,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d, M> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -859,7 +1189,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -871,7 +1201,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -885,7 +1215,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d, M> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -895,7 +1225,7 @@ mod eh02 {
         }
     }
 
-    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d> {
+    impl<'d, M: Mode> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d, M> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -905,11 +1235,11 @@ mod eh02 {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for Input<'d, M> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for Input<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -945,11 +1275,11 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, M> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -959,7 +1289,7 @@ impl<'d> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, M> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
         Ok(())
@@ -971,7 +1301,7 @@ impl<'d> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, M> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }
@@ -981,14 +1311,14 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::ErrorType for Flex<'d, M> {
     type Error = Infallible;
 }
 
 /// Implement [embedded_hal_1::digital::InputPin] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
-impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::InputPin for Flex<'d, M> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -998,7 +1328,7 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::OutputPin for Flex<'d, M> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.set_high();
         Ok(())
@@ -1010,12 +1340,78 @@ impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
+impl<'d, M: Mode> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, M> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }
 
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_low())
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for Input<'d, Async> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, Async> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for Flex<'d, Async> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
     }
 }

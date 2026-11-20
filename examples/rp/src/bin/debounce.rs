@@ -7,17 +7,24 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Input, Level, Pull};
+use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::{self, Input, Level, Pull};
+use embassy_rp::mode::Async;
+use embassy_rp::peripherals::PIN_9;
 use embassy_time::{Duration, Instant, Timer, with_deadline};
 use panic_probe as _;
 
+bind_interrupts!(struct Irqs {
+    IO_IRQ_BANK0 => gpio::InterruptHandler<PIN_9>;
+});
+
 pub struct Debouncer<'a> {
-    input: Input<'a>,
+    input: Input<'a, Async>,
     debounce: Duration,
 }
 
 impl<'a> Debouncer<'a> {
-    pub fn new(input: Input<'a>, debounce: Duration) -> Self {
+    pub fn new(input: Input<'a, Async>, debounce: Duration) -> Self {
         Self { input, debounce }
     }
 
@@ -40,7 +47,7 @@ impl<'a> Debouncer<'a> {
 #[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    let mut btn = Debouncer::new(Input::new(p.PIN_9, Pull::Up), Duration::from_millis(20));
+    let mut btn = Debouncer::new(Input::new_async(p.PIN_9, Irqs, Pull::Up), Duration::from_millis(20));
 
     info!("Debounce Demo");
 

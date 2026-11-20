@@ -6,7 +6,6 @@ mod common;
 
 use common::*;
 use defmt::assert;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::gpio::{Input, OutputType, Pull};
@@ -16,7 +15,6 @@ use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::ringbuffered::RingBufferedPwmChannel;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_time::{Duration, Instant, Ticker, Timer};
-use panic_probe as _;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
 
@@ -31,11 +29,7 @@ const DMA_BUF_SIZE: usize = 16;
 /// required success ratio
 const SUCCESS_RATIO: f32 = 0.9;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

@@ -1,9 +1,9 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
 
-use crate::driver::EndpointInfo;
+use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo, EndpointInterval};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{CONFIGURATION_VALUE, Config};
+use crate::{CONFIGURATION_VALUE, Config, EndpointOptions, UsbDeviceSpeed};
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -21,6 +21,8 @@ pub mod descriptor_type {
     pub const IAD: u8 = 11;
     pub const BOS: u8 = 15;
     pub const CAPABILITY: u8 = 16;
+    pub const SS_ENDPOINT_COMPANION: u8 = 48;
+    pub const SSP_ISOCH_ENDPOINT_COMPANION: u8 = 49;
 }
 
 /// String descriptor language IDs.
@@ -39,6 +41,7 @@ pub mod capability_type {
     pub const SS_USB_DEVICE: u8 = 3;
     pub const CONTAINER_ID: u8 = 4;
     pub const PLATFORM: u8 = 5;
+    pub const SS_PLUS_USB_DEVICE: u8 = 10;
 }
 
 /// USB endpoint synchronization type. The values of this enum can be directly
@@ -75,12 +78,23 @@ pub enum UsageType {
     Reserved = 0b11,
 }
 
+/// `wBytesPerInterval` of a SuperSpeed periodic endpoint that moves one packet per service
+/// interval, and 0 for other endpoints.
+fn periodic_bytes_per_interval(ep_type: EndpointType, max_packet_size: u16) -> u16 {
+    match ep_type {
+        EndpointType::Interrupt | EndpointType::Isochronous => max_packet_size & 0x7ff,
+        EndpointType::Control | EndpointType::Bulk => 0,
+    }
+}
+
 /// A writer for USB descriptors.
 pub(crate) struct DescriptorWriter<'a> {
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
+    high_speed: bool,
+    superspeed: bool,
 }
 
 pub(crate) struct DescriptorMark(usize);
@@ -92,6 +106,8 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
+            high_speed: false,
+            superspeed: false,
         }
     }
 
@@ -137,6 +153,15 @@ impl<'a> DescriptorWriter<'a> {
     pub(crate) fn configuration(&mut self, config: &Config) {
         self.num_interfaces_mark = Some(self.position + 4);
 
+        let superspeed = config.max_speed >= UsbDeviceSpeed::Super;
+        self.high_speed = config.max_speed == UsbDeviceSpeed::High;
+        self.superspeed = superspeed;
+        let max_power = if superspeed {
+            config.max_power.div_ceil(8)
+        } else {
+            config.max_power / 2
+        };
+
         self.write(
             descriptor_type::CONFIGURATION,
             &[
@@ -147,7 +172,7 @@ impl<'a> DescriptorWriter<'a> {
                 0,                   // iConfiguration
                 0x80 | if config.self_powered { 0x40 } else { 0x00 }
                     | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
-                (config.max_power / 2) as u8, // bMaxPower
+                max_power as u8,     // bMaxPower
             ],
             &[],
         );
@@ -250,18 +275,11 @@ impl<'a> DescriptorWriter<'a> {
         );
     }
 
-    /// Writes an endpoint descriptor.
-    ///
-    /// # Arguments
-    ///
-    /// * `endpoint` - Endpoint previously allocated with
-    ///   [`UsbDeviceBuilder`](crate::bus::UsbDeviceBuilder).
-    /// * `synchronization_type` - The synchronization type of the endpoint.
-    /// * `usage_type` - The usage type of the endpoint.
-    /// * `extra_fields` - Additional, class-specific entries at the end of the endpoint descriptor.
-    pub fn endpoint(
+    /// Writes an endpoint descriptor with a raw `bInterval` byte.
+    pub fn endpoint_raw(
         &mut self,
         endpoint: &EndpointInfo,
+        b_interval: u8,
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
@@ -290,17 +308,66 @@ impl<'a> DescriptorWriter<'a> {
             bm_attributes |= usage_bm_attributes | synchronization_bm_attributes;
         }
 
+        assert!(
+            endpoint.max_packet_size <= 0x07ff,
+            "max_packet_size must fit in 11 bits"
+        );
+        assert!(
+            endpoint.additional_transactions <= 2,
+            "additional_transactions must be 0..=2"
+        );
+        let w_max_packet_size = endpoint.max_packet_size | (u16::from(endpoint.additional_transactions) << 11);
+
         self.write(
             descriptor_type::ENDPOINT,
             &[
                 endpoint.addr.into(), // bEndpointAddress
                 bm_attributes,        // bmAttributes
-                endpoint.max_packet_size as u8,
-                (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
-                endpoint.interval_ms,                  // bInterval
+                w_max_packet_size as u8,
+                (w_max_packet_size >> 8) as u8, // wMaxPacketSize
+                b_interval,                     // bInterval
             ],
             extra_fields,
         );
+
+        if self.superspeed {
+            // `max_streams` of bulk endpoints and `mult` of isochronous endpoints are always 0.
+            let bytes_per_interval = periodic_bytes_per_interval(endpoint.ep_type, endpoint.max_packet_size);
+            self.write(
+                descriptor_type::SS_ENDPOINT_COMPANION,
+                &[
+                    endpoint.max_burst,
+                    0,
+                    bytes_per_interval as u8,
+                    (bytes_per_interval >> 8) as u8,
+                ],
+                &[],
+            );
+        }
+    }
+
+    /// The configuration to allocate an endpoint with, with the SuperSpeed fields of the
+    /// SuperSpeed Endpoint Companion descriptor this writer gives it.
+    pub(crate) fn endpoint_config(
+        &self,
+        addr: Option<EndpointAddress>,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+        options: EndpointOptions,
+    ) -> EndpointConfig {
+        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval);
+        config.buffers = options.buffers;
+        if self.high_speed && matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous) {
+            config.additional_transactions = options.additional_transactions;
+        }
+        if self.superspeed {
+            if ep_type == EndpointType::Bulk {
+                config.max_burst = options.max_burst;
+            }
+            config.bytes_per_interval = periodic_bytes_per_interval(ep_type, max_packet_size).into();
+        }
+        config
     }
 
     /// Writes a string descriptor.
@@ -374,28 +441,13 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
     ]
 }
 
-pub(crate) fn rewrite_config_descriptor_for_high_speed(buf: &mut [u8]) {
-    let mut pos = 0;
-    while pos < buf.len() {
-        let len = buf[pos] as usize;
-        assert!(len >= 2 && pos + len <= buf.len(), "invalid configuration descriptor");
-
-        if buf[pos + 1] == descriptor_type::ENDPOINT && len >= 7 {
-            let transfer_type = buf[pos + 3] & 0x03;
-            if transfer_type == EndpointType::Interrupt as u8 || transfer_type == EndpointType::Isochronous as u8 {
-                buf[pos + 6] = encode_high_speed_interval(buf[pos + 6]);
-            }
-        }
-
-        pos += len;
+/// The control endpoint size the driver is started with.
+pub(crate) fn control_max_packet_size(config: &Config) -> u16 {
+    if config.max_speed >= UsbDeviceSpeed::Super {
+        1 << config.max_packet_size_0
+    } else {
+        config.max_packet_size_0 as u16
     }
-}
-
-fn encode_high_speed_interval(interval_ms: u8) -> u8 {
-    let microframes = u32::from(interval_ms.max(1)) * 8;
-    let rounded = microframes.next_power_of_two().min(1 << 15);
-    let exponent = (31 - rounded.leading_zeros()) as u8;
-    exponent + 1
 }
 
 /// A writer for Binary Object Store descriptor.
@@ -427,6 +479,43 @@ impl<'a> BosWriter<'a> {
         );
 
         self.capability(capability_type::USB_2_0_EXTENSION, &[0; 4]);
+    }
+
+    /// Writes the device capabilities a SuperSpeed or SuperSpeedPlus device must report.
+    pub(crate) fn superspeed_capabilities(&mut self, config: &Config) {
+        assert!(
+            self.num_caps_mark.is_some(),
+            "SuperSpeed devices require a BOS descriptor, but bos_descriptor_buf is too small"
+        );
+
+        let mut attributes = 0x00;
+        if config.ltm_capable {
+            attributes |= 0x02;
+        }
+        self.capability(
+            capability_type::SS_USB_DEVICE,
+            &[
+                attributes, // bmAttributes
+                0x08, 0x00, // wSpeedsSupported
+                0x03, // bFunctionalitySupport
+                0x0a, // bU1DevExitLat
+                0xff, 0x07, // wU2DevExitLat
+            ],
+        );
+
+        if config.max_speed == UsbDeviceSpeed::SuperPlus {
+            self.capability(
+                capability_type::SS_PLUS_USB_DEVICE,
+                &[
+                    0x00, // bReserved
+                    0x01, 0x00, 0x00, 0x00, // bmAttributes
+                    0x00, 0x11, // wFunctionalitySupport
+                    0x00, 0x00, // wReserved
+                    0x30, 0x40, 0x0a, 0x00, // bmSublinkSpeedAttr[0]
+                    0xb0, 0x40, 0x0a, 0x00, // bmSublinkSpeedAttr[1]
+                ],
+            );
+        }
     }
 
     /// Writes capability descriptor to a BOS

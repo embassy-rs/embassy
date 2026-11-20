@@ -59,6 +59,8 @@ impl Drop for WakeGuard {
 /// These values are configured by providing
 /// [ClocksConfig](crate::clocks::config::ClocksConfig) to the
 /// [`init()`](super::init) function at boot time.
+/// This is established configuration, not live clock-health monitoring. In particular,
+/// OSC32K readiness does not measure frequency accuracy or detect subsequent failure.
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {
@@ -138,7 +140,7 @@ pub struct Clocks {
     #[cfg(feature = "_mcxa5xx")]
     pub clk_16k_vbat: Option<Clock>,
 
-    /// `clk_32k_vsys` is one of two/three outputs of the `FRO16K` internal oscillator.
+    /// `clk_32k_vsys` is an output of the LP `OSC32K` crystal oscillator.
     ///
     /// Also referred to as `clk_32k[0]` in the datasheet, it feeds peripherals in
     /// the system domain, such as the CMP. Note that it does NOT feed the RTC,
@@ -146,16 +148,18 @@ pub struct Clocks {
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vsys: Option<Clock>,
 
-    /// `clk_32k_vdd_core` is one of two/three outputs of the `FRO16K` internal oscillator.
+    /// `clk_32k_vdd_core` is an output of the LP `OSC32K` crystal oscillator.
     ///
     /// Also referred to as `clk_32k[1]` in the datasheet, it feeds peripherals in
     /// the VDD Core domain, such as the OSTimer or LPUarts.
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vdd_core: Option<Clock>,
 
-    /// `clk_32k_vbat` is one of three outputs of the `FRO16K` internal oscillator.
+    /// `clk_32k_vbat` is an output of the LP `OSC32K` crystal oscillator.
     ///
     /// Also referred to as `clk_32k[2]` in the datasheet.
+    /// LP operation retains the `AlwaysEnabled` contract for powered consumers;
+    /// this does not guarantee operation of unpowered system-domain consumers.
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vbat: Option<Clock>,
 

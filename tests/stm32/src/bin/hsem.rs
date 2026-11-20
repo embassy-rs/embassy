@@ -15,11 +15,7 @@ bind_interrupts!(struct Irqs{
     HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
 });
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 

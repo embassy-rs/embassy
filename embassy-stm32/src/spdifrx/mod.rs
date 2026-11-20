@@ -34,8 +34,7 @@ macro_rules! new_spdifrx_pin {
     ($name:ident, $af_type:expr) => {{
         let pin = $name;
         let input_sel = pin.input_sel();
-        set_as_af!(pin, $af_type);
-        (Some(Flex::new(pin)), input_sel)
+        (Some(set_as_af!(pin, $af_type)), input_sel)
     }};
 }
 

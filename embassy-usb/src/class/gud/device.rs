@@ -20,7 +20,7 @@ use heapless::Vec;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointOut};
 use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
+use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
 /// Vendor ID to use for the device so that the Linux GUD driver binds to it.
 pub const GUD_VENDOR_ID: u16 = 0x1d50;
@@ -638,9 +638,6 @@ pub enum GudEvent {
 ///
 /// This configuration is fixed when the class is created.
 pub struct Config<'d> {
-    /// Maximum packet size for the bulk OUT endpoint: 8..=64 for full-speed,
-    /// 512 for high-speed.
-    pub max_packet_size: u16,
     /// Minimum framebuffer width the device handles.
     pub min_width: u32,
     /// Maximum framebuffer width.
@@ -663,6 +660,8 @@ pub struct Config<'d> {
     // TODO: Support deferred control responses in embassy-usb before making this async,
     // so SET_STATE_CHECK can await validation before its status stage is accepted or rejected.
     pub validate_mode_blocking: fn(connector: u8, mode: &DisplayMode) -> bool,
+    /// Options for the bulk OUT endpoint, which receives the framebuffer data.
+    pub out_endpoint_options: EndpointOptions,
 }
 
 impl Config<'_> {
@@ -1030,6 +1029,12 @@ impl<'d> Handler for Control<'d> {
     }
 }
 
+impl<'d> InterfaceHandler for Control<'d> {
+    fn owns(&self, iface: InterfaceNumber) -> bool {
+        iface == self.iface
+    }
+}
+
 impl<'d, D: Driver<'d>> GudClass<'d, D> {
     /// Create a new GUD class. Adds one vendor-specific interface with one bulk
     /// OUT endpoint and registers the control handler.
@@ -1071,10 +1076,10 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
         let interface_number = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_VENDOR_SPEC, 0, 0, None);
 
-        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
 
         drop(func);
-        builder.handler(state.control.write(Control {
+        builder.interface_handler(state.control.write(Control {
             iface: interface_number,
             config,
             shared: &state.shared,
@@ -1123,7 +1128,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
     /// [`BufferInfo::transfer_size`] bytes before awaiting the next event.
     /// Not cancel-safe.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        crate::class::read_packet(&mut self.read_ep, data).await
     }
 
     /// Stream `info` through an async callback, returning its total consumed bytes.
@@ -1143,7 +1148,7 @@ impl<'d, D: Driver<'d>> GudClass<'d, D> {
             let cap = remaining.min(chunk.len());
             let n = self
                 .read_ep
-                .read(&mut chunk[..cap])
+                .read_transfer(&mut chunk[..cap])
                 .await
                 .map_err(ReadBufferError::Endpoint)?;
             consumed += f(&chunk[..n]).await.map_err(ReadBufferError::Callback)?;
@@ -1211,10 +1216,12 @@ mod tests {
     use core::pin::{Pin, pin};
     use core::task::{Context, Poll, Waker};
 
+    use embassy_usb_driver::EndpointInterval;
+
     use super::*;
     use crate::driver::{
-        Bus, ControlPipe, EndpointAddress, EndpointAllocError, EndpointIn, EndpointInfo, EndpointType, Event,
-        Unsupported,
+        Bus, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn, EndpointInfo,
+        Event, Unsupported,
     };
 
     struct ScriptedEndpoint<'a> {
@@ -1223,17 +1230,34 @@ mod tests {
     }
 
     impl Endpoint for ScriptedEndpoint<'_> {
-        fn info(&self) -> &EndpointInfo {
-            unreachable!()
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from_parts(1, crate::driver::Direction::Out),
+                crate::driver::EndpointType::Bulk,
+                64,
+                EndpointInterval::NONE,
+            )
         }
 
         async fn wait_enabled(&mut self) {
             unreachable!()
         }
+
+        fn is_enabled(&self) -> bool {
+            true
+        }
+
+        async fn set_stalled(&mut self, _stalled: bool) {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> bool {
+            unreachable!()
+        }
     }
 
     impl EndpointOut for ScriptedEndpoint<'_> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
             let index = self.reads.get();
             self.reads.set(index + 1);
             let packet = self.packets[index]?;
@@ -1247,30 +1271,17 @@ mod tests {
     impl<'a> Driver<'a> for ScriptedDriver {
         type EndpointOut = ScriptedEndpoint<'a>;
         type EndpointIn = Unused;
-        type ControlPipe = Unused;
         type Bus = Unused;
 
-        fn alloc_endpoint_out(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
             unreachable!()
         }
 
-        fn alloc_endpoint_in(
-            &mut self,
-            _: EndpointType,
-            _: Option<EndpointAddress>,
-            _: u16,
-            _: u8,
-        ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
             unreachable!()
         }
 
-        fn start(self, _: u16) -> (Self::Bus, Self::ControlPipe) {
+        fn start(self, _: u16) -> Self::Bus {
             unreachable!()
         }
     }
@@ -1278,22 +1289,52 @@ mod tests {
     struct Unused;
 
     impl Endpoint for Unused {
-        fn info(&self) -> &EndpointInfo {
+        fn info(&self) -> EndpointInfo {
             unreachable!()
         }
 
         async fn wait_enabled(&mut self) {
             unreachable!()
         }
+
+        fn is_enabled(&self) -> bool {
+            unreachable!()
+        }
+
+        async fn set_stalled(&mut self, _stalled: bool) {
+            unreachable!()
+        }
+
+        fn is_stalled(&self) -> bool {
+            unreachable!()
+        }
     }
 
     impl EndpointIn for Unused {
-        async fn write(&mut self, _: &[u8]) -> Result<(), EndpointError> {
+        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
             unreachable!()
         }
     }
 
     impl Bus for Unused {
+        fn control_max_packet_size(&self) -> usize {
+            unreachable!()
+        }
+        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
+            unreachable!()
+        }
+        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
+            unreachable!()
+        }
+        async fn control_accept(&mut self) {
+            unreachable!()
+        }
+        async fn control_reject(&mut self) {
+            unreachable!()
+        }
+        async fn control_accept_set_address(&mut self, _: u8) {
+            unreachable!()
+        }
         async fn enable(&mut self) {
             unreachable!()
         }
@@ -1306,11 +1347,15 @@ mod tests {
             unreachable!()
         }
 
-        fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
+        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
-        fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
+        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
+            unreachable!()
+        }
+
+        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
             unreachable!()
         }
 
@@ -1319,36 +1364,6 @@ mod tests {
         }
 
         async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            unreachable!()
-        }
-    }
-
-    impl ControlPipe for Unused {
-        fn max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-
-        async fn setup(&mut self) -> [u8; 8] {
-            unreachable!()
-        }
-
-        async fn data_out(&mut self, _: &mut [u8], _: bool, _: bool) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-
-        async fn data_in(&mut self, _: &[u8], _: bool, _: bool) -> Result<(), EndpointError> {
-            unreachable!()
-        }
-
-        async fn accept(&mut self) {
-            unreachable!()
-        }
-
-        async fn reject(&mut self) {
-            unreachable!()
-        }
-
-        async fn accept_set_address(&mut self, _: u8) {
             unreachable!()
         }
     }
@@ -1482,7 +1497,6 @@ mod tests {
 
     fn config<'d>(connectors: &'d [GudConnector<'d>]) -> Config<'d> {
         Config {
-            max_packet_size: 64,
             min_width: 640,
             max_width: 1920,
             min_height: 480,
@@ -1492,6 +1506,7 @@ mod tests {
             supported_rotations: ROTATION_0 | ROTATION_90,
             connectors,
             validate_mode_blocking: |_, _| true,
+            out_endpoint_options: EndpointOptions::new(),
         }
     }
 

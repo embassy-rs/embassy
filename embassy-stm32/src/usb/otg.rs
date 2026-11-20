@@ -1,12 +1,14 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{
+    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+};
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -31,7 +33,7 @@ macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
                 critical_section::with(|_| {
             $(
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             )*
         })
     };
@@ -67,8 +69,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -108,8 +110,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         #[cfg(usb_alternate_function)]
         {
-            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
         }
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
@@ -266,42 +268,24 @@ impl<'d, T: Instance> Driver<'d, T> {
 impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d, T>;
 
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.inner.alloc_endpoint_in(config)
     }
 
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        ep_addr: Option<EndpointAddress>,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner
-            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
+    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.inner.alloc_endpoint_out(config)
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        let (bus, cp) = self.inner.start(control_max_packet_size);
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
+        let bus = self.inner.start(control_max_packet_size);
 
-        (
-            Bus {
-                phantom: PhantomData,
-                inner: bus,
-                inited: false,
-            },
-            cp,
-        )
+        Bus {
+            phantom: PhantomData,
+            inner: bus,
+            inited: false,
+        }
     }
 }
 
@@ -354,38 +338,10 @@ impl<'d, T: Instance> Bus<'d, T> {
             });
         });
 
-        #[cfg(all(stm32u5, peri_usb_otg_hs))]
-        {
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb2enr1().modify(|w| {
-                    w.set_usb_otg_hsen(true);
-                    w.set_usb_otg_hs_phyen(true);
-                });
-            });
-
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-        }
-
-        #[cfg(all(stm32wba, peri_usb_otg_hs))]
-        {
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb2enr().modify(|w| {
-                    w.set_usb_otg_hsen(true);
-                    w.set_usb_otg_hs_phyen(true);
-                });
-            });
-
-            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
-                w.set_compdistune(0b010);
-                w.set_sqrxtune(0b000);
-            });
-
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-        }
+        // Bring up the PHY that feeds OTG_HS. The core clock is already on: `common_init`
+        // enabled and reset the instance just above, which sets `USB_OTG_HSEN`.
+        #[cfg(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
+        otghs_phy_enable();
 
         let r = T::regs();
         let core_id = r.cid().read().0;
@@ -446,16 +402,44 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
         self.inner.poll().await
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        self.inner.endpoint_set_stalled(ep_addr, stalled)
+    fn control_max_packet_size(&self) -> usize {
+        self.inner.control_max_packet_size()
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.inner.control_data_out(buf).await
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        self.inner.control_data_in(data, needs_zlp).await
+    }
+
+    async fn control_accept(&mut self) {
+        self.inner.control_accept().await
+    }
+
+    async fn control_reject(&mut self) {
+        self.inner.control_reject().await
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        self.inner.control_accept_set_address(addr).await
+    }
+
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        self.inner.endpoint_set_stalled(ep_addr, stalled).await
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         self.inner.endpoint_is_stalled(ep_addr)
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        self.inner.endpoint_set_enabled(ep_addr, enabled)
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        self.inner.endpoint_set_enabled(ep_addr, enabled).await
+    }
+
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        self.inner.endpoint_is_enabled(ep_addr)
     }
 
     async fn enable(&mut self) {
@@ -501,7 +485,7 @@ pub(super) fn fsel_from_freq(freq: crate::time::Hertz) -> crate::pac::usbphyc::v
     use crate::pac::usbphyc::vals::Fsel;
 
     match freq.0 {
-        19_200_000 => Fsel::Mhz192,
+        19_200_000 => Fsel::Mhz19_2,
         20_000_000 => Fsel::Mhz20,
         24_000_000 => Fsel::Mhz24,
         _ => panic!(
@@ -509,6 +493,68 @@ pub(super) fn fsel_from_freq(freq: crate::time::Hertz) -> crate::pac::usbphyc::v
             freq.0
         ),
     }
+}
+
+/// `SYSCFG_OTGHSPHYTUNER2.COMPDISTUNE`: OTG_HS PHY disconnect threshold.
+///
+/// The PAC exposes this as a raw 3-bit value because ST's SVD does not enumerate it, and only
+/// two of the codes are defined (RM0456 §15.3.13, RM0515 §15.3.13). The HAL names them
+/// `SYSCFG_OTG_HS_PHY_DISCONNECT_5_9PERCENT` and `SYSCFG_OTG_HS_PHY_DISCONNECT_0PERCENT`.
+/// `ZeroPercent` is never written, but it is named so the encoding stays visible.
+#[cfg(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+#[allow(dead_code)]
+enum Compdistune {
+    /// +5.9%, the value ST recommends.
+    Plus5_9Percent = 0b010,
+    /// 0%, the reset value on U59x/5Ax and WBA.
+    ZeroPercent = 0b001,
+}
+
+/// `SYSCFG_OTGHSPHYTUNER2.SQRXTUNE`: OTG_HS PHY squelch threshold.
+///
+/// Only two of the codes are defined (RM0456 §15.3.13, RM0515 §15.3.13); the HAL names them
+/// `SYSCFG_OTG_HS_PHY_SQUELCH_15PERCENT` and `SYSCFG_OTG_HS_PHY_SQUELCH_0PERCENT`. See
+/// [`Compdistune`] for why the reset value is named even though it is never written.
+#[cfg(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+#[allow(dead_code)]
+enum Sqrxtune {
+    /// +15%, the value ST recommends.
+    Plus15Percent = 0b000,
+    /// 0%, the reset value on U59x/5Ax, U5Fx/5Gx and WBA.
+    ZeroPercent = 0b011,
+}
+
+/// Enable the OTG_HS PHY, with the disconnect and squelch thresholds ST recommends.
+///
+/// The core's own clock is not touched here: `common_init` enables and resets the instance
+/// through `rcc::enable_and_reset`, which sets `USB_OTG_HSEN`. The PHY has a separate kernel
+/// clock gate (`USB_OTG_HS_PHYEN`) that nothing else opens, so it is opened here first
+/// (RM0456 §15.2.3 step 1, RM0515 §15.2.2 step 1).
+///
+/// Both manuals require the thresholds to be adjusted before `SYSCFG_OTGHSPHYCR.EN` is set,
+/// so those writes must stay in that order. Enabling the PHY with its reset thresholds gives
+/// 0% on both fields instead of +5.9% and +15%.
+#[cfg(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
+fn otghs_phy_enable() {
+    critical_section::with(|_| {
+        #[cfg(stm32u5)]
+        crate::pac::RCC.ahb2enr1().modify(|w| w.set_usb_otg_hs_phyen(true));
+        #[cfg(stm32wba)]
+        crate::pac::RCC.ahb2enr().modify(|w| w.set_usb_otg_hs_phyen(true));
+    });
+
+    crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+        w.set_compdistune(Compdistune::Plus5_9Percent as u8);
+        w.set_sqrxtune(Sqrxtune::Plus15Percent as u8);
+    });
+
+    crate::pac::SYSCFG.otghsphycr().modify(|w| {
+        w.set_en(true);
+    });
 }
 
 /// USB instance trait.
@@ -961,8 +1007,8 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);
@@ -972,6 +1018,15 @@ mod host_impl {
             // The ULPI clock has to be disabled for an internal PHY.
             // Left enabled, the OTG_HS core waits on an absent external ULPI PHY
             // and never enters host mode, so no downstream device is ever detected.
+            #[cfg(any(stm32f2, stm32f4, stm32f7))]
+            if T::HIGH_SPEED {
+                critical_section::with(|_| {
+                    let rcc = crate::pac::RCC;
+                    rcc.ahb1enr().modify(|w| w.set_usb_otg_hsulpien(false));
+                    rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hsulpilpen(false));
+                });
+            }
+
             #[cfg(stm32h7)]
             critical_section::with(|_| {
                 let rcc = crate::pac::RCC;
@@ -1006,32 +1061,17 @@ mod host_impl {
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
-                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+                set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
             }
             #[cfg(not(usb_alternate_function))]
             let _ = (dp, dm);
 
             super::super::common_init::<T>();
 
-            // Enable HS PHY clock and configure PHY for WBA devices.
-            #[cfg(all(stm32wba, peri_usb_otg_hs))]
-            {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb2enr().modify(|w| {
-                        w.set_usb_otg_hs_phyen(true);
-                    });
-                });
-
-                crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
-                    w.set_compdistune(0b010);
-                    w.set_sqrxtune(0b000);
-                });
-
-                crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                    w.set_en(true);
-                });
-            }
+            // Same PHY bring-up as the device path, for the internal HS PHY.
+            #[cfg(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
+            otghs_phy_enable();
 
             let instance = OtgHostInstance {
                 regs: T::regs(),

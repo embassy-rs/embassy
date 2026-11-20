@@ -30,6 +30,8 @@
 //! }).await?;
 //! ```
 
+use embassy_usb_driver::EndpointInterval;
+
 use super::uac2_codes;
 pub mod descriptors;
 
@@ -44,9 +46,23 @@ use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use heapless::{String, Vec};
 
 use crate::control::Request;
+use crate::host::class::ClassMatch;
 use crate::host::control::{ControlType, Recipient, RequestType, SetupPacket};
-use crate::host::descriptor::DEFAULT_MAX_DESCRIPTOR_SIZE;
+use crate::host::descriptor::{ClassCode, DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor};
 use crate::host::handler::{EnumerationInfo, RegisterError};
+
+/// Matcher for any USB Audio Class interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct UacMatcher;
+
+impl ClassMatch for UacMatcher {
+    const NAME: &'static str = "UAC";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(super::uac1_codes::USB_AUDIO_CLASS, 0, 0));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == super::uac1_codes::USB_AUDIO_CLASS
+    }
+}
 
 const MAX_RANGES: usize = 16;
 // 256 is the maximum buffer size that can be used to store a string
@@ -87,6 +103,14 @@ pub enum RequestError {
     NoSupportedInterface,
 }
 
+/// The `wValue` of a control request to an entity: the control selector in the high byte and the
+/// channel number in the low byte (USB Audio Devices 2.0 §5.2.2).
+///
+/// The selectors in [`uac2_codes::control_selector`] are already in the high byte.
+const fn control_value(control_selector: u16, channel: u8) -> u16 {
+    control_selector | channel as u16
+}
+
 impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Attempts to register a UAC device and allocate necessary pipes.
     ///
@@ -104,13 +128,12 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
 
         let mut control_channel = alloc.alloc_pipe::<pipe::Control, pipe::InOut>(
             enum_info.device_address,
-            &EndpointInfo {
-                addr: 0.into(),
-                ep_type: EndpointType::Control,
-                max_packet_size: (enum_info.device_desc.max_packet_size0 as u16)
-                    .min(enum_info.speed().max_packet_size()),
-                interval_ms: 0,
-            },
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed().max_packet_size()),
+                EndpointInterval::NONE,
+            ),
             enum_info.split(),
         )?;
 
@@ -193,18 +216,23 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         );
 
         if streaming_interface.num_endpoints > 0 {
-            output_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
-                enum_info.device_address,
-                &output_interface.endpoint_descriptor.unwrap().into(),
-                enum_info.split(),
-            )?);
+            output_channel = Some(
+                alloc.alloc_pipe::<pipe::Isochronous, pipe::Out>(
+                    enum_info.device_address,
+                    &output_interface
+                        .endpoint_descriptor
+                        .unwrap()
+                        .endpoint_info(enum_info.speed()),
+                    enum_info.split(),
+                )?,
+            );
         }
         if streaming_interface.num_endpoints > 1
             && let Some(feedback_endpoint) = output_interface.feedback_endpoint_descriptor
         {
             feedback_channel = Some(alloc.alloc_pipe::<pipe::Isochronous, pipe::In>(
                 enum_info.device_address,
-                &feedback_endpoint.into(),
+                &feedback_endpoint.endpoint_info(enum_info.speed()),
                 enum_info.split(),
             )?);
         }
@@ -249,11 +277,16 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
             }
             _ => return Err(RequestError::NoSupportedInterface),
         };
-        let max_bytes_per_packet = output_interface.endpoint_descriptor.unwrap().max_packet_size as usize;
+        let out_ep_desc = output_interface.endpoint_descriptor.unwrap();
+        let max_bytes_per_packet =
+            usize::from(out_ep_desc.packet_size()) * (1 + usize::from(out_ep_desc.additional_transactions()));
         // Get the sampling frequency
         let mut num_retries = 3;
         let sampling_freq = loop {
-            let sampling_freq = self.get_sampling_freq(self.input_terminal().clock_source_id()).await;
+            let sampling_freq = match self.clock_source_id().await {
+                Ok(clock_source_id) => self.get_sampling_freq(clock_source_id).await,
+                Err(e) => Err(e),
+            };
             if let Err(e) = sampling_freq {
                 num_retries -= 1;
                 if num_retries == 0 {
@@ -298,15 +331,51 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
         &self.interface_collection.audio_streaming_interfaces[self.output_interface_idx]
     }
 
-    /// Retrieves the current sampling frequency from the specified terminal entity.
+    /// The Clock Source that drives the output terminal's clock.
+    ///
+    /// The terminal points at a clock, and that can be a Clock Selector, which has no sampling
+    /// frequency of its own. This follows the selected input of each selector down to the source.
+    pub async fn clock_source_id(&mut self) -> Result<u8, RequestError> {
+        let mut clock_id = self.input_terminal().clock_source_id();
+        // Selectors can feed selectors, but a path has no more steps than there are clocks.
+        for _ in 0..=self.interface_collection.control_interface.clock_descriptors.len() {
+            let interface = self.interface_collection.control_interface.interface_number();
+            match self.interface_collection.control_interface.clock_step(clock_id) {
+                descriptors::ClockStep::Source | descriptors::ClockStep::Other => return Ok(clock_id),
+                descriptors::ClockStep::Selector(source_ids) => {
+                    // A selector with one input has nothing to select, and may not have the control.
+                    let pin = if let [_] = source_ids[..] {
+                        1
+                    } else {
+                        self.get_curr_entity1(
+                            uac2_codes::control_selector::clock_selector::CLOCK_SELECTOR_CONTROL,
+                            0,
+                            clock_id,
+                            interface,
+                        )
+                        .await?
+                    };
+                    clock_id = usize::from(pin)
+                        .checked_sub(1)
+                        .and_then(|i| source_ids.get(i))
+                        .copied()
+                        .ok_or(RequestError::InvalidResponse)?;
+                }
+            }
+        }
+        Err(RequestError::InvalidResponse)
+    }
+
+    /// Retrieves the current sampling frequency from the specified Clock Source.
     ///
     /// Returns the sampling frequency in Hz, or an error if the request fails.
-    pub async fn get_sampling_freq(&mut self, terminal_id: u8) -> Result<u32, RequestError> {
+    pub async fn get_sampling_freq(&mut self, clock_source_id: u8) -> Result<u32, RequestError> {
+        let interface = self.interface_collection.control_interface.interface_number();
         self.get_curr_entity3(
             uac2_codes::control_selector::clock_source::SAMPLING_FREQ_CONTROL,
             0,
-            terminal_id,
-            0,
+            clock_source_id,
+            interface,
         )
         .await
     }
@@ -422,7 +491,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves a 1-byte current value from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., volume, mute)
+    /// * `control_selector` - The control selector (e.g., volume, mute), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -442,7 +511,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::CUR,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: 1,
         };
@@ -460,7 +529,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves a 2-byte current value from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., volume, mute)
+    /// * `control_selector` - The control selector (e.g., volume, mute), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -480,7 +549,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::CUR,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: 2,
         };
@@ -498,7 +567,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves a 4-byte current value from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., sampling frequency)
+    /// * `control_selector` - The control selector (e.g., sampling frequency), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -518,7 +587,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::CUR,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: 4,
         };
@@ -536,7 +605,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves the range of supported 1-byte values from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., volume, mute)
+    /// * `control_selector` - The control selector (e.g., volume, mute), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -556,7 +625,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::RANGE,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout1ParameterBlock>() as u16,
         };
@@ -576,7 +645,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves the range of supported 2-byte values from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., volume, mute)
+    /// * `control_selector` - The control selector (e.g., volume, mute), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -596,7 +665,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::RANGE,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout2ParameterBlock>() as u16,
         };
@@ -616,7 +685,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
     /// Retrieves the range of supported 4-byte values from a UAC entity.
     ///
     /// # Arguments
-    /// * `control_selector` - The control selector (e.g., sampling frequency)
+    /// * `control_selector` - The control selector (e.g., sampling frequency), as in [`uac2_codes::control_selector`]
     /// * `channel` - The channel number (0 for master control)
     /// * `entity` - The entity ID
     /// * `interface` - The interface number
@@ -636,7 +705,7 @@ impl<'d, A: UsbHostAllocator<'d>> UacHandler<'d, A> {
                 recipient: Recipient::Interface,
             },
             request: uac2_codes::request_code::RANGE,
-            value: (channel as u16) << 8 | control_selector,
+            value: control_value(control_selector, channel),
             index: (entity as u16) << 8 | interface as u16,
             length: size_of::<Layout3ParameterBlock>() as u16,
         };
@@ -873,6 +942,8 @@ pub fn parse_feedback(speed: Speed, data: &[u8]) -> Option<f32> {
             // Convert fractional part to float (divide by 2^16 since it's a 16-bit fraction)
             Some(integer_part as f32 + (fractional_part as f32 / 65536.0))
         }
+
+        _ => None,
     }
 }
 
@@ -1022,4 +1093,21 @@ pub struct Range1 {
     pub max: u8,
     /// Step size between values in the range.
     pub step: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_value_has_the_selector_in_the_high_byte_and_the_channel_in_the_low_byte() {
+        use uac2_codes::control_selector::{clock_source, feature_unit};
+
+        assert_eq!(control_value(clock_source::SAMPLING_FREQ_CONTROL, 0), 0x0100);
+        // Volume of channel 2.
+        assert_eq!(control_value(feature_unit::VOLUME_CONTROL, 2), 0x0202);
+        // Mute of the master channel, then of channel 1.
+        assert_eq!(control_value(feature_unit::MUTE_CONTROL, 0), 0x0100);
+        assert_eq!(control_value(feature_unit::MUTE_CONTROL, 1), 0x0101);
+    }
 }

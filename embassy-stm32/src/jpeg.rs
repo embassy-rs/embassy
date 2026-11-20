@@ -174,8 +174,8 @@ pub enum Error {
 /// JPEG codec driver.
 pub struct Jpeg<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
-    indma: Option<ChannelAndRequest<'d>>,
-    outdma: Option<ChannelAndRequest<'d>>,
+    indma: M::IfAsync<ChannelAndRequest<'d>>,
+    outdma: M::IfAsync<ChannelAndRequest<'d>>,
     _marker: PhantomData<M>,
 }
 
@@ -200,8 +200,8 @@ impl<'d, T: Instance> Jpeg<'d, T, Async> {
 
         Self {
             _peripheral: peri,
-            indma: Some(indma),
-            outdma: Some(outdma),
+            indma,
+            outdma,
             _marker: PhantomData,
         }
     }
@@ -217,8 +217,8 @@ impl<'d, T: Instance> Jpeg<'d, T, Blocking> {
         Self::init_peripheral();
         Self {
             _peripheral: peri,
-            indma: None,
-            outdma: None,
+            indma: (),
+            outdma: (),
             _marker: PhantomData,
         }
     }
@@ -315,12 +315,10 @@ impl<'d, T: Instance> Jpeg<'d, T, Async> {
             w.set_chpdf(true);
         });
 
-        // Run the codec. unwrap: Async-mode constructor always populates DMA.
+        // Run the codec.
         debug!("jpeg encode: entering run_codec");
         let dst_payload = &mut dst[header_len..header_len + payload_room];
-        let indma = self.indma.as_mut().unwrap();
-        let outdma = self.outdma.as_mut().unwrap();
-        let payload_bytes = run_codec::<T>(indma, outdma, src, dst_payload).await?;
+        let payload_bytes = run_codec::<T>(&mut self.indma, &mut self.outdma, src, dst_payload).await?;
         debug!("jpeg encode: run_codec done, {} bytes", payload_bytes);
 
         // Stop the codec and tear down DMA / IRQ enables.

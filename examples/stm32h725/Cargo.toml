@@ -10,10 +10,8 @@ embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [
   "defmt",
   "stm32h725ve",
   "time-driver-tim2",
-  "exti",
   "memory-x",
   "unstable-pac",
-  "chrono",
 ] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = [
   "platform-cortex-m",

@@ -41,6 +41,7 @@ async fn main(spawner: Spawner) {
             source: PllSource::Hsi,
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul50,
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div8),
             divr: None,
@@ -134,7 +135,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(cyw43_task(runner)));
 
     info!("init control");
-    control.init(clm).await;
+    control.init(clm, cyw43::Config::default()).await;
 
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)

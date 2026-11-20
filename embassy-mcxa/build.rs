@@ -17,13 +17,14 @@ fn main() {
     let chips = env::vars()
         .filter(|(name, _)| {
             name.strip_prefix("CARGO_FEATURE_MCXA")
-                .is_some_and(|chip| !chip.is_empty() && chip.bytes().all(|c| c.is_ascii_digit()))
+                .or_else(|| name.strip_prefix("CARGO_FEATURE_MCXN"))
+                .is_some_and(|chip| chip.len() == 3 && chip.bytes().all(|c| c.is_ascii_digit()))
         })
         .count();
     match chips {
-        0 => panic!("No MCXA chip feature enabled"),
+        0 => panic!("No MCXA/MCXN chip feature enabled"),
         1 => {}
-        _ => panic!("Multiple MCXA chip features enabled"),
+        _ => panic!("Multiple MCXA/MCXN chip features enabled"),
     }
 
     let mut cfgs = CfgSet::new();
@@ -62,30 +63,58 @@ fn main() {
         cfgs.enable(driver_to_cfg_name(peripheral.driver_name));
     }
 
-    let generated = [
+    if is_mcxn() {
+        assert!(
+            env::var_os("CARGO_FEATURE_EXECUTOR_PLATFORM").is_none(),
+            "MCXN currently requires embassy-executor/platform-cortex-m, not executor-platform"
+        );
+        assert!(
+            env::var_os("CARGO_FEATURE_TIME_DRIVER_LPTMR").is_none(),
+            "MCXN currently supports only the OSTIMER time driver"
+        );
+    }
+
+    let mut generated = vec![
         generate_peripherals_call(),
         generate_interrupt_mod_call(),
         generate_cc_gates(),
-        generate_dma_requests_enum(),
-        generate_instance_calls(),
         generate_gpio_pin_impls(),
-        generate_adc_pin_impls(),
-        generate_clkout_impls(),
-        generate_lpi2c_pin_impls(),
-        generate_i3c_pin_impls(),
-        generate_spi_pin_impls(),
-        generate_ctimer_pin_impls(),
-        generate_lpuart_pin_impls(),
-        generate_flexspi_pin_impls(),
-        generate_dac_pin_impls(),
-        generate_flexcan_pin_impls(),
-        generate_dma_impls(),
     ];
+    if is_mcxn() {
+        // DEVICE_TYPE_NUM[15:12] identifies MCXN (1); [11:0] encodes the
+        // three part-number digits. RM 17.4.1.130. This field identifies the
+        // numeric part, not its package or boot/security policy.
+        let digits = METADATA.name.strip_prefix("MCXN").expect("MCXN PAC metadata name");
+        let device_type = 0x1000u16 | u16::from_str_radix(digits, 16).expect("MCXN part digits");
+        generated.push(quote! { pub(crate) const MCXN_DEVICE_TYPE: u16 = #device_type; });
+    }
+    if !is_mcxn() {
+        generated.extend([
+            generate_dma_requests_enum(),
+            generate_instance_calls(),
+            generate_adc_pin_impls(),
+            generate_cmp_pin_impls(),
+            generate_clkout_impls(),
+            generate_lpi2c_pin_impls(),
+            generate_i3c_pin_impls(),
+            generate_spi_pin_impls(),
+            generate_ctimer_pin_impls(),
+            generate_lpuart_pin_impls(),
+            generate_flexspi_pin_impls(),
+            generate_dac_pin_impls(),
+            generate_flexcan_pin_impls(),
+            generate_dma_impls(),
+        ]);
+    }
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs");
     fs::write(&out_file, generated.into_iter().collect::<TokenStream>().to_string()).unwrap();
     rustfmt(&out_file);
+}
+
+fn is_mcxn() -> bool {
+    env::var_os("CARGO_FEATURE__MCXN").is_some()
 }
 
 fn generate_peripherals_call() -> TokenStream {
@@ -118,10 +147,21 @@ fn generate_peripherals_call() -> TokenStream {
             .map(|peripheral| Singleton::just_name(peripheral.name)),
     );
 
+    // Narrow ownership of the digital detector's control register in SECCON.
+    if METADATA
+        .peripherals
+        .iter()
+        .any(|peripheral| peripheral.name == "DGDET0")
+        && !singletons.iter().any(|singleton| singleton.name == "GDET0_CTRL")
+    {
+        singletons.push(Singleton::just_name("GDET0_CTRL"));
+    }
+
     // Add DMA channels
     for (dma_num, dma_peripheral) in METADATA
         .peripherals
         .iter()
+        .filter(|_| !is_mcxn())
         .filter_map(|p| prefix_num(p.name, "DMA").map(|dma_num| (dma_num, p)))
     {
         let channels_num = find_num(dma_peripheral.driver_name, "DMA").unwrap();
@@ -132,7 +172,12 @@ fn generate_peripherals_call() -> TokenStream {
     }
 
     // Add CTIMER channels
-    for ctimer_num in METADATA.peripherals.iter().filter_map(|p| prefix_num(p.name, "CTIMER")) {
+    for ctimer_num in METADATA
+        .peripherals
+        .iter()
+        .filter(|_| !is_mcxn())
+        .filter_map(|p| prefix_num(p.name, "CTIMER"))
+    {
         for num in 0..4 {
             singletons.push(Singleton::just_name(format!("CTIMER{ctimer_num}_CH{num}")));
         }
@@ -185,6 +230,9 @@ fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
     for peripheral in METADATA.peripherals {
+        if is_mcxn() && !matches!(peripheral.name, "GPIO0" | "GPIO1" | "PORT0" | "PORT1" | "OSTIMER0") {
+            continue;
+        }
         let Some(gate) = peripheral.gate.as_ref() else {
             continue;
         };
@@ -194,13 +242,26 @@ fn generate_cc_gates() -> TokenStream {
         let reset = gate.reset.map(|reset| format_ident!("{reset}"));
         let config = gate.config.map(|config| format_ident!("{config}")).unwrap_or_else(|| {
             // FREQME's PAC metadata predates its HAL clock helper.
-            if peripheral.driver_name == "mcxa/FREQME" {
+            if is_numbered(peripheral.name, "CMP") {
+                format_ident!("CmpConfig")
+            } else if peripheral.driver_name == "mcxa/FREQME" {
                 format_ident!("FreqmeConfig")
             } else {
                 format_ident!("NoConfig")
             }
         });
         let bit = format_ident!("{}", gate.bit);
+
+        if is_mcxn() {
+            let reset = reset.expect("Supported MCXN peripherals require a reset gate");
+            let reset_bit = format_ident!("{}", gate.reset_bit());
+            let group = prefix_num(gate.enable, "ahbclkctrl").expect("MCXN AHB clock register");
+            let group = proc_macro2::Literal::usize_unsuffixed(group as usize);
+            generated.extend(quote! {
+                crate::impl_mcxn_gate!(#peripheral_name, #enable, #reset, #bit, #reset_bit, #group);
+            });
+            continue;
+        }
 
         match reset {
             Some(reset) => generated.extend(quote! {
@@ -230,7 +291,8 @@ fn generate_instance_calls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     const REQUIRES_INSTANCE: &[&str] = &[
-        "adc", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
+        "adc", "cmp", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
+        "can",
     ];
 
     for peripheral in METADATA.peripherals {
@@ -278,6 +340,14 @@ fn generate_gpio_pin_impls() -> TokenStream {
 
         for s in gpio_peripheral.signals {
             assert_eq!(s.pins.len(), 1, "Each gpio signal should only have 1 pin: {s:?}");
+            // Native N PCRs have per-pad types. Start with the three RGB pads;
+            // do not advertise unimplemented pads or interrupt capabilities.
+            if is_mcxn() && !matches!(s.pins[0].pin, "P0_10" | "P0_27" | "P1_2") {
+                continue;
+            }
+            if env::var_os("CARGO_FEATURE__MCXN23X").is_some() && s.pins[0].pin == "P0_10" {
+                continue;
+            }
             let pin = format_ident!("{}", s.pins[0].pin);
             let pin_num = proc_macro2::Literal::u32_unsuffixed(s.name.parse().unwrap());
             let feature_gate = pin_feature_gate(s.pins[0].pin);
@@ -314,6 +384,48 @@ fn generate_adc_pin_impls() -> TokenStream {
         }
     }
 
+    generated
+}
+
+fn generate_cmp_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+    let a2 = env::var_os("CARGO_FEATURE__MCXA2XX").is_some();
+    for cmp in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "CMP")) {
+        let peripheral = format_ident!("{}", cmp.name);
+        for signal in cmp.signals {
+            let (number, positive, negative) = if let Some(n) = signal.name.strip_prefix("INP") {
+                (n, true, false)
+            } else if let Some(n) = signal.name.strip_prefix("INN") {
+                (n, false, true)
+            } else if let Some(n) = signal.name.strip_prefix("IN") {
+                (n, true, true)
+            } else {
+                continue;
+            };
+            let channel: u8 = number.parse().expect("Unexpected comparator input signal");
+            // A2 RM46.1.2: channel4 is internal despite external-pin metadata.
+            // A5 RM56.1.2: channels4/5 have separate positive/negative pins.
+            if (a2 && channel >= 4) || channel >= 6 {
+                continue;
+            }
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let gate = pin_feature_gate(pin.pin);
+                if positive {
+                    generated.extend(quote! {
+                        #gate
+                        crate::impl_cmp_positive_pin!(#pin_name, #peripheral, #channel);
+                    });
+                }
+                if negative {
+                    generated.extend(quote! {
+                        #gate
+                        crate::impl_cmp_negative_pin!(#pin_name, #peripheral, #channel);
+                    });
+                }
+            }
+        }
+    }
     generated
 }
 

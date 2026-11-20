@@ -5,7 +5,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::adc::{AnyAdcPin, Command, CommandConfig, CommandId, Trigger};
-use embassy_mcxa::pac::adc::{Avgs, Mode, Sts};
+use embassy_mcxa::pac::adc::{CalAvgs as Avgs, Sts};
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc};
@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
             averaging: Avgs::Average1024,  // Max average
             sample_time: Sts::Sample131p5, // Max sample time
             compare: adc::Compare::Disabled,
-            resolution: Mode::Data16Bits,
+            resolution: true,
             wait_for_trigger: false,
         },
     )

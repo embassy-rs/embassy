@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 
@@ -20,7 +20,7 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 bind_interrupts!(
     pub struct Irqs{
-        EXTI2 => exti::InterruptHandler<interrupt::typelevel::EXTI2>;
+        EXTI2 => exti::InterruptHandler<peripherals::EXTI2>;
 });
 
 #[embassy_executor::main]
@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH, Default::default());
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PB2, p.EXTI2, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PB5, Level::Low, Speed::Low);
 

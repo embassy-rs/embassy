@@ -4,18 +4,18 @@
 pub mod ringbuffered;
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::slice;
 
 #[cfg(stm32g4)]
 use dac::vals;
 use embassy_hal_internal::PeripheralType;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
 use crate::dma::{ChannelAndRequest, Packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
 use crate::pac::dac;
 use crate::pac::dac::Dac as Regs;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
@@ -81,7 +81,7 @@ impl<T: Instance> ChannelTrigger<T> for SOFTWARE {
 }
 
 /// Operating mode for DAC channel
-#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Mode {
@@ -106,7 +106,7 @@ pub enum Mode {
     SampleHoldInternalUnbuffered,
 }
 
-#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
 impl Mode {
     fn mode(&self) -> dac::vals::Mode {
         match self {
@@ -159,12 +159,12 @@ impl State {
 }
 /// Driver for a single DAC channel.
 ///
-/// If you want to use both channels, either together or independently,
-/// create a [`Dac`] first and use it to access each channel.
+/// On devices with two DAC channels, create a `Dac` first to use both channels,
+/// either together or independently.
 pub struct DacChannel<'d, M: PeriMode> {
     phantom: PhantomData<&'d mut M>,
     #[allow(unused)]
-    dma: Option<ChannelAndRequest<'d>>,
+    dma: M::IfAsync<ChannelAndRequest<'d>>,
     info: &'static Info,
     state: &'static State,
     _ker_clk: Hertz,
@@ -183,12 +183,12 @@ impl<'d> DacChannel<'d, Async> {
         pin: Peri<'d, impl DacPin<T, C>>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             None,
-            new_dma!(dma, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -209,12 +209,12 @@ impl<'d> DacChannel<'d, Async> {
         pin: Peri<'d, impl DacPin<T, C>>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             Some(trigger.signal()),
-            new_dma!(dma, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -230,7 +230,10 @@ impl<'d> DacChannel<'d, Async> {
     /// The channel is set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
     /// channel; you must re-enable it with `enable()`.
-    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
+    #[cfg(all(
+        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
+        not(any(stm32h56x, stm32h57x))
+    ))]
     pub fn new_internal<T: Instance, C: Channel, D: Dma<T, C>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
@@ -239,7 +242,7 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             Some(peri),
             None,
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -255,7 +258,10 @@ impl<'d> DacChannel<'d, Async> {
     /// The channel is set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
     /// channel; you must re-enable it with `enable()`.
-    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
+    #[cfg(all(
+        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
+        not(any(stm32h56x, stm32h57x))
+    ))]
     pub fn new_triggered_internal<T: Instance, C: Channel, D: Dma<T, C>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
@@ -265,7 +271,7 @@ impl<'d> DacChannel<'d, Async> {
         Self::new_inner::<T, C>(
             Some(peri),
             Some(trigger.signal()),
-            new_dma!(dma, _irq),
+            new_dma_nonopt!(dma, _irq),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -283,7 +289,7 @@ impl<'d> DacChannel<'d, Async> {
         let state = self.state;
         let idx = self.idx;
         // Safety: self is forgotten below so the ChannelAndRequest won't be dropped twice.
-        let dma = unsafe { self.dma.as_ref().unwrap().clone_unchecked() };
+        let dma = unsafe { self.dma.clone_unchecked() };
         core::mem::forget(self);
 
         let crate::dma::ChannelAndRequest { channel, request } = dma;
@@ -315,14 +321,14 @@ impl<'d> DacChannel<'d, Async> {
             w.set_dmaen(self.idx, true);
         });
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.cr().modify(|w| {
                 w.set_en(self.idx, false);
                 w.set_dmaen(self.idx, false);
             })
         });
 
-        let dma = self.dma.as_mut().unwrap();
+        let dma = &mut self.dma;
 
         let tx_options = crate::dma::TransferOptions {
             half_transfer_ir: false,
@@ -350,14 +356,14 @@ impl<'d> DacChannel<'d, Async> {
             w.set_dmaen(self.idx, true);
         });
 
-        let _guard = OnDrop::new(|| {
+        let _guard = DropGuard::new((), |()| {
             self.info.regs.cr().modify(|w| {
                 w.set_en(self.idx, false);
                 w.set_dmaen(self.idx, false);
             })
         });
 
-        let dma = self.dma.as_mut().unwrap();
+        let dma = &mut self.dma;
 
         let tx_options = crate::dma::TransferOptions {
             circular: true,
@@ -384,12 +390,12 @@ impl<'d> DacChannel<'d, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     pub fn new_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             None,
-            None,
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            (),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -408,12 +414,15 @@ impl<'d> DacChannel<'d, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
+    #[cfg(all(
+        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
+        not(any(stm32h56x, stm32h57x))
+    ))]
     pub fn new_internal_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>) -> Self {
         Self::new_inner::<T, C>(
             Some(peri),
             None,
-            None,
+            (),
             Mode::NormalInternalUnbuffered,
             #[cfg(stm32g4)]
             vals::Wave::Disabled,
@@ -435,11 +444,11 @@ impl<'d> DacChannel<'d, Blocking> {
         step_trigger: impl ChannelIncTrigger<T>,
         pin: Peri<'d, impl DacPin<T, C>>,
     ) -> Self {
-        pin.set_as_analog();
+        pin.pin_number().set_as_analog();
         Self::new_inner::<T, C>(
             Some(peri),
             Some(reset_trigger.signal()),
-            None,
+            (),
             Mode::NormalExternalBuffered,
             vals::Wave::Sawtooth,
             Some(step_trigger.signal()),
@@ -463,7 +472,7 @@ impl<'d> DacChannel<'d, Blocking> {
         Self::new_inner::<T, C>(
             Some(peri),
             Some(reset_trigger.signal()),
-            None,
+            (),
             Mode::NormalInternalUnbuffered,
             vals::Wave::Sawtooth,
             Some(step_trigger.signal()),
@@ -475,8 +484,8 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     fn new_inner<T: Instance, C: Channel>(
         peri: Option<Peri<'d, T>>,
         trigger: Option<u8>,
-        dma: Option<ChannelAndRequest<'d>>,
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))] mode: Mode,
+        dma: M::IfAsync<ChannelAndRequest<'d>>,
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))] mode: Mode,
         #[cfg(stm32g4)] wave: dac::vals::Wave,
         #[cfg(stm32g4)] inc_trigger: Option<u8>,
     ) -> Self {
@@ -488,16 +497,16 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
             phantom: PhantomData,
             info: T::info(),
             state: T::state(),
-            #[cfg(dac_v8)]
+            #[cfg(any(dac_v8, dac_v9))]
             _ker_clk: T::bus_frequency(),
-            #[cfg(not(dac_v8))]
+            #[cfg(not(any(dac_v8, dac_v9)))]
             _ker_clk: T::frequency(),
             idx: C::IDX,
             dma,
         };
-        #[cfg(any(dac_v5, dac_v6, dac_v7, dac_v8))]
+        #[cfg(any(dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
         dac.set_hfsel();
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
         dac.set_mode(mode);
 
         #[cfg(stm32g4)]
@@ -537,7 +546,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
             });
         });
 
-        #[cfg(dac_v8)]
+        #[cfg(any(dac_v8, dac_v9))]
         if on {
             crate::wait::block_for_us(15);
         }
@@ -586,7 +595,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// Set mode of this channel.
     ///
     /// This method disables the channel, so you may need to re-enable afterwards.
-    #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+    #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
     pub fn set_mode(&mut self, mode: Mode) {
         critical_section::with(|_| {
             self.info.regs.cr().modify(|reg| {
@@ -688,7 +697,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     }
 
     /// set HFSEL according to the DAC interface clock frequency.
-    #[cfg(dac_v8)]
+    #[cfg(any(dac_v8, dac_v9))]
     fn set_hfsel(&mut self) {
         let hfsel = if self._ker_clk > crate::time::mhz(160) {
             0b10
@@ -722,12 +731,14 @@ impl<'d, M: PeriMode> Drop for DacChannel<'d, M> {
 /// // Pins may need to be changed for your specific device.
 /// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_blocking(p.DAC1, p.PA4, p.PA5).split();
 /// ```
+#[cfg(not(dac_v9))]
 pub struct Dac<'d, M: PeriMode> {
     info: &'static Info,
     ch1: DacChannel<'d, M>,
     ch2: DacChannel<'d, M>,
 }
 
+#[cfg(not(dac_v9))]
 impl<'d> Dac<'d, Async> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
@@ -751,15 +762,15 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,
             None,
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
         )
     }
@@ -788,16 +799,16 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
 
         Self::new_inner(
             peri,
             Some(trigger_ch1.signal()),
             Some(trigger_ch2.signal()),
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
         )
     }
@@ -836,15 +847,15 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,
             None,
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalUnbuffered,
         )
     }
@@ -873,16 +884,16 @@ impl<'d> Dac<'d, Async> {
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
 
         Self::new_inner(
             peri,
             Some(trigger_ch1.signal()),
             Some(trigger_ch2.signal()),
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalUnbuffered,
         )
     }
@@ -914,8 +925,8 @@ impl<'d> Dac<'d, Async> {
             peri,
             None,
             None,
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
             Mode::NormalInternalUnbuffered,
         )
     }
@@ -934,7 +945,10 @@ impl<'d> Dac<'d, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
+    #[cfg(all(
+        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
+        not(any(stm32h56x, stm32h57x))
+    ))]
     pub fn new_triggered_internal<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
         trigger_ch1: impl ChannelTrigger<T>,
@@ -949,13 +963,14 @@ impl<'d> Dac<'d, Async> {
             peri,
             Some(trigger_ch1.signal()),
             Some(trigger_ch2.signal()),
-            new_dma!(dma_ch1, _irq),
-            new_dma!(dma_ch2, _irq),
+            new_dma_nonopt!(dma_ch1, _irq),
+            new_dma_nonopt!(dma_ch2, _irq),
             Mode::NormalInternalUnbuffered,
         )
     }
 }
 
+#[cfg(not(dac_v9))]
 impl<'d> Dac<'d, Blocking> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
@@ -974,15 +989,15 @@ impl<'d> Dac<'d, Blocking> {
         pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
-        pin_ch1.set_as_analog();
-        pin_ch2.set_as_analog();
+        pin_ch1.pin_number().set_as_analog();
+        pin_ch2.pin_number().set_as_analog();
         Self::new_inner(
             peri,
             None,
             None,
-            None,
-            None,
-            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+            (),
+            (),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
             Mode::NormalExternalBuffered,
         )
     }
@@ -1001,20 +1016,24 @@ impl<'d> Dac<'d, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8), not(any(stm32h56x, stm32h57x))))]
+    #[cfg(all(
+        any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9),
+        not(any(stm32h56x, stm32h57x))
+    ))]
     pub fn new_internal<T: Instance>(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None, None, None, None, Mode::NormalInternalUnbuffered)
+        Self::new_inner(peri, None, None, (), (), Mode::NormalInternalUnbuffered)
     }
 }
 
+#[cfg(not(dac_v9))]
 impl<'d, M: PeriMode> Dac<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
         trigger_ch1: Option<u8>,
         trigger_ch2: Option<u8>,
-        dma_ch1: Option<ChannelAndRequest<'d>>,
-        dma_ch2: Option<ChannelAndRequest<'d>>,
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))] mode: Mode,
+        dma_ch1: M::IfAsync<ChannelAndRequest<'d>>,
+        dma_ch2: M::IfAsync<ChannelAndRequest<'d>>,
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))] mode: Mode,
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
@@ -1024,7 +1043,7 @@ impl<'d, M: PeriMode> Dac<'d, M> {
                 None,
                 trigger_ch1,
                 dma_ch1,
-                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
                 mode,
                 #[cfg(stm32g4)]
                 vals::Wave::Disabled,
@@ -1035,7 +1054,7 @@ impl<'d, M: PeriMode> Dac<'d, M> {
                 None,
                 trigger_ch2,
                 dma_ch2,
-                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8))]
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7, dac_v8, dac_v9))]
                 mode,
                 #[cfg(stm32g4)]
                 vals::Wave::Disabled,
@@ -1062,6 +1081,7 @@ impl<'d, M: PeriMode> Dac<'d, M> {
         &mut self.ch2
     }
 
+    #[cfg(not(dac_v9))]
     /// Simultaneously update channels 1 and 2 with a new value.
     ///
     /// If triggering is not enabled, the new values are immediately output;
@@ -1130,6 +1150,7 @@ trait SealedWord: Sized {
     fn dma_buf(buf: &[Self]) -> &[Self::Word];
     fn dma_ptr(regs: Regs, idx: usize) -> *mut u32;
     fn set_value(regs: Regs, idx: usize, value: Self);
+    #[cfg(not(dac_v9))]
     fn set_values(regs: Regs, values: (Self, Self));
 }
 
@@ -1157,6 +1178,7 @@ impl SealedWord for u8 {
         regs.dhr8r(idx).write(|reg| reg.set_dhr(value))
     }
 
+    #[cfg(not(dac_v9))]
     fn set_values(regs: Regs, values: (Self, Self)) {
         regs.dhr8rd().write(|reg| {
             reg.set_dhr(0, values.0);
@@ -1184,6 +1206,7 @@ impl SealedWord for u12r {
         regs.dhr12r(idx).write(|reg| reg.set_dhr(value.0))
     }
 
+    #[cfg(not(dac_v9))]
     fn set_values(regs: Regs, values: (Self, Self)) {
         regs.dhr12rd().write(|reg| {
             reg.set_dhr(0, values.0.0);
@@ -1211,6 +1234,7 @@ impl SealedWord for u12l {
         regs.dhr12l(idx).write(|reg| reg.set_dhr(value.0))
     }
 
+    #[cfg(not(dac_v9))]
     fn set_values(regs: Regs, values: (Self, Self)) {
         regs.dhr12ld().write(|reg| {
             reg.set_dhr(0, values.0.0);

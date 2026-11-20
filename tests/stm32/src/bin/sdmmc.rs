@@ -8,12 +8,10 @@ use aligned::Aligned;
 use block_device_driver::BlockDevice as _;
 use common::*;
 use defmt::assert_eq;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
 use embassy_time::Delay;
-use panic_probe as _;
 use sdio::BlockDevice;
 
 bind_interrupts!(struct Irqs {
@@ -21,11 +19,7 @@ bind_interrupts!(struct Irqs {
     DMA2_STREAM3 => embassy_stm32::dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 

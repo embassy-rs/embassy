@@ -72,7 +72,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use pac::clocks::vals::*;
 
-use crate::gpio::{AnyPin, SealedPin};
+use crate::gpio::Flex;
 #[allow(unused_imports)]
 use crate::pac::common::{RW, Reg};
 use crate::{Peri, pac, reset};
@@ -1602,41 +1602,31 @@ impl_gpinpin!(PIN_14, 1);
 impl_gpinpin!(PIN_20, 0);
 impl_gpinpin!(PIN_22, 1);
 
+/// GPCK function select. RP2350 moved GPIN/GPOUT from F8 to F9.
+#[cfg(feature = "rp2040")]
+const GPCLK_FUNCSEL: u8 = 0x08;
+/// GPCK function select. RP2350 moved GPIN/GPOUT from F8 to F9.
+#[cfg(feature = "_rp235x")]
+const GPCLK_FUNCSEL: u8 = 0x09;
+
 /// General purpose clock input driver.
 pub struct Gpin<'d, T: GpinPin> {
-    gpin: Peri<'d, AnyPin>,
+    _gpin: Flex<'d>,
     _phantom: PhantomData<T>,
 }
 
 impl<'d, T: GpinPin> Gpin<'d, T> {
     /// Create new gpin driver.
     pub fn new(gpin: Peri<'d, T>) -> Self {
-        #[cfg(feature = "rp2040")]
-        gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
-
-        // On RP2350 GPIN changed from F8 toF9
+        let mut gpin = Flex::new_unconfigured(gpin);
+        gpin.set_function(GPCLK_FUNCSEL);
         #[cfg(feature = "_rp235x")]
-        gpin.gpio().ctrl().write(|w| w.set_funcsel(0x09));
-
-        #[cfg(feature = "_rp235x")]
-        gpin.pad_ctrl().write(|w| {
-            w.set_iso(false);
-        });
+        gpin.write_pad(|_| {});
 
         Gpin {
-            gpin: gpin.into(),
+            _gpin: gpin,
             _phantom: PhantomData,
         }
-    }
-}
-
-impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
-    fn drop(&mut self) {
-        self.gpin.pad_ctrl().write(|_| {});
-        self.gpin
-            .gpio()
-            .ctrl()
-            .write(|w| w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _));
     }
 }
 
@@ -1699,32 +1689,36 @@ pub enum GpoutSrc {
 
 /// General purpose clock output driver.
 pub struct Gpout<'d, T: GpoutPin> {
-    gpout: Peri<'d, T>,
+    _pin: Flex<'d>,
+    number: u8,
+    _phantom: PhantomData<T>,
 }
 
 impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Create new general purpose clock output.
     pub fn new(gpout: Peri<'d, T>) -> Self {
-        #[cfg(feature = "rp2040")]
-        gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
-
-        // On RP2350 GPOUT changed from F8 toF9
+        let number = gpout.number() as u8;
+        let mut pin = Flex::new_unconfigured(gpout);
+        pin.set_function(GPCLK_FUNCSEL);
         #[cfg(feature = "_rp235x")]
-        gpout.gpio().ctrl().write(|w| w.set_funcsel(0x09));
+        pin.write_pad(|_| {});
 
-        #[cfg(feature = "_rp235x")]
-        gpout.pad_ctrl().write(|w| {
-            w.set_iso(false);
-        });
+        Self {
+            _pin: pin,
+            number,
+            _phantom: PhantomData,
+        }
+    }
 
-        Self { gpout }
+    fn number(&self) -> usize {
+        self.number as usize
     }
 
     /// Set clock divider.
     #[cfg(feature = "rp2040")]
     pub fn set_div(&self, int: u32, frac: u8) {
         let c = pac::CLOCKS;
-        c.clk_gpout_div(self.gpout.number()).write(|w| {
+        c.clk_gpout_div(self.number()).write(|w| {
             w.set_int(int);
             w.set_frac(frac);
         });
@@ -1734,7 +1728,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     #[cfg(feature = "_rp235x")]
     pub fn set_div(&self, int: u16, frac: u16) {
         let c = pac::CLOCKS;
-        c.clk_gpout_div(self.gpout.number()).write(|w| {
+        c.clk_gpout_div(self.number()).write(|w| {
             w.set_int(int);
             w.set_frac(frac);
         });
@@ -1743,7 +1737,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Set clock source.
     pub fn set_src(&self, src: GpoutSrc) {
         let c = pac::CLOCKS;
-        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+        c.clk_gpout_ctrl(self.number()).modify(|w| {
             w.set_auxsrc(ClkGpoutCtrlAuxsrc::from_bits(src as _));
         });
     }
@@ -1751,7 +1745,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Enable clock.
     pub fn enable(&self) {
         let c = pac::CLOCKS;
-        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+        c.clk_gpout_ctrl(self.number()).modify(|w| {
             w.set_enable(true);
         });
     }
@@ -1759,7 +1753,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Disable clock.
     pub fn disable(&self) {
         let c = pac::CLOCKS;
-        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+        c.clk_gpout_ctrl(self.number()).modify(|w| {
             w.set_enable(false);
         });
     }
@@ -1767,7 +1761,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Clock frequency.
     pub fn get_freq(&self) -> u32 {
         let c = pac::CLOCKS;
-        let src = c.clk_gpout_ctrl(self.gpout.number()).read().auxsrc();
+        let src = c.clk_gpout_ctrl(self.number()).read().auxsrc();
 
         let base = match src {
             ClkGpoutCtrlAuxsrc::ClksrcPllSys => pll_sys_freq(),
@@ -1784,7 +1778,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
             _ => unreachable!(),
         };
 
-        let div = c.clk_gpout_div(self.gpout.number()).read();
+        let div = c.clk_gpout_div(self.number()).read();
         let int = if div.int() == 0 { 0xFFFF } else { div.int() } as u64;
         let frac = div.frac() as u64;
 
@@ -1795,11 +1789,6 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
-        self.gpout.pad_ctrl().write(|_| {});
-        self.gpout
-            .gpio()
-            .ctrl()
-            .write(|w| w.set_funcsel(pac::io::vals::Gpio0CtrlFuncsel::Null as _));
     }
 }
 

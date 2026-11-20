@@ -6,7 +6,6 @@ use embassy_hal_internal::Peri;
 
 use crate::clocks::config::CoreSleep;
 use crate::gpio::{DriveStrength, GpioPin, Level, Output, SlewRate};
-use crate::pac::gpio::{Ptco, Ptso};
 
 static TASKS_PENDING: AtomicBool = AtomicBool::new(false);
 static EXECUTOR_ONCE: AtomicU8 = AtomicU8::new(0);
@@ -239,7 +238,7 @@ fn debug_lo() {
         4 => crate::pac::GPIO4.pcor(),
         _ => return,
     }
-    .write(|w| w.set_ptco(pin_num, Ptco::Ptco1));
+    .write(|w| w.set_ptco(pin_num, true));
 }
 
 /// Set high if we have a debug gpio set, using raw pac methods
@@ -258,5 +257,5 @@ fn debug_hi() {
         4 => crate::pac::GPIO4.psor(),
         _ => return,
     }
-    .write(|w| w.set_ptso(pin_num, Ptso::Ptso1));
+    .write(|w| w.set_ptso(pin_num, true));
 }

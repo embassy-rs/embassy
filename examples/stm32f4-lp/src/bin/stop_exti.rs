@@ -37,12 +37,12 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
-use embassy_stm32::{bind_interrupts, interrupt, pac};
+use embassy_stm32::{bind_interrupts, pac, peripherals};
 use embassy_time::{Duration, Timer, block_for};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
-    EXTI0 => embassy_stm32::exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+    EXTI0 => embassy_stm32::exti::InterruptHandler<peripherals::EXTI0>;
 });
 
 #[embassy_executor::main(entry = "cortex_m_rt::entry", executor = "embassy_stm32::executor::Executor")]
@@ -104,7 +104,7 @@ async fn main(_spawner: Spawner) {
     info!("Unused pins set to Analog mode.");
 
     // Configure PB0 as EXTI input with pull-down
-    let mut button = ExtiInput::new(p.PB0, p.EXTI0, Pull::Up, Irqs);
+    let mut button = ExtiInput::new_async(p.PB0, p.EXTI0, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PC5, Level::Low, Speed::Low);
 

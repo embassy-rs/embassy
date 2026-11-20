@@ -25,13 +25,14 @@ use embassy_stm32::{Config, bind_interrupts, rcc};
 use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, BdAddr, BdAddrType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gatt::{
-    AttributeAccess, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
+    AccessPermissions, CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid,
 };
-use embassy_stm32_wpan::bluetooth::hci::RadioActivityMask;
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, PasskeyInputType, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::bluetooth::{EventBuffer, HCI};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use panic_probe as _;
+use stm32wb_hci::aci::flags::RadioActivityMask;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -54,12 +55,14 @@ async fn ble_runner_task(platform: &'static Platform) {
 /// Build an advertising payload that uses fields beyond name + 16-bit UUID.
 fn make_adv_data() -> AdvData {
     let mut d = AdvData::new();
-    d.add_flags(0x06).unwrap();
-    d.add_name("Extras").unwrap();
-    d.add_service_uuid_16(0xBEEF).unwrap();
-    d.add_tx_power(0).unwrap();
-    d.add_manufacturer_data(0x004C, b"hi").unwrap();
-    d.add_service_data(0x1234, &[0xAA]).unwrap();
+    d = d
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    d = d.complete_local_name(b"Extras").unwrap();
+    d = d.complete_uuid16_list(&[0xBEEF]).unwrap();
+    d = d.tx_power_level(0).unwrap();
+    d = d.manufacturer_specific_data(0x004C, b"hi").unwrap();
+    d = d.service_data_uuid16(0x1234, &[0xAA]).unwrap();
     d
 }
 
@@ -77,33 +80,39 @@ async fn main(spawner: Spawner) {
     let mut security = ble.security_manager();
     security
         .set_authentication_requirements(
+            ble.controller(),
             SecurityParams::new()
                 .with_bonding(true)
                 .with_mitm_protection(true)
                 .with_io_capability(IoCapability::DisplayYesNo),
         )
+        .await
         .expect("set security params");
 
     // -- 1. Radio activity mask (only report the activities we care about) ----
     ble.set_radio_activity_mask(RadioActivityMask::ADVERTISING | RadioActivityMask::PERIPHERAL_CONNECTION)
+        .await
         .expect("set radio activity mask");
 
     // -- 2. GATT service with a custom descriptor, persisted to NVM ----------
     let mut gatt = ble.gatt_server();
     let svc = gatt
-        .add_service(Uuid::from_u16(0xBEEF), ServiceType::Primary, 8)
+        .add_service(ble.controller(), Uuid::Uuid16(0xBEEF), ServiceType::Primary, 8)
+        .await
         .expect("add service");
     let ch = gatt
         .add_characteristic(
+            ble.controller(),
             svc,
-            Uuid::from_u16(0xBEF0),
+            Uuid::Uuid16(0xBEF0),
             20,
             CharProperties::READ | CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
-            GattEventMask::NONE,
+            SecurityPermissions::empty(),
+            GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("add characteristic");
 
     // Characteristic Presentation Format: format(1) exponent(1) unit(2)
@@ -111,21 +120,24 @@ async fn main(spawner: Spawner) {
     let cpf: [u8; 7] = [0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00];
     let desc = gatt
         .add_descriptor(
+            ble.controller(),
             svc,
             ch,
-            Uuid::from_u16(CPF_DESCRIPTOR_UUID),
+            Uuid::Uuid16(CPF_DESCRIPTOR_UUID),
             cpf.len() as u8,
             &cpf,
-            SecurityPermissions::NONE,
-            AttributeAccess::READ,
-            GattEventMask::NONE,
+            SecurityPermissions::empty(),
+            AccessPermissions::READ,
+            GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("add descriptor");
-    gatt.update_descriptor_value(svc, ch, desc, 0, &cpf)
+    gatt.update_descriptor_value(ble.controller(), svc, ch, desc, 0, &cpf)
+        .await
         .expect("set descriptor value");
-    gatt.store_db().expect("store GATT database");
+    gatt.store_db(ble.controller()).await.expect("store GATT database");
 
     // -- 3. Undirected advertising with the full custom payload --------------
     let adv_params = AdvParams {
@@ -160,12 +172,15 @@ async fn main(spawner: Spawner) {
     loop {
         let event = ble.read_event(&mut event_buf).await;
 
-        if let Some(gap) = ble.process_event(&event) {
+        if let Some(gap) = ble.process_event(&event).await {
             if let GapEvent::Connected(conn) = gap {
                 info!("connected: handle=0x{:04X}", conn.handle.raw());
-                match ble.read_rssi() {
-                    Ok(Some(dbm)) => info!("last packet RSSI: {} dBm", dbm),
-                    _ => warn!("RSSI not available"),
+                match ble.read_rssi().await {
+                    Ok(resp) => match resp.rssi.known() {
+                        Some(rssi) => info!("last packet RSSI: {} dBm", rssi.get()),
+                        None => warn!("RSSI not available"),
+                    },
+                    Err(_) => warn!("RSSI read failed"),
                 }
             }
         }
@@ -173,10 +188,16 @@ async fn main(spawner: Spawner) {
         if let Some(sec) = ble.process_security_event(&event) {
             if let SecurityEvent::PasskeyRequest { conn_handle } = sec {
                 // Relay keypresses to the peer, then send the entered passkey.
-                let _ = security.passkey_input(conn_handle, PasskeyInputType::Started);
-                let _ = security.passkey_input(conn_handle, PasskeyInputType::DigitEntered);
-                let _ = security.passkey_input(conn_handle, PasskeyInputType::Completed);
-                match security.pass_key_response(conn_handle, 123_456) {
+                let _ = security
+                    .passkey_input(ble.controller(), conn_handle, PasskeyInputType::EntryStarted)
+                    .await;
+                let _ = security
+                    .passkey_input(ble.controller(), conn_handle, PasskeyInputType::DigitEntered)
+                    .await;
+                let _ = security
+                    .passkey_input(ble.controller(), conn_handle, PasskeyInputType::EntryCompleted)
+                    .await;
+                match security.pass_key_response(ble.controller(), conn_handle, 123_456).await {
                     Ok(()) => info!("passkey sent to stack"),
                     Err(_) => warn!("pass_key_response failed"),
                 }

@@ -452,6 +452,45 @@ where
         }
     }
 
+    /// Waits until a connection has been stable for 100 ms (USB 2.0 §7.1.7.3, TATTDB).
+    ///
+    /// A device can bounce on the contacts as it is plugged in, and the host must not reset the port
+    /// before that settles. Any connect or disconnect event during the 100 ms restarts the wait.
+    ///
+    /// Returns `false` if the device is gone at the end of it.
+    async fn wait_connection_stable(&mut self) -> bool {
+        const T_ATTDB_MS: u64 = 100;
+        let state = self.instance.state;
+        loop {
+            embassy_time::Timer::after_millis(T_ATTDB_MS).await;
+
+            let events = state
+                .fields
+                .port_event
+                .fetch_and(!(PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED), Ordering::AcqRel);
+            let settled = events & (PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED) == 0;
+
+            if self.instance.regs.hprt().read().pcsts() {
+                if settled {
+                    return true;
+                }
+                // The line changed, so the 100 ms starts over.
+                continue;
+            }
+
+            // The device is gone. This function consumed the port event above, so hand the
+            // disconnect back: `wait_for_device_event` is what wakes the channels with
+            // `EV_DISCONNECT`, and it has to see this to wake a transfer that was in flight.
+            // Swallowing it here would leave that transfer waiting for some later disconnect.
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
+            return false;
+        }
+    }
+
     async fn configure_as_host(&self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
@@ -499,12 +538,10 @@ where
             w.set_physel(phy_type.internal() && !phy_type.high_speed());
         });
 
-        // Wait for host mode to take effect (~25ms).
-        // Poll cmod bit with async yield between attempts.
-        for _ in 0..50u32 {
-            if r.gintsts().read().cmod() {
-                break;
-            }
+        // Wait for host mode to take effect. The RM says at least 25ms, but it can take
+        // longer (~63ms measured on STM32F429 OTG_HS). Host registers must not be accessed
+        // before this, writes to them are lost.
+        while !r.gintsts().read().cmod() {
             embassy_time::Timer::after_millis(1).await;
         }
     }
@@ -621,6 +658,10 @@ where
         endpoint: &EndpointInfo,
         split: Option<SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, HostError> {
+        if endpoint.additional_transactions != 0 {
+            return Err(HostError::Other("high-speed additional transactions not supported"));
+        }
+
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
 
@@ -735,7 +776,10 @@ where
                 return DeviceEvent::Disconnected;
             }
 
-            // Connected: perform bus reset.
+            // Connected: let the connection settle, then perform bus reset.
+            if !self.wait_connection_stable().await {
+                continue;
+            }
             self.bus_reset().await;
 
             // Now wait for ENABLED or DISCONNECTED.
@@ -796,6 +840,7 @@ where
                             r.hfir().write(|w| w.set_frivl(frivl));
                         }
                         Speed::High => {} // Keep HS defaults
+                        _ => {}
                     }
 
                     return DeviceEvent::Connected(speed);
@@ -964,22 +1009,9 @@ where
             self.is_low_speed,
         );
 
-        // The DWC2 does not auto-clear CHENA after transfer completion.
-        // If the channel is still active from a previous transfer, we
-        // must explicitly halt it and wait for the hardware to confirm
-        // (CHENA cleared) before reconfiguring. Without this, writing
-        // new HCCHAR/HCTSIZ while the channel is active causes undefined
-        // behavior — typically a permanent hang or stale interrupts.
-        if r.hcchar(ch).read().chena() {
-            r.hcchar(ch).modify(|w| {
-                w.set_chena(true);
-                w.set_chdis(true);
-            });
-            while r.hcchar(ch).read().chena() {
-                core::hint::spin_loop();
-            }
-            r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
-        }
+        // The channel must be halted (see `halt_channel`) before calling this:
+        // the DWC2 does not clear CHENA after an IN transfer completes, and
+        // writing HCCHAR/HCTSIZ while the channel is active is undefined.
 
         // Configure channel characteristics
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
@@ -1051,22 +1083,39 @@ where
         });
     }
 
-    /// Halt and spin until CHENA clears. No-op if already disabled (no CHH would
-    /// be raised, so awaiting one would park forever). Drains any halt CHH.
-    fn halt_channel(&self) {
+    /// Halt and wait for the CHH confirming it. No-op if already disabled (no CHH would
+    /// be raised, so awaiting one would park forever). Drops any pending channel events.
+    ///
+    /// CHENA reads 0 before the CHH arrives: in slave mode it is raised once the ISR has
+    /// popped the "channel halted" entry from the RX FIFO. Re-enabling the channel before
+    /// that would let the late CHH halt the next transaction.
+    async fn halt_channel(&self) -> Result<(), PipeError> {
         let r = self.regs;
         let ch = self.index;
         if r.hcchar(ch).read().chena() {
+            r.hcintmsk(ch).modify(|w| w.set_chhm(true));
+            self.state.mutex.lock(|| {
+                r.haintmsk().modify(|w| {
+                    w.set_haintm(w.haintm() | (1 << ch));
+                });
+            });
             r.hcchar(ch).modify(|w| {
                 w.set_chena(true);
                 w.set_chdis(true);
             });
-            while r.hcchar(ch).read().chena() {
-                core::hint::spin_loop();
+            loop {
+                let events = self.wait_for_result().await;
+                if events & EV_DISCONNECT != 0 {
+                    return Err(PipeError::Disconnected);
+                }
+                if events & EV_CHH != 0 {
+                    break;
+                }
             }
         }
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
         self.state.channels[ch].result.store(0, Ordering::Release);
+        Ok(())
     }
 
     fn write_fifo(&self, data: &[u8]) {
@@ -1156,37 +1205,73 @@ where
     /// time bound; the caller is responsible for cancelling on its own
     /// deadline if one is needed. Disconnect is still surfaced via
     /// [`PipeError::Disconnected`].
+    ///
+    /// In slave mode the data must fit in the TX FIFO and request queue, so it is sent in
+    /// chunks of what is free there. When the device NAKs, the core drops the rest of the
+    /// chunk; HCTSIZ then holds how many packets went through and the next PID, and the
+    /// transfer resumes from the first packet that was not acknowledged.
     async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), PipeError> {
-        let pktcnt = if data.is_empty() {
-            1
-        } else {
-            ((data.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
-        };
+        let r = self.regs;
+        let ch = self.index;
+        let mps = self.max_packet_size as usize;
+        let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
 
+        let mut offset = 0;
+        let mut dpid = dpid;
         // `do_ping` survives across retries: on NYET from a HS device we
         // must issue a PING token before the next OUT, but configure_channel
         // rewrites HCTSIZ each iteration so we re-assert it here.
         let mut do_ping = false;
         loop {
-            self.configure_channel(false, ep_type, pktcnt, data.len() as u32, dpid);
+            self.halt_channel().await?;
+
+            let (free_words, free_requests) = if is_periodic {
+                let sts = r.hptxsts().read();
+                (sts.ptxfsavl() as usize, sts.ptxqsav() as usize)
+            } else {
+                let sts = r.hnptxsts().read();
+                (sts.nptxfsav() as usize, sts.nptqxsav() as usize)
+            };
+            let max_pkts = (free_words * 4 / mps).min(free_requests);
+            if max_pkts == 0 {
+                // Another channel is using the FIFO.
+                yield_now().await;
+                continue;
+            }
+
+            let remaining = data.len() - offset;
+            let pkts = remaining.div_ceil(mps).clamp(1, max_pkts);
+            let len = remaining.min(pkts * mps);
+
+            self.configure_channel(false, ep_type, pkts as u16, len as u32, dpid);
             if do_ping {
-                self.regs.hctsiz(self.index).modify(|w| w.set_doping(true));
+                r.hctsiz(ch).modify(|w| w.set_doping(true));
                 do_ping = false;
             }
             self.enable_channel();
-            self.write_fifo(data);
+            self.write_fifo(&data[offset..offset + len]);
 
             let events = self.wait_for_result().await;
             match Self::classify_events(events) {
-                ChannelEvent::Complete => return Ok(()),
-                ChannelEvent::Nyet => {
-                    do_ping = true;
-                    yield_now().await;
-                    continue;
+                ChannelEvent::Complete => {
+                    offset += len;
+                    if offset == data.len() {
+                        return Ok(());
+                    }
+                    if pkts % 2 == 1 {
+                        dpid = toggle_dpid(dpid);
+                    }
                 }
-                ChannelEvent::Nak | ChannelEvent::Halted | ChannelEvent::None => {
+                ev @ (ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None) => {
+                    if matches!(ev, ChannelEvent::Nyet) {
+                        do_ping = true;
+                    }
+                    self.halt_channel().await?;
+                    let hctsiz = r.hctsiz(ch).read();
+                    let sent = pkts - hctsiz.pktcnt() as usize;
+                    offset += len.min(sent * mps);
+                    dpid = hctsiz.dpid();
                     yield_now().await;
-                    continue;
                 }
                 ChannelEvent::Error(e) => return Err(e),
             }
@@ -1216,28 +1301,35 @@ where
             ((buf.len() as u32 + self.max_packet_size as u32 - 1) / self.max_packet_size as u32) as u16
         };
 
-        loop {
-            self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
-            self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
-            self.enable_channel();
+        self.halt_channel().await?;
+        self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
+        self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
+        self.enable_channel();
 
+        let res = loop {
             let events = self.wait_for_result().await;
-            let count = self.rx_count();
-            self.clear_rx_buffer();
-
             match Self::classify_events(events) {
-                ChannelEvent::Complete => return Ok(count),
+                ChannelEvent::Complete => break Ok(self.rx_count()),
                 ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None => {
                     // Periodic channels auto-halt after NAK; settle before retry.
-                    if is_periodic {
-                        self.halt_channel();
+                    // Non-periodic ones are halted and re-enabled without touching HCTSIZ,
+                    // so a transfer NAKed after some packets resumes where it stopped
+                    // instead of restarting with a stale data toggle.
+                    if let Err(e) = self.halt_channel().await {
+                        break Err(e);
                     }
                     yield_now().await;
-                    continue;
+                    if is_periodic {
+                        self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
+                        self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
+                    }
+                    self.enable_channel();
                 }
-                ChannelEvent::Error(e) => return Err(e),
+                ChannelEvent::Error(e) => break Err(e),
             }
-        }
+        };
+        self.clear_rx_buffer();
+        res
     }
 
     /// Perform a control IN transfer (SETUP -> DATA IN -> STATUS OUT).
@@ -1393,6 +1485,17 @@ where
 impl vals::Dpid {
     /// SETUP PID (value 3 = MDATA, used for SETUP token in host mode).
     const SETUP: Self = Self::MDATA;
+}
+
+/// The PID following `dpid` in a DATA0/DATA1 sequence.
+fn toggle_dpid(dpid: u8) -> u8 {
+    if dpid == vals::Dpid::DATA0.to_bits() {
+        vals::Dpid::DATA1.to_bits()
+    } else if dpid == vals::Dpid::DATA1.to_bits() {
+        vals::Dpid::DATA0.to_bits()
+    } else {
+        dpid
+    }
 }
 
 /// Yield to the executor, allowing other tasks to run.

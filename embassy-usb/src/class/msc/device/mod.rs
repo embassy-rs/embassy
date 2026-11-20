@@ -62,17 +62,8 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             None,
         );
 
-        let (read_ep, write_ep) = if config.double_buffered {
-            (
-                alt.endpoint_bulk_out_double_buffered(None, config.max_packet_size),
-                alt.endpoint_bulk_in_double_buffered(None, config.max_packet_size),
-            )
-        } else {
-            (
-                alt.endpoint_bulk_out(None, config.max_packet_size),
-                alt.endpoint_bulk_in(None, config.max_packet_size),
-            )
-        };
+        let read_ep = alt.endpoint_bulk_out(None, config.out_endpoint_options);
+        let write_ep = alt.endpoint_bulk_in(None, config.in_endpoint_options);
 
         drop(func);
 
@@ -80,7 +71,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             interface,
             reset_requested: &state.reset_requested,
         });
-        builder.handler(control);
+        builder.interface_handler(control);
 
         Self {
             read_ep,
@@ -118,7 +109,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     pub async fn run<B: AsyncBlockDevice>(&mut self, block_device: &mut B, block_buf: &mut [u8]) -> StopReason {
         assert!(
             block_buf.len() >= block_device.block_size() as usize
-                && block_buf.len() >= self.config.max_packet_size as usize,
+                && block_buf.len() >= self.read_ep.info().max_packet_size as usize,
             "block_buf must be at least block_size and max_packet_size"
         );
         loop {
@@ -166,7 +157,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
     async fn read_cbw(&mut self, buf: &mut [u8]) -> Result<Option<Cbw>, EndpointError> {
         let n = self
             .read_ep
-            .read(&mut buf[..self.config.max_packet_size as usize])
+            .read_transfer(&mut buf[..self.read_ep.info().max_packet_size as usize])
             .await?;
 
         if n != CBW_LEN {
@@ -187,7 +178,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
 
     async fn write_csw(&mut self, tag: u32, residue: u32, status: CswStatus) -> Result<(), EndpointError> {
         let csw = Csw { tag, residue, status };
-        self.write_ep.write(&csw.encode()).await
+        Ok(self.write_ep.write_transfer(&csw.encode(), false).await?)
     }
 
     async fn process_cbw<B: AsyncBlockDevice>(
@@ -235,7 +226,7 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             && result.residue == cbw.data_transfer_length
             && cbw.data_transfer_length > 0
         {
-            let _ = self.write_ep.write(&[]).await;
+            let _ = self.write_ep.write_transfer(&[], false).await;
         }
 
         Ok(result)
@@ -327,9 +318,9 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
         // length transferred is a multiple of max_packet_size (including 0), send a ZLP
         // to terminate the USB transfer.
         if (transfer_len as u32) < cbw.data_transfer_length
-            && transfer_len.is_multiple_of(self.config.max_packet_size as usize)
+            && transfer_len.is_multiple_of(self.write_ep.info().max_packet_size as usize)
         {
-            self.write_ep.write(&[]).await?;
+            self.write_ep.write_transfer(&[], false).await?;
         }
 
         let residue = cbw.data_transfer_length.saturating_sub(transfer_len as u32);
@@ -341,11 +332,10 @@ impl<'d, D: Driver<'d>> MscClass<'d, D> {
             return Ok(());
         }
 
-        let max_pkt = self.config.max_packet_size as usize;
+        let max_pkt = self.read_ep.info().max_packet_size as usize;
         while len > 0 {
-            // Read at least max_packet_size into scratch if possible to avoid BufferOverflow.
-            let chunk_len = min(scratch.len(), core::cmp::max(len as usize, max_pkt));
-            let n = self.read_ep.read(&mut scratch[..chunk_len]).await?;
+            let chunk_len = min(scratch.len(), max_pkt);
+            let n = self.read_ep.read_transfer(&mut scratch[..chunk_len]).await?;
             len = len.saturating_sub(n as u32);
             if n < max_pkt {
                 break;

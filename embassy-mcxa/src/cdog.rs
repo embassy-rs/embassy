@@ -12,7 +12,7 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 
 use crate::interrupt::typelevel::{self, Handler};
-use crate::pac::cdog::{Ctrl, DebugHaltCtrl, IrqPause, LockCtrl};
+use crate::pac::cdog::{Ctrl, IrqPause as DebugHaltCtrl, IrqPause, LockCtrl};
 use crate::pac::{self};
 use crate::peripherals::CDOG0;
 
@@ -305,10 +305,6 @@ impl Handler<typelevel::CDOG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         crate::perf_counters::incr_interrupt_cdog0();
         let cdog0 = pac::CDOG0;
-
-        // Print all flags at once using the Debug implementation
-        #[cfg(feature = "defmt")]
-        defmt::trace!("CDOG0 flags {}", cdog0.flags().read());
 
         // Stop the cdog
         cdog0.stop().write(|w| w.set_stp(0));

@@ -105,6 +105,9 @@ macro_rules! impl_cbc {
         }
 
         impl $enc {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {
@@ -144,6 +147,9 @@ macro_rules! impl_cbc {
         }
 
         impl $dec {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {
@@ -188,6 +194,9 @@ macro_rules! impl_ctr {
         }
 
         impl $name {
+            /// Size of the initialization vector, in bytes.
+            pub const IV_SIZE: usize = 16;
+
             /// Initialize with `key` and the initial counter block `iv`.
             pub fn new(key: &[u8; $key_size], iv: &[u8; 16]) -> Self {
                 Self {
@@ -426,54 +435,94 @@ macro_rules! impl_cmac {
 
 impl_ecb!(
     /// AES-128 block cipher.
-    Aes128, Aes128EcbImpl, Aes128EcbImplContext, 16
+    Aes128,
+    Aes128EcbImpl,
+    Aes128EcbImplContext,
+    16
 );
 impl_ecb!(
     /// AES-256 block cipher.
-    Aes256, Aes256EcbImpl, Aes256EcbImplContext, 32
+    Aes256,
+    Aes256EcbImpl,
+    Aes256EcbImplContext,
+    32
 );
 
 impl_cbc!(
     /// AES-128 CBC.
-    Aes128CbcEncrypt, Aes128CbcDecrypt, Aes128CbcImpl, Aes128CbcImplEncryptContext, Aes128CbcImplDecryptContext, 16
+    Aes128CbcEncrypt,
+    Aes128CbcDecrypt,
+    Aes128CbcImpl,
+    Aes128CbcImplEncryptContext,
+    Aes128CbcImplDecryptContext,
+    16
 );
 impl_cbc!(
     /// AES-256 CBC.
-    Aes256CbcEncrypt, Aes256CbcDecrypt, Aes256CbcImpl, Aes256CbcImplEncryptContext, Aes256CbcImplDecryptContext, 32
+    Aes256CbcEncrypt,
+    Aes256CbcDecrypt,
+    Aes256CbcImpl,
+    Aes256CbcImplEncryptContext,
+    Aes256CbcImplDecryptContext,
+    32
 );
 
 impl_ctr!(
     /// AES-128 CTR.
-    Aes128Ctr, Aes128CtrImpl, Aes128CtrImplContext, 16
+    Aes128Ctr,
+    Aes128CtrImpl,
+    Aes128CtrImplContext,
+    16
 );
 impl_ctr!(
     /// AES-256 CTR.
-    Aes256Ctr, Aes256CtrImpl, Aes256CtrImplContext, 32
+    Aes256Ctr,
+    Aes256CtrImpl,
+    Aes256CtrImplContext,
+    32
 );
 
 impl_gcm!(
     /// AES-128 GCM.
-    Aes128Gcm, Aes128GcmImpl, Aes128GcmImplContext, 16
+    Aes128Gcm,
+    Aes128GcmImpl,
+    Aes128GcmImplContext,
+    16
 );
 impl_gcm!(
     /// AES-256 GCM.
-    Aes256Gcm, Aes256GcmImpl, Aes256GcmImplContext, 32
+    Aes256Gcm,
+    Aes256GcmImpl,
+    Aes256GcmImplContext,
+    32
 );
 
 impl_ccm!(
     /// AES-128 CCM.
-    Aes128Ccm, Aes128CcmImpl, Aes128CcmImplContext, 16
+    Aes128Ccm,
+    Aes128CcmImpl,
+    Aes128CcmImplContext,
+    16
 );
 impl_ccm!(
     /// AES-256 CCM.
-    Aes256Ccm, Aes256CcmImpl, Aes256CcmImplContext, 32
+    Aes256Ccm,
+    Aes256CcmImpl,
+    Aes256CcmImplContext,
+    32
 );
 
 impl_cmac!(
     /// AES-128 CMAC.
-    Aes128Cmac, Aes128CmacImpl, Aes128CmacImplContext, 16
+    Aes128Cmac,
+    Aes128CmacImpl,
+    Aes128CmacImplContext,
+    16
 );
 impl_cmac!(
     /// AES-256 CMAC.
-    Aes256Cmac, Aes256CmacImpl, Aes256CmacImplContext, 32
+    Aes256Cmac,
+    Aes256CmacImpl,
+    Aes256CmacImplContext,
+    32
 );

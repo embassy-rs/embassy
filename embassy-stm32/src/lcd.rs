@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AfType, Flex, SealedPin};
+use crate::gpio::{AfType, Flex};
 use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
@@ -231,10 +231,11 @@ impl<'d, T: Instance> Lcd<'d, T> {
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
-        vlcd_pin.set_as_af(
-            vlcd_pin.af_num(),
-            AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
-        );
+        set_as_af!(
+            vlcd_pin,
+            AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh)
+        )
+        .persist();
 
         assert_eq!(
             pins.iter().filter(|pin| !pin.is_seg).count(),
@@ -244,7 +245,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         // Set the pins
         for pin in pins.iter_mut() {
-            pin.pin.pin.set_as_af(
+            pin.pin.set_as_af(
                 pin.af_num,
                 AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
             );

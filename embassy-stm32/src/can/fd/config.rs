@@ -20,29 +20,40 @@ pub struct NominalBitTiming {
     /// Value by which the oscillator frequency is divided for generating the bit time quanta. The bit
     /// time is built up from a multiple of this quanta. Valid values are 1 to 512.
     pub prescaler: NonZeroU16,
-    /// Valid values are 1 to 128.
+    /// Valid values are 1 to 255. `NTSEG1` holds one less than this, and the register field is 8 bits.
     pub seg1: NonZeroU8,
-    /// Valid values are 1 to 255.
+    /// Valid values are 1 to 128.
     pub seg2: NonZeroU8,
     /// Valid values are 1 to 128.
     pub sync_jump_width: NonZeroU8,
 }
 impl NominalBitTiming {
+    /// `NBRP` register value: the prescaler minus one.
     #[inline]
     pub(crate) fn nbrp(&self) -> u16 {
-        u16::from(self.prescaler) & 0x1FF
+        let prescaler = u16::from(self.prescaler);
+        debug_assert!((1..=512).contains(&prescaler));
+        (prescaler - 1) & 0x1FF
     }
+    /// `NTSEG1` register value: `seg1` minus one.
     #[inline]
     pub(crate) fn ntseg1(&self) -> u8 {
-        u8::from(self.seg1)
+        // `NTSEG1` is 8 bits and `seg1` is a `NonZeroU8`, so this always fits the field.
+        u8::from(self.seg1) - 1
     }
+    /// `NTSEG2` register value: `seg2` minus one.
     #[inline]
     pub(crate) fn ntseg2(&self) -> u8 {
-        u8::from(self.seg2) & 0x7F
+        let seg2 = u8::from(self.seg2);
+        debug_assert!((1..=128).contains(&seg2));
+        (seg2 - 1) & 0x7F
     }
+    /// `NSJW` register value: the sync jump width minus one.
     #[inline]
     pub(crate) fn nsjw(&self) -> u8 {
-        u8::from(self.sync_jump_width) & 0x7F
+        let sync_jump_width = u8::from(self.sync_jump_width);
+        debug_assert!((1..=128).contains(&sync_jump_width));
+        (sync_jump_width - 1) & 0x7F
     }
 }
 
@@ -67,13 +78,13 @@ impl Default for NominalBitTiming {
 pub struct DataBitTiming {
     ///  The value by which the oscillator frequency is divided to generate the bit time quanta. The bit
     ///  time is built up from a multiple of this quanta. Valid values for the Baud Rate Prescaler are 1
-    ///  to 31.
+    ///  to 32.
     pub prescaler: NonZeroU16,
-    /// Valid values are 1 to 31.
+    /// Valid values are 1 to 32.
     pub seg1: NonZeroU8,
-    /// Valid values are 1 to 15.
+    /// Valid values are 1 to 16.
     pub seg2: NonZeroU8,
-    /// Must always be smaller than DTSEG2, valid values are 1 to 15.
+    /// Must always be smaller than DTSEG2, valid values are 1 to 16.
     pub sync_jump_width: NonZeroU8,
     /// Transceiver Delay Compensation enabled
     pub transceiver_delay_compensation: bool,
@@ -83,21 +94,33 @@ pub struct DataBitTiming {
     pub tdc_filter_window_length: u8,
 }
 impl DataBitTiming {
+    /// `DBRP` register value: the prescaler minus one.
     #[inline]
     pub(crate) fn dbrp(&self) -> u8 {
-        (u16::from(self.prescaler) & 0x001F) as u8
+        let prescaler = u16::from(self.prescaler);
+        debug_assert!((1..=32).contains(&prescaler));
+        ((prescaler - 1) & 0x001F) as u8
     }
+    /// `DTSEG1` register value: `seg1` minus one.
     #[inline]
     pub(crate) fn dtseg1(&self) -> u8 {
-        u8::from(self.seg1) & 0x1F
+        let seg1 = u8::from(self.seg1);
+        debug_assert!((1..=32).contains(&seg1));
+        (seg1 - 1) & 0x1F
     }
+    /// `DTSEG2` register value: `seg2` minus one.
     #[inline]
     pub(crate) fn dtseg2(&self) -> u8 {
-        u8::from(self.seg2) & 0x0F
+        let seg2 = u8::from(self.seg2);
+        debug_assert!((1..=16).contains(&seg2));
+        (seg2 - 1) & 0x0F
     }
+    /// `DSJW` register value: the sync jump width minus one.
     #[inline]
     pub(crate) fn dsjw(&self) -> u8 {
-        u8::from(self.sync_jump_width) & 0x0F
+        let sync_jump_width = u8::from(self.sync_jump_width);
+        debug_assert!((1..=16).contains(&sync_jump_width));
+        (sync_jump_width - 1) & 0x0F
     }
     #[inline]
     pub(crate) fn tdco(&self) -> u8 {

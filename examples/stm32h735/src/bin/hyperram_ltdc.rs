@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 
 /// Combines the OCTOSPI2 HyperRAM bring-up from `hyperram.rs` with the LTDC display
 /// pipeline from `ltdc.rs`: a full-width **RGB565** double-buffered framebuffer that
@@ -334,6 +333,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul104,     // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div1),
             divq: Some(PllDiv::Div4),
             divr: Some(PllDiv::Div2),
@@ -344,6 +344,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul80,      // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div5),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div2), // pll2_r = 200 MHz
@@ -354,6 +355,7 @@ mod rcc_setup {
             source: PllSource::Hse,
             prediv: PllPreDiv::Div5, // PLL_M
             mul: PllMul::Mul160,     // PLL_N
+            fracn: None,
             divp: Some(PllDiv::Div2),
             divq: Some(PllDiv::Div2),
             divr: Some(PllDiv::Div83),

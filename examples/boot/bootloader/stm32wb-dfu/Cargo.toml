@@ -20,7 +20,7 @@ cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-sing
 embassy-sync = { version = "0.8.0", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
 embassy-usb-dfu = { version = "0.3.0", path = "../../../../embassy-usb-dfu", features = ["dfu"] }
-embassy-usb = { version = "0.6.0", path = "../../../../embassy-usb", default-features = false }
+embassy-usb = { version = "0.6.0", path = "../../../../embassy-usb", default-features = false, features = ["device", "class-dfu"] }
 embassy-futures = { version = "0.1.2", path = "../../../../embassy-futures" }
 
 [features]

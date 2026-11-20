@@ -67,9 +67,10 @@
 //! [MS-GIPUSB]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gipusb/
 
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::class::{ClassError, HostClass};
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 // ── GIP USB interface identifiers ────────────────────────────────────────────
@@ -212,7 +213,7 @@ impl core::error::Error for GipError {}
 // ── Descriptor discovery ─────────────────────────────────────────────────────
 
 /// Information about a GIP data interface found in a configuration descriptor.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GipInterfaceInfo {
     /// Interface number.
@@ -229,6 +230,21 @@ pub struct GipInterfaceInfo {
     pub interrupt_out_mps: u16,
     /// Interrupt OUT polling interval (from endpoint descriptor).
     pub interrupt_out_interval: u8,
+}
+
+/// Matcher for the GIP vendor-specific interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct GipMatcher;
+
+impl ClassMatch for GipMatcher {
+    const NAME: &'static str = "GIP";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(GIP_IFACE_CLASS, GIP_IFACE_SUBCLASS, GIP_IFACE_PROTOCOL));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == GIP_IFACE_CLASS
+            && iface.interface_subclass == GIP_IFACE_SUBCLASS
+            && iface.interface_protocol == GIP_IFACE_PROTOCOL
+    }
 }
 
 /// Locate the GIP data interface in a configuration descriptor.
@@ -255,10 +271,13 @@ pub fn find_gip(config_desc: &[u8]) -> Option<GipInterfaceInfo> {
 
         for ep in iface.iter_endpoints() {
             if ep.transfer_type() == TRANSFER_TYPE_INTERRUPT {
+                if ep.additional_transactions() != 0 {
+                    return None;
+                }
                 if ep.is_in() {
-                    in_ep = Some((ep.endpoint_address, ep.max_packet_size, ep.interval));
+                    in_ep = Some((ep.endpoint_address, ep.packet_size(), ep.interval));
                 } else {
-                    out_ep = Some((ep.endpoint_address, ep.max_packet_size, ep.interval));
+                    out_ep = Some((ep.endpoint_address, ep.packet_size(), ep.interval));
                 }
             }
         }
@@ -506,19 +525,19 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
 
         let info = find_gip(config_desc).ok_or(GipError::NoInterface)?;
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Interrupt,
-            max_packet_size: info.interrupt_in_mps,
-            interval_ms: info.interrupt_in_interval,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.interrupt_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Interrupt,
+            info.interrupt_in_mps,
+            EndpointInterval::from_b_interval(enum_info.speed(), EndpointType::Interrupt, info.interrupt_in_interval),
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Interrupt,
-            max_packet_size: info.interrupt_out_mps,
-            interval_ms: info.interrupt_out_interval,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.interrupt_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Interrupt,
+            info.interrupt_out_mps,
+            EndpointInterval::from_b_interval(enum_info.speed(), EndpointType::Interrupt, info.interrupt_out_interval),
+        );
 
         let device_address = enum_info.device_address;
         let split = enum_info.split();
@@ -731,5 +750,33 @@ impl<'d, A: UsbHostAllocator<'d>, DEV: GipDevice> GipHost<'d, A, DEV> {
         ];
         self.out_ch.request_out(&ack, true).await?;
         Ok(())
+    }
+}
+
+impl From<GipError> for ClassError {
+    fn from(e: GipError) -> Self {
+        match e {
+            GipError::Transfer(e) => Self::Transfer(e),
+            GipError::NoInterface => Self::NoMatch,
+            GipError::NoPipe => Self::NoPipe,
+            GipError::UnsupportedDevice => Self::Unsupported("GIP device"),
+        }
+    }
+}
+
+impl<'d, A, DEV> HostClass<'d, A> for GipHost<'d, A, DEV>
+where
+    A: UsbHostAllocator<'d>,
+    DEV: GipDevice,
+{
+    const NAME: &'static str = "GIP";
+    type Info = GipInterfaceInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_gip(cfg)
+    }
+
+    async fn open(alloc: &A, cfg: &[u8], _info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::try_register(alloc, cfg, enum_info).await.map_err(Into::into)
     }
 }

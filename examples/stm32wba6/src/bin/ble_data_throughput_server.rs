@@ -46,6 +46,7 @@ use embassy_time::Instant;
 use panic_probe as _;
 use stm32wb_hci::aci::AciEvent;
 use stm32wb_hci::aci::att::AttExchangeMtuRespEvent;
+use stm32wb_hci::adv_data::AdvFlags;
 
 bind_interrupts!(struct Irqs {
     RADIO => HighInterruptHandler;
@@ -127,49 +128,61 @@ async fn main(spawner: Spawner) {
 
     // DTS: 1 service + 3 chars + 2 CCCDs + 1 write-without-resp permit = 10 records
     let service_handle = gatt
-        .add_service(Uuid::from_u128_le(DTS_SERVICE_UUID), ServiceType::Primary, 10)
+        .add_service(
+            ble.controller(),
+            Uuid::Uuid128(DTS_SERVICE_UUID),
+            ServiceType::Primary,
+            10,
+        )
+        .await
         .expect("Failed to add DTS service");
 
     // TX: server → client notifications, 244-byte packets
     let tx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(DTS_TX_CHAR_UUID),
+            Uuid::Uuid128(DTS_TX_CHAR_UUID),
             PACKET_SIZE as u16,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             true,
         )
+        .await
         .expect("Failed to add TX characteristic");
 
     // RX: client → server writes (no response), triggers throughput measurement
     let rx_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(DTS_RX_CHAR_UUID),
+            Uuid::Uuid128(DTS_RX_CHAR_UUID),
             PACKET_SIZE as u16,
             CharProperties::WRITE_WITHOUT_RESPONSE,
-            SecurityPermissions::NONE,
-            GattEventMask::ATTRIBUTE_MODIFIED,
+            SecurityPermissions::empty(),
+            GattEventMask::ATTRIBUTE_WRITE,
             0,
             true,
         )
+        .await
         .expect("Failed to add RX characteristic");
 
     // THROUGH: server → client throughput stats, 16 bytes
     let through_char_handle = gatt
         .add_characteristic(
+            ble.controller(),
             service_handle,
-            Uuid::from_u128_le(DTS_THROUGH_CHAR_UUID),
+            Uuid::Uuid128(DTS_THROUGH_CHAR_UUID),
             16,
             CharProperties::NOTIFY,
-            SecurityPermissions::NONE,
+            SecurityPermissions::empty(),
             GattEventMask::empty(),
             0,
             false,
         )
+        .await
         .expect("Failed to add THROUGH characteristic");
 
     info!("Data Transfer Service ready (handle 0x{:04X})", service_handle.0);
@@ -199,8 +212,10 @@ async fn main(spawner: Spawner) {
 
     // ── Advertising ──────────────────────────────────────────────────────────
     let mut adv_data = AdvData::new();
-    adv_data.add_flags(0x06).unwrap();
-    adv_data.add_name("DT_WBA6").unwrap();
+    adv_data = adv_data
+        .flags(AdvFlags::LE_GENERAL_DISCOVERABLE | AdvFlags::BR_EDR_NOT_SUPPORTED)
+        .unwrap();
+    adv_data = adv_data.complete_local_name(b"DT_WBA6").unwrap();
 
     let adv_params = AdvParams {
         interval_min: 0x0050,
@@ -218,7 +233,7 @@ async fn main(spawner: Spawner) {
 
     // ── Main loop ────────────────────────────────────────────────────────────
     // When TX notifications are enabled, notifications are sent in a tight burst.
-    // `gatt.notify()` fails (returns Err) when the stack TX buffer is full; in that
+    // `gatt.notify(ble.controller(), ).await` fails (returns Err) when the stack TX buffer is full; in that
     // case we fall through to `read_event()` and wait for the stack to drain.
     let mut event_buf = EventBuffer::new();
     loop {
@@ -226,7 +241,16 @@ async fn main(spawner: Spawner) {
         if state.tx_notifications_enabled {
             if let Some(conn) = state.conn_handle {
                 state.pkt_buf[..4].copy_from_slice(&state.seq_num.to_le_bytes());
-                match gatt.notify(conn, state.service_handle, state.tx_char_handle, &state.pkt_buf) {
+                match gatt
+                    .notify(
+                        ble.controller(),
+                        conn,
+                        state.service_handle,
+                        state.tx_char_handle,
+                        &state.pkt_buf,
+                    )
+                    .await
+                {
                     Ok(()) => {
                         state.seq_num = state.seq_num.wrapping_add(1);
                         state.tx_bytes += PACKET_SIZE as u32;
@@ -247,7 +271,15 @@ async fn main(spawner: Spawner) {
                             );
                             if state.through_notifications_enabled {
                                 let report = encode_through(state.tx_bytes, state.rx_bytes, elapsed_ms);
-                                let _ = gatt.notify(conn, state.service_handle, state.through_char_handle, &report);
+                                let _ = gatt
+                                    .notify(
+                                        ble.controller(),
+                                        conn,
+                                        state.service_handle,
+                                        state.through_char_handle,
+                                        &report,
+                                    )
+                                    .await;
                             }
                             state.tx_bytes = 0;
                             state.rx_bytes = 0;
@@ -267,7 +299,7 @@ async fn main(spawner: Spawner) {
         let event = ble.read_event(&mut event_buf).await;
 
         // ── GAP events ────────────────────────────────────────────────────────
-        if let Some(gap_event) = ble.process_event(&event) {
+        if let Some(gap_event) = ble.process_event(&event).await {
             match gap_event {
                 GapEvent::Connected(conn) => {
                     info!("Connected: 0x{:04X}", conn.handle.raw());
@@ -281,11 +313,11 @@ async fn main(spawner: Spawner) {
                     state.window_start = None;
 
                     // Request 2M PHY for ~2× throughput improvement
-                    if let Err(e) = ble.command_sender().le_set_phy(handle, 0x00, 0x02, 0x02, 0) {
+                    if let Err(e) = ble.le_set_phy(conn.handle, 0x00, 0x02, 0x02, 0).await {
                         warn!("2M PHY request failed: {:?}", e);
                     }
                     // Request maximum PDU size to minimize header overhead
-                    if let Err(e) = ble.command_sender().le_set_data_length(handle, 251, 2120) {
+                    if let Err(e) = ble.le_set_data_length(conn.handle, 251, 2120).await {
                         warn!("Data length request failed: {:?}", e);
                     }
                 }

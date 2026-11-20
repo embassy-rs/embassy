@@ -31,6 +31,11 @@ cargo run --release --bin neochrom_graphics --no-default-features
   Mexican marigold input (`npu-model/mexican_marigold_96x96.rgb`). The trailing *software*
   epoch blocks (Softmax, Dequantize) that ST's compiler emits are reproduced with
   `embedded-nn` kernels, exposed as `embassy_stm32::npu::epoch` behind the `npu-nn` feature.
+  This model is compiled with `--enable-epoch-controller`. A network compiled without it
+  has no blob: pass the generated `LL_ATON_Start_EpochBlock_*` / `LL_ATON_End_EpochBlock_*`
+  and the epoch's output-engine wait mask to `embassy_stm32::npu::EpochBlock::streaming`,
+  then `Npu::run_network`. The driver waits for those streaming engines; the generated
+  pre-op still programs the units. Do not link ST's `ATON_STD_IRQHandler` alongside it.
 - Full end-to-end inference (weights streamed from external flash, hardware NPU epoch, CPU
   softmax/dequantize/argmax) takes ~320 ms, ~150 ms of which is the NPU epoch itself. Two clock
   configs make that possible: PLL1 at 800 MHz CPU / 200 MHz system bus (same config as

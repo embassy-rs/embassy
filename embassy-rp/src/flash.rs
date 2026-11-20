@@ -127,7 +127,7 @@ impl<'a, 'd, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, 'd, FLASH_SIZE
 
 /// Flash driver.
 pub struct Flash<'d, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<dma::Channel<'d, mode::Async>>,
+    dma: M::IfAsync<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<(&'d mut (), M)>,
 }
 
@@ -268,7 +268,7 @@ impl<'d, const FLASH_SIZE: usize> Flash<'d, Blocking, FLASH_SIZE> {
     /// Create a new flash driver in blocking mode.
     pub fn new_blocking<T: Instance>(_flash: Peri<'d, T>) -> Self {
         Self {
-            dma: None,
+            dma: (),
             phantom: PhantomData,
         }
     }
@@ -282,7 +282,7 @@ impl<'d, const FLASH_SIZE: usize> Flash<'d, Async, FLASH_SIZE> {
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
     ) -> Self {
         Self {
-            dma: Some(dma::Channel::new(dma, irq)),
+            dma: dma::Channel::new(dma, irq),
             phantom: PhantomData,
         }
     }
@@ -332,8 +332,6 @@ impl<'d, const FLASH_SIZE: usize> Flash<'d, Async, FLASH_SIZE> {
         const XIP_AUX_BASE: *const u32 = 0x50500000 as *const _;
         let transfer = unsafe {
             self.dma
-                .as_mut()
-                .unwrap()
                 .read(XIP_AUX_BASE, data, pac::dma::vals::TreqSel::XipStream, false)
         };
 

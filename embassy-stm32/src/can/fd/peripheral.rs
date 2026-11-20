@@ -483,10 +483,10 @@ impl Registers {
     #[inline]
     pub fn set_nominal_bit_timing(&self, btr: NominalBitTiming) {
         self.regs.nbtp().write(|w| {
-            w.set_nbrp(btr.nbrp() - 1);
-            w.set_ntseg1(btr.ntseg1() - 1);
-            w.set_ntseg2(btr.ntseg2() - 1);
-            w.set_nsjw(btr.nsjw() - 1);
+            w.set_nbrp(btr.nbrp());
+            w.set_ntseg1(btr.ntseg1());
+            w.set_ntseg2(btr.ntseg2());
+            w.set_nsjw(btr.nsjw());
         });
     }
 
@@ -495,10 +495,10 @@ impl Registers {
     #[inline]
     pub fn set_data_bit_timing(&self, btr: DataBitTiming) {
         self.regs.dbtp().write(|w| {
-            w.set_dbrp(btr.dbrp() - 1);
-            w.set_dtseg1(btr.dtseg1() - 1);
-            w.set_dtseg2(btr.dtseg2() - 1);
-            w.set_dsjw(btr.dsjw() - 1);
+            w.set_dbrp(btr.dbrp());
+            w.set_dtseg1(btr.dtseg1());
+            w.set_dtseg2(btr.dtseg2());
+            w.set_dsjw(btr.dsjw());
             w.set_tdc(btr.transceiver_delay_compensation);
         });
     }

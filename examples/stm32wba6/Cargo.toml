@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "usb-host", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith", "embassy-crypto-aes128-cmac", "embassy-crypto-rng"]  }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32wba65ri", "time-driver-any", "memory-x", "usb-host", "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-ccm", "embassy-crypto-p256-arith", "embassy-crypto-aes128-cmac", "embassy-crypto-rng"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri"], optional = true }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -31,7 +31,7 @@ bt-hci = { version = "0.11.0", optional = true }
 [features]
 default = ["ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-mac"]
-ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci", "dep:stm32wb-hci", "dep:bt-hci", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
+ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci", "embassy-stm32-wpan/direct", "dep:stm32wb-hci", "dep:bt-hci", "embassy-stm32-wpan/ble-stack-full", "embassy-stm32-wpan/linklayer6-ble-full"]
 
 [profile.release]
 debug = 2
@@ -109,6 +109,9 @@ name = "usb_host_serial"
 
 [[bin]]
 name = "usb_host_hid"
+
+[[bin]]
+name = "usb_host_vcp"
 
 [package.metadata.embassy]
 build = [

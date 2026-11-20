@@ -1,5 +1,5 @@
 //! RTC driver.
-mod conversions;
+mod datetime;
 mod filter;
 
 use core::future::poll_fn;
@@ -9,9 +9,11 @@ use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
+pub use self::datetime::RawDateTime;
+#[cfg(feature = "jiff")]
+pub use self::datetime::{InvalidDateTimeError, OutOfRangeError};
 pub use self::filter::DateTimeFilter;
 use crate::clocks::clk_rtc_freq;
-pub use crate::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{self, InterruptExt};
 
@@ -26,11 +28,7 @@ pub struct Rtc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Rtc<'d, T> {
-    /// Create a new instance of the real time clock, with the given date as an initial value.
-    ///
-    /// # Errors
-    ///
-    /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
+    /// Create a new instance of the real time clock.
     pub fn new(inner: Peri<'d, T>, _irq: impl Binding<interrupt::typelevel::RTC_IRQ, InterruptHandler>) -> Self {
         // Set the RTC divider
         inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
@@ -52,49 +50,30 @@ impl<'d, T: Instance> Rtc<'d, T> {
         });
     }
 
-    /// Set the time from internal format
-    pub fn restore(&mut self, ymd: rp_pac::rtc::regs::Rtc1, hms: rp_pac::rtc::regs::Rtc0) {
-        // disable RTC while we configure it
-        self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
-        while self.inner.regs().ctrl().read().rtc_active() {
-            core::hint::spin_loop();
-        }
-
-        self.inner.regs().setup_0().write(|w| {
-            *w = rp_pac::rtc::regs::Setup0(ymd.0);
-        });
-        self.inner.regs().setup_1().write(|w| {
-            *w = rp_pac::rtc::regs::Setup1(hms.0);
-        });
-
-        // Load the new datetime and re-enable RTC
-        self.inner.regs().ctrl().write(|w| w.set_load(true));
-        self.inner.regs().ctrl().write(|w| w.set_rtc_enable(true));
-        while !self.inner.regs().ctrl().read().rtc_active() {
-            core::hint::spin_loop();
-        }
-    }
-
-    /// Get the time in internal format
-    pub fn save(&mut self) -> (rp_pac::rtc::regs::Rtc1, rp_pac::rtc::regs::Rtc0) {
-        let rtc_0: rp_pac::rtc::regs::Rtc0 = self.inner.regs().rtc_0().read();
-        let rtc_1 = self.inner.regs().rtc_1().read();
-        (rtc_1, rtc_0)
-    }
-
     /// Checks to see if this Rtc is running
     pub fn is_running(&self) -> bool {
         self.inner.regs().ctrl().read().rtc_active()
     }
 
-    /// Set the datetime to a new value.
+    /// Set the date and time.
+    ///
+    /// Writes a dummy day of week (Sunday) to the RTC, which [`read`](Self::read) ignores. Use
+    /// [`set_raw`](Self::set_raw) if you need the hardware day of week, e.g. for alarms that
+    /// match on it.
     ///
     /// # Errors
     ///
-    /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        conversions::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
+    /// Returns [`OutOfRangeError`] if the year is not in `0..=4095`.
+    #[cfg(feature = "jiff")]
+    pub fn set(&mut self, t: jiff::civil::DateTime) -> Result<(), OutOfRangeError> {
+        self.set_raw(datetime::from_jiff(t)?);
+        Ok(())
+    }
 
+    /// Write raw values to the RTC calendar registers, and start the RTC.
+    ///
+    /// See [`RawDateTime`]: the values are not validated.
+    pub fn set_raw(&mut self, t: RawDateTime) {
         // disable RTC while we configure it
         self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
         while self.inner.regs().ctrl().read().rtc_active() {
@@ -102,10 +81,15 @@ impl<'d, T: Instance> Rtc<'d, T> {
         }
 
         self.inner.regs().setup_0().write(|w| {
-            conversions::write_setup_0(&t, w);
+            w.set_year(t.year);
+            w.set_month(t.month);
+            w.set_day(t.day);
         });
         self.inner.regs().setup_1().write(|w| {
-            conversions::write_setup_1(&t, w);
+            w.set_dotw(t.day_of_week);
+            w.set_hour(t.hour);
+            w.set_min(t.minute);
+            w.set_sec(t.second);
         });
 
         // Load the new datetime and re-enable RTC
@@ -114,23 +98,38 @@ impl<'d, T: Instance> Rtc<'d, T> {
         while !self.inner.regs().ctrl().read().rtc_active() {
             core::hint::spin_loop();
         }
-        Ok(())
     }
 
-    /// Return the current datetime.
+    /// Read the current date and time.
+    ///
+    /// Ignores the day of week stored in the RTC.
     ///
     /// # Errors
     ///
-    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
-    pub fn now(&self) -> Result<DateTime, RtcError> {
-        if !self.is_running() {
-            return Err(RtcError::NotRunning);
-        }
+    /// Returns [`InvalidDateTimeError`] if the RTC holds a date and time that does not exist, such as
+    /// February 29 of 2100 (see [`set_leap_year_check`](Self::set_leap_year_check)), or the
+    /// registers of an RTC that was never set.
+    #[cfg(feature = "jiff")]
+    pub fn read(&self) -> Result<jiff::civil::DateTime, InvalidDateTimeError> {
+        datetime::to_jiff(self.read_raw())
+    }
 
+    /// Read the raw contents of the RTC calendar registers.
+    ///
+    /// See [`RawDateTime`]: the values are not validated.
+    pub fn read_raw(&self) -> RawDateTime {
+        // Reading RTC_0 latches RTC_1, so it must be read first.
         let rtc_0 = self.inner.regs().rtc_0().read();
         let rtc_1 = self.inner.regs().rtc_1().read();
-
-        conversions::datetime_from_registers(rtc_0, rtc_1).map_err(RtcError::InvalidDateTime)
+        RawDateTime {
+            year: rtc_1.year(),
+            month: rtc_1.month(),
+            day: rtc_1.day(),
+            day_of_week: rtc_0.dotw(),
+            hour: rtc_0.hour(),
+            minute: rtc_0.min(),
+            second: rtc_0.sec(),
+        }
     }
 
     /// Disable the alarm that was scheduled with [`schedule_alarm`].
@@ -148,18 +147,13 @@ impl<'d, T: Instance> Rtc<'d, T> {
     ///
     /// Keep in mind that the filter only triggers on the specified time. If you want to schedule this alarm every minute, you have to call:
     /// ```no_run
-    /// # #[cfg(feature = "chrono")]
-    /// # fn main() { }
-    /// # #[cfg(not(feature = "chrono"))]
-    /// # fn main() {
     /// # use embassy_rp::rtc::{Rtc, DateTimeFilter};
     /// # let mut real_time_clock: Rtc<embassy_rp::peripherals::RTC> = unsafe { core::mem::zeroed() };
-    /// let now = real_time_clock.now().unwrap();
+    /// let now = real_time_clock.read_raw();
     /// real_time_clock.schedule_alarm(
     ///     DateTimeFilter::default()
     ///         .minute(if now.minute == 59 { 0 } else { now.minute + 1 })
     /// );
-    /// # }
     /// ```
     pub fn schedule_alarm(&mut self, filter: DateTimeFilter) {
         self.disable_alarm();
@@ -218,11 +212,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
         }
 
         if irq_1.dotw_ena() {
-            // Convert day of week value to DayOfWeek enum
-            let Ok(day_of_week) = conversions::day_of_week_from_u8(irq_1.dotw()) else {
-                return None; // Invalid day of week
-            };
-            filter.day_of_week = Some(day_of_week);
+            filter.day_of_week = Some(irq_1.dotw());
         }
 
         if irq_1.hour_ena() {
@@ -284,17 +274,6 @@ impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC_IRQ> 
         ALARM_OCCURRED.store(true, Ordering::SeqCst);
         WAKER.wake();
     }
-}
-
-/// Errors that can occur on methods on [Rtc]
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RtcError {
-    /// An invalid DateTime was given or stored on the hardware.
-    InvalidDateTime(DateTimeError),
-
-    /// The RTC clock is not running
-    NotRunning,
 }
 
 trait SealedInstance {

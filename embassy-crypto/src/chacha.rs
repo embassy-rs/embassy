@@ -144,26 +144,38 @@ macro_rules! impl_aead {
 
 impl_stream!(
     /// ChaCha8: ChaCha with 8 rounds.
-    ChaCha8, ChaCha8Impl, ChaCha8ImplContext
+    ChaCha8,
+    ChaCha8Impl,
+    ChaCha8ImplContext
 );
 impl_stream!(
     /// ChaCha12: ChaCha with 12 rounds.
-    ChaCha12, ChaCha12Impl, ChaCha12ImplContext
+    ChaCha12,
+    ChaCha12Impl,
+    ChaCha12ImplContext
 );
 impl_stream!(
     /// ChaCha20 (RFC 8439).
-    ChaCha20, ChaCha20Impl, ChaCha20ImplContext
+    ChaCha20,
+    ChaCha20Impl,
+    ChaCha20ImplContext
 );
 
 impl_aead!(
     /// ChaCha8-Poly1305: ChaCha20-Poly1305 with the 8-round ChaCha8 in place of ChaCha20.
-    ChaCha8Poly1305, ChaCha8Poly1305Impl, ChaCha8Poly1305ImplContext
+    ChaCha8Poly1305,
+    ChaCha8Poly1305Impl,
+    ChaCha8Poly1305ImplContext
 );
 impl_aead!(
     /// ChaCha12-Poly1305: ChaCha20-Poly1305 with the 12-round ChaCha12 in place of ChaCha20.
-    ChaCha12Poly1305, ChaCha12Poly1305Impl, ChaCha12Poly1305ImplContext
+    ChaCha12Poly1305,
+    ChaCha12Poly1305Impl,
+    ChaCha12Poly1305ImplContext
 );
 impl_aead!(
     /// ChaCha20-Poly1305 (RFC 8439).
-    ChaCha20Poly1305, ChaCha20Poly1305Impl, ChaCha20Poly1305ImplContext
+    ChaCha20Poly1305,
+    ChaCha20Poly1305Impl,
+    ChaCha20Poly1305ImplContext
 );

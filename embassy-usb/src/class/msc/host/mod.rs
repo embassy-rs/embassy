@@ -39,13 +39,14 @@ use core::ops::Range;
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, RawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, pipe};
-use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
 use super::bot::CBW_FLAG_IN;
 use super::scsi::*;
 pub use super::{SenseData, SenseKey};
 use super::{USB_CLASS_MSC, USB_PROTOCOL_BULK_ONLY, USB_SUBCLASS_SCSI_TRANSPARENT};
-use crate::host::descriptor::ConfigurationDescriptorChain;
+use crate::host::class::{ClassError, HostClass};
+use crate::host::descriptor::{ClassCode, ClassMatch, ConfigurationDescriptorChain, InterfaceDescriptor};
 use crate::host::handler::EnumerationInfo;
 
 mod lun;
@@ -255,6 +256,25 @@ pub struct MscInfo {
     pub bulk_out_mps: u16,
 }
 
+/// Matcher for the SCSI transparent / Bulk-Only Transport interface.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct MscMatcher;
+
+impl ClassMatch for MscMatcher {
+    const NAME: &'static str = "MSC";
+    const CODE: Option<ClassCode> = Some(ClassCode::new(
+        USB_CLASS_MSC,
+        USB_SUBCLASS_SCSI_TRANSPARENT,
+        USB_PROTOCOL_BULK_ONLY,
+    ));
+
+    fn matches(iface: &InterfaceDescriptor) -> bool {
+        iface.interface_class == USB_CLASS_MSC
+            && iface.interface_subclass == USB_SUBCLASS_SCSI_TRANSPARENT
+            && iface.interface_protocol == USB_PROTOCOL_BULK_ONLY
+    }
+}
+
 /// Locate the first SCSI/BBB interface in `config_desc`.
 pub fn find_msc(config_desc: &[u8]) -> Option<MscInfo> {
     let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
@@ -275,9 +295,9 @@ pub fn find_msc(config_desc: &[u8]) -> Option<MscInfo> {
                 continue;
             }
             if ep.is_in() {
-                in_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                in_ep = Some((ep.endpoint_address, ep.packet_size()));
             } else {
-                out_ep = Some((ep.endpoint_address, ep.max_packet_size));
+                out_ep = Some((ep.endpoint_address, ep.packet_size()));
             }
         }
 
@@ -355,26 +375,26 @@ where
     ) -> Result<Self, MscError> {
         let info = find_msc(config_desc).ok_or(MscError::NoInterface)?;
 
-        let ctrl_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts(0, UsbDirection::In),
-            ep_type: EndpointType::Control,
-            max_packet_size: enum_info.device_desc.max_packet_size0 as u16,
-            interval_ms: 0,
-        };
+        let ctrl_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts(0, UsbDirection::In),
+            EndpointType::Control,
+            enum_info.device_desc.max_packet_size0 as u16,
+            EndpointInterval::NONE,
+        );
 
-        let in_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_in_mps,
-            interval_ms: 0,
-        };
+        let in_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_in_ep & 0x0F) as usize, UsbDirection::In),
+            EndpointType::Bulk,
+            info.bulk_in_mps,
+            EndpointInterval::NONE,
+        );
 
-        let out_ep_info = EndpointInfo {
-            addr: EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
-            ep_type: EndpointType::Bulk,
-            max_packet_size: info.bulk_out_mps,
-            interval_ms: 0,
-        };
+        let out_ep_info = EndpointInfo::new(
+            EndpointAddress::from_parts((info.bulk_out_ep & 0x0F) as usize, UsbDirection::Out),
+            EndpointType::Bulk,
+            info.bulk_out_mps,
+            EndpointInterval::NONE,
+        );
 
         let device_address = enum_info.device_address;
         let split: Option<SplitInfo> = enum_info.split();
@@ -391,7 +411,9 @@ where
 
         let max_lun = get_max_lun(&mut ctrl, info.interface).await?;
 
-        let device = Self {
+        // No Bulk-Only Reset here: the port reset done during enumeration already
+        // reset the device, and some devices drop the first CBW after one.
+        Ok(Self {
             transport: Mutex::new(Transport {
                 ctrl,
                 bulk_in,
@@ -406,17 +428,7 @@ where
             interface: info.interface,
             max_lun,
             _phantom: PhantomData,
-        };
-
-        // Put the BBB transport into a known-clean state before any real
-        // command. Best-effort: a few devices stall Bulk-Only Reset — that's
-        // fine, the state they care about is whatever they reset during
-        // enumeration.
-        if let Err(e) = device.reset().await {
-            debug!("MSC: initial Bulk-Only Reset failed ({:?}); continuing anyway", e);
-        }
-
-        Ok(device)
+        })
     }
 
     /// USB interface number this device is bound to.
@@ -485,6 +497,31 @@ where
         t.mass_storage_reset().await?;
         t.dirty = false;
         Ok(())
+    }
+}
+
+impl From<MscError> for ClassError {
+    fn from(e: MscError) -> Self {
+        match e {
+            MscError::Transfer(e) => Self::Transfer(e),
+            MscError::NoInterface => Self::NoMatch,
+            MscError::NoPipe => Self::NoPipe,
+            MscError::InvalidResponse => Self::InvalidResponse,
+            _ => Self::Unsupported("MSC error"),
+        }
+    }
+}
+
+impl<'d, A: UsbHostAllocator<'d>> HostClass<'d, A> for MscDevice<'d, A> {
+    const NAME: &'static str = "MSC";
+    type Info = MscInfo;
+
+    fn probe(_enum_info: &EnumerationInfo, cfg: &[u8]) -> Option<Self::Info> {
+        find_msc(cfg)
+    }
+
+    async fn open(alloc: &A, cfg: &[u8], _info: Self::Info, enum_info: &EnumerationInfo) -> Result<Self, ClassError> {
+        Self::new(alloc, enum_info, cfg).await.map_err(Into::into)
     }
 }
 

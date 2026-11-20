@@ -14,8 +14,8 @@ use crate::pac::mrcc::FlexspiClkselMux;
 #[cfg(feature = "_mcxa5xx")]
 use crate::pac::mrcc::WwdtClkselMux;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux,
-    FlexcanClkselMux, Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, CtimerClkselMux, FlexcanClkselMux, LpuartClkselMux, OstimerClkselMux, RrClkselMux as DacClkselMux,
+    RrClkselMux as FclkClkselMux, RrClkselMux as Lpi2cClkselMux, RrClkselMux as LpspiClkselMux,
 };
 
 #[must_use]
@@ -95,15 +95,15 @@ macro_rules! apply_div4_no_sel {
         // Set up clkdiv
         $divreg.modify(|w| {
             w.set_div($conf.div.into_bits());
-            w.set_halt(ClkdivHalt::Off);
-            w.set_reset(ClkdivReset::Off);
+            w.set_halt(true);
+            w.set_reset(true);
         });
         $divreg.modify(|w| {
-            w.set_halt(ClkdivHalt::On);
-            w.set_reset(ClkdivReset::On);
+            w.set_halt(false);
+            w.set_reset(false);
         });
 
-        while $divreg.read().unstab() == ClkdivUnstab::Off {}
+        while $divreg.read().unstab() {}
 
         Ok(PreEnableParts {
             freq: $freq / $conf.div.into_divisor(),
@@ -236,6 +236,54 @@ impl SPConfHelper for Clk1MConfig {
         Ok(PreEnableParts {
             freq: 1_000_000,
             wake_guard: None,
+        })
+    }
+}
+
+//
+// CMP
+//
+
+/// Comparator instance; its FRO16K input belongs to a chip-specific domain.
+#[derive(Debug, Copy, Clone)]
+pub enum CmpInstance {
+    /// CMP0 uses the VSYS FRO16K output.
+    Cmp0,
+    /// CMP1 uses the VDD_CORE FRO16K output on A2 devices.
+    #[cfg(feature = "_mcxa2xx")]
+    Cmp1,
+}
+
+/// Comparator clock validation. Only FRO16K filtering is currently supported.
+pub struct CmpConfig {
+    /// Comparator whose clock domain is checked.
+    pub instance: CmpInstance,
+    /// Whether the digital filter needs a functional clock.
+    pub filtered: bool,
+}
+
+impl SPConfHelper for CmpConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let freq = if self.filtered {
+            let power = PoweredClock::NormalEnabledDeepSleepDisabled;
+            match self.instance {
+                CmpInstance::Cmp0 => clocks.ensure_clk_16k_vsys_active(&power)?,
+                #[cfg(feature = "_mcxa2xx")]
+                CmpInstance::Cmp1 => clocks.ensure_clk_16k_vdd_core_active(&power)?,
+            }
+        } else {
+            0 // The continuous, unfiltered signal path is unclocked.
+        };
+        if self.filtered && freq == 0 {
+            return Err(ClockError::BadConfig {
+                clock: "cmp filter",
+                reason: "FRO16K functional clock is not running",
+            });
+        }
+        Ok(PreEnableParts {
+            freq,
+            // This first driver does not implement deep-sleep/wakeup sequencing.
+            wake_guard: Some(WakeGuard::new()),
         })
     }
 }
@@ -617,8 +665,8 @@ impl SPConfHelper for DacConfig {
                 // HALT=1 stops the divider, RESET=1 holds it in reset, matching
                 // the CLKDIV reset value of 0x4000_0000.
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::Off);
-                    w.set_halt(ClkdivHalt::Off);
+                    w.set_reset(true);
+                    w.set_halt(true);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -758,8 +806,8 @@ impl SPConfHelper for AdcConfig {
                     w.set_mux(AdcClkselMux::_RESERVED_7)
                 });
                 mrcc0.mrcc_adc_clkdiv().modify(|w| {
-                    w.set_reset(ClkdivReset::On);
-                    w.set_halt(ClkdivHalt::On);
+                    w.set_reset(false);
+                    w.set_halt(false);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -837,7 +885,7 @@ pub(crate) struct LptmrConfig {
 
 impl SPConfHelper for LptmrConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        use crate::pac::mrcc::LptmrClkselMux;
+        use crate::pac::mrcc::RrClkselMux as LptmrClkselMux;
 
         let freq = match self.source {
             LptmrClockSel::Clk16K => {
@@ -905,15 +953,15 @@ impl SPConfHelper for LptmrConfig {
         let clkdiv = crate::pac::MRCC0.mrcc_lptmr0_clkdiv();
         clksel.write(|w| w.set_mux(LptmrClkselMux::from_bits(bits)));
         clkdiv.modify(|w| {
-            w.set_halt(ClkdivHalt::Off);
-            w.set_reset(ClkdivReset::Off);
+            w.set_halt(true);
+            w.set_reset(true);
         });
         clkdiv.write(|w| {
             w.set_div(self.div.into_bits());
-            w.set_halt(ClkdivHalt::On);
-            w.set_reset(ClkdivReset::On);
+            w.set_halt(false);
+            w.set_reset(false);
         });
-        while clkdiv.read().unstab() == ClkdivUnstab::Off {}
+        while clkdiv.read().unstab() {}
         Ok(PreEnableParts {
             freq: counter,
             wake_guard: WakeGuard::for_power(&self.power),
@@ -1125,8 +1173,8 @@ impl SPConfHelper for LpspiConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::Off);
-                    w.set_halt(ClkdivHalt::Off);
+                    w.set_reset(true);
+                    w.set_halt(true);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -1379,8 +1427,8 @@ impl SPConfHelper for I3cConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::Off);
-                    w.set_halt(ClkdivHalt::Off);
+                    w.set_reset(true);
+                    w.set_halt(true);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -1516,8 +1564,8 @@ impl SPConfHelper for Lpi2cConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.0 = 0b111);
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::Off);
-                    w.set_halt(ClkdivHalt::Off);
+                    w.set_reset(true);
+                    w.set_halt(true);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -1696,8 +1744,8 @@ impl SPConfHelper for LpuartConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.set_mux(LpuartClkselMux::_RESERVED_7));
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::On);
-                    w.set_halt(ClkdivHalt::On);
+                    w.set_reset(false);
+                    w.set_halt(false);
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -1875,8 +1923,8 @@ impl SPConfHelper for CTimerConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.set_mux(CtimerClkselMux::_RESERVED_7));
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::On);
-                    w.set_halt(ClkdivHalt::On)
+                    w.set_reset(false);
+                    w.set_halt(false)
                 });
                 return Ok(PreEnableParts::empty());
             }
@@ -2011,8 +2059,8 @@ impl SPConfHelper for CanConfig {
             CanClockSel::None => {
                 clksel.write(|w| w.set_mux(FlexcanClkselMux::_RESERVED_7));
                 clkdiv.modify(|w| {
-                    w.set_reset(ClkdivReset::On);
-                    w.set_halt(ClkdivHalt::On);
+                    w.set_reset(false);
+                    w.set_halt(false);
                 });
                 return Ok(PreEnableParts::empty());
             }

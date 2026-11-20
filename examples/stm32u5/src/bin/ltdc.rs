@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![macro_use]
 #![allow(static_mut_refs)]
 
 /// This example was derived from examples\stm32h735\src\bin\ltdc.rs
@@ -332,6 +331,7 @@ mod rcc_setup {
             source: rcc::PllSource::Hse,
             prediv: rcc::PllPreDiv::Div1,
             mul: rcc::PllMul::Mul10,
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(rcc::PllDiv::Div1),
@@ -341,6 +341,7 @@ mod rcc_setup {
             source: rcc::PllSource::Hse,
             prediv: rcc::PllPreDiv::Div4, // PLL_M
             mul: rcc::PllMul::Mul125,     // PLL_N
+            fracn: None,
             divp: None,
             divq: None,
             divr: Some(rcc::PllDiv::Div20),

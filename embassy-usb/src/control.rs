@@ -93,6 +93,12 @@ impl Request {
     /// Standard USB control request Synch Frame
     pub const SYNCH_FRAME: u8 = 12;
 
+    /// Standard USB 3.x control request Set SEL (System Exit Latency)
+    pub const SET_SEL: u8 = 48;
+
+    /// Standard USB 3.x control request Set Isochronous Delay
+    pub const SET_ISOCH_DELAY: u8 = 49;
+
     /// Standard USB feature Endpoint Halt for Set/Clear Feature
     pub const FEATURE_ENDPOINT_HALT: u16 = 0;
 
@@ -104,6 +110,15 @@ impl Request {
 
     /// Standard USB feature Device Debug Mode for Set Feature
     pub const FEATURE_DEVICE_DEBUG_MODE: u16 = 6;
+
+    /// Standard USB 3.x feature Device U1 Enable for Set/Clear Feature
+    pub const FEATURE_DEVICE_U1_ENABLE: u16 = 48;
+
+    /// Standard USB 3.x feature Device U2 Enable for Set/Clear Feature
+    pub const FEATURE_DEVICE_U2_ENABLE: u16 = 49;
+
+    /// Standard USB 3.x feature Device LTM (Latency Tolerance Messaging) Enable for Set/Clear Feature
+    pub const FEATURE_DEVICE_LTM_ENABLE: u16 = 50;
 
     /// Parses a USB control request from a byte array.
     pub fn parse(buf: &[u8; 8]) -> Request {

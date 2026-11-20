@@ -5,29 +5,20 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
-impl super::Rtc {
-    /// Applies the RTC config
-    /// It this changes the RTC clock source the time will be reset
+impl super::Rtc<'_> {
+    /// Applies the RTC config.
+    ///
+    /// The date and time are kept. If the hour format or the prescalers have to change, the RTC
+    /// enters init mode to write them, which restarts the current second: the fraction of it
+    /// that already elapsed is lost. If they already hold the requested values, the calendar
+    /// keeps running undisturbed.
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
-        let prer = RTC::regs().prer().read();
-        if prer.prediv_s() == sync_psc
-            && prer.prediv_a() == async_psc
-            && RTC::regs().cr().read().fmt() == Fmt::TwentyFourHour
-            && RTC::regs().icsr().read().inits()
-        {
-            return;
-        }
-        self.write(true, |rtc| {
+        // These bits can be written while the calendar is running.
+        self.write(false, |rtc| {
             rtc.cr().modify(|w| {
                 w.set_bypshad(true);
-                w.set_fmt(Fmt::TwentyFourHour);
                 w.set_osel(Osel::Disabled);
                 w.set_pol(Pol::High);
-            });
-
-            rtc.prer().modify(|w| {
-                w.set_prediv_s(sync_psc);
-                w.set_prediv_a(async_psc);
             });
 
             // TODO: configuration for output pins
@@ -35,6 +26,27 @@ impl super::Rtc {
                 w.set_out2en(false);
                 w.set_tampalrm_type(TampalrmType::PushPull);
                 w.set_tampalrm_pu(false);
+            });
+        });
+
+        // The hour format and the prescalers can only be written in init mode. Leaving init mode
+        // restarts the prescaler counters, which loses the elapsed fraction of the current second,
+        // so only enter it if these values have to change. This does not depend on INITS: a
+        // calendar that was never set (year 0) is running too.
+        let prer = RTC::regs().prer().read();
+        if prer.prediv_s() == sync_psc
+            && prer.prediv_a() == async_psc
+            && RTC::regs().cr().read().fmt() == Fmt::TwentyFourHour
+        {
+            return;
+        }
+
+        self.write(true, |rtc| {
+            rtc.cr().modify(|w| w.set_fmt(Fmt::TwentyFourHour));
+
+            rtc.prer().modify(|w| {
+                w.set_prediv_s(sync_psc);
+                w.set_prediv_a(async_psc);
             });
         });
     }
@@ -140,11 +152,8 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(feature = "low-power")]
     #[cfg(not(feature = "_lp-time-driver"))]
     cfg_select! {
-        any(stm32g4, stm32wl) => {
+        any(stm32g4, stm32wl, stm32l4) => {
             const EXTI_WAKEUP_LINE: usize = 20;
-        }
-        stm32g0 => {
-            const EXTI_WAKEUP_LINE: usize = 19;
         }
         any(stm32l5, stm32h5) => {
             const EXTI_WAKEUP_LINE: usize = 17;
@@ -154,7 +163,7 @@ impl SealedInstance for crate::peripherals::RTC {
 
     #[cfg(feature = "low-power")]
     cfg_select! {
-        any(stm32g4, stm32wl) => {
+        any(stm32g4, stm32wl, stm32l4) => {
             #[cfg(not(feature = "_core-cm0p"))]
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
             #[cfg(feature = "_core-cm0p")]

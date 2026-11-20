@@ -25,8 +25,7 @@
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
 
-use core::mem;
-use core::mem::MaybeUninit;
+use core::mem::DropGuard;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
@@ -73,7 +72,7 @@ where
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-        let cs_drop = OnDrop::new(|| {
+        let cs_drop = DropGuard::new((), |()| {
             // This drop guard deasserts CS pin if the async operation is cancelled.
             // Errors are ignored in this drop handler, as there's nothing we can do about them.
             // If the async operation is completed without cancellation, this handler will not
@@ -109,9 +108,9 @@ where
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
 
-        // Now that all the async operations are done, we defuse the CS guard,
+        // Now that all the async operations are done, we dismiss the CS guard,
         // and manually set the CS pin low (to better handle the possible errors).
-        cs_drop.defuse();
+        DropGuard::dismiss(cs_drop);
         let cs_res = self.cs.set_high();
 
         op_res.map_err(SpiDeviceError::Spi)?;
@@ -170,7 +169,7 @@ where
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-        let cs_drop = OnDrop::new(|| {
+        let cs_drop = DropGuard::new((), |()| {
             // Please see comment in SpiDevice for an explanation of this drop handler.
             let _ = self.cs.set_high();
         });
@@ -202,7 +201,7 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
-        cs_drop.defuse();
+        DropGuard::dismiss(cs_drop);
         let cs_res = self.cs.set_high();
 
         op_res.map_err(SpiDeviceError::Spi)?;
@@ -210,29 +209,5 @@ where
         cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(())
-    }
-}
-
-/// A type to delay the drop handler invocation.
-#[must_use = "to delay the drop handler invocation to the end of the scope"]
-struct OnDrop<F: FnOnce()> {
-    f: MaybeUninit<F>,
-}
-
-impl<F: FnOnce()> OnDrop<F> {
-    /// Create a new instance.
-    pub fn new(f: F) -> Self {
-        Self { f: MaybeUninit::new(f) }
-    }
-
-    /// Prevent drop handler from running.
-    pub fn defuse(self) {
-        mem::forget(self)
-    }
-}
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        unsafe { self.f.as_ptr().read()() }
     }
 }

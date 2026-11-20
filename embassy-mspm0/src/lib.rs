@@ -37,7 +37,15 @@ pub mod wwdt;
 
 /// Operating modes for peripherals.
 pub mod mode {
-    trait SealedMode {}
+    pub(crate) trait SealedMode {
+        /// `T` in blocking mode, `()` in async mode.
+        #[allow(dead_code)]
+        type IfBlocking<T>;
+
+        /// `T` in async mode, `()` in blocking mode.
+        #[allow(dead_code)]
+        type IfAsync<T>;
+    }
 
     /// Operating mode for a peripheral.
     #[allow(private_bounds)]
@@ -45,12 +53,18 @@ pub mod mode {
 
     /// Blocking mode.
     pub struct Blocking;
-    impl SealedMode for Blocking {}
+    impl SealedMode for Blocking {
+        type IfBlocking<T> = T;
+        type IfAsync<T> = ();
+    }
     impl Mode for Blocking {}
 
     /// Async mode.
     pub struct Async;
-    impl SealedMode for Async {}
+    impl SealedMode for Async {
+        type IfBlocking<T> = ();
+        type IfAsync<T> = T;
+    }
     impl Mode for Async {}
 }
 
@@ -66,8 +80,6 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-// Reexports
-pub(crate) use _generated::gpio_pincm;
 pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
@@ -245,117 +257,5 @@ impl Iterator for BitIter {
                 Some(b)
             }
         }
-    }
-}
-
-/// Reset cause values from SYSCTL.RSTCAUSE register.
-/// Based on MSPM0 L-series Technical Reference Manual Table 2-9 and
-/// MSPM0 G-series Technical Reference Manual Table 2-12.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ResetCause {
-    /// No reset since last read
-    NoReset,
-    /// VDD < POR- violation, PMU trim parity fault, or SHUTDNSTOREx parity fault
-    PorHwFailure,
-    /// NRST pin reset (>1s)
-    PorExternalNrst,
-    /// Software-triggered POR
-    PorSwTriggered,
-    /// VDD < BOR- violation
-    BorSupplyFailure,
-    /// Wake from SHUTDOWN
-    BorWakeFromShutdown,
-    /// Non-PMU trim parity fault
-    #[cfg(not(any(
-        mspm0c110x,
-        mspm0c1105_c1106,
-        mspm0g110x,
-        mspm0g150x,
-        mspm0g151x,
-        mspm0g310x,
-        mspm0g350x,
-        mspm0g351x
-    )))]
-    BootrstNonPmuParityFault,
-    /// Fatal clock fault
-    BootrstClockFault,
-    /// Software-triggered BOOTRST
-    BootrstSwTriggered,
-    /// NRST pin reset (<1s)
-    BootrstExternalNrst,
-    /// WWDT0 violation
-    BootrstWwdt0Violation,
-    /// WWDT1 violation (G-series only)
-    #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
-    SysrstWwdt1Violation,
-    /// BSL exit (if present)
-    SysrstBslExit,
-    /// BSL entry (if present)
-    SysrstBslEntry,
-    /// Uncorrectable flash ECC error (if present)
-    #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
-    SysrstFlashEccError,
-    /// CPU lockup violation
-    SysrstCpuLockupViolation,
-    /// Debug-triggered SYSRST
-    SysrstDebugTriggered,
-    /// Software-triggered SYSRST
-    SysrstSwTriggered,
-    /// Debug-triggered CPURST
-    CpurstDebugTriggered,
-    /// Software-triggered CPURST
-    CpurstSwTriggered,
-}
-
-/// Read the reset cause from the SYSCTL.RSTCAUSE register.
-///
-/// This function reads the reset cause register which indicates why the last
-/// system reset occurred. The register is automatically cleared after being read,
-/// so this should be called only once per application startup.
-///
-/// If the reset cause is not recognized, an `Err` containing the raw value is returned.
-#[must_use = "Reading reset cause will clear it"]
-pub fn read_reset_cause() -> Result<ResetCause, u8> {
-    let cause_raw = pac::SYSCTL.rstcause().read().id();
-
-    use ResetCause::*;
-    use pac::sysctl::vals::Id;
-
-    match cause_raw {
-        Id::Norst => Ok(NoReset),
-        Id::Porhwfail => Ok(PorHwFailure),
-        Id::Porexnrst => Ok(PorExternalNrst),
-        Id::Porsw => Ok(PorSwTriggered),
-        Id::Borsupply => Ok(BorSupplyFailure),
-        Id::Borwakeshutdn => Ok(BorWakeFromShutdown),
-        #[cfg(not(any(
-            mspm0c110x,
-            mspm0c1105_c1106,
-            mspm0g110x,
-            mspm0g150x,
-            mspm0g151x,
-            mspm0g310x,
-            mspm0g350x,
-            mspm0g351x,
-            mspm0g518x,
-        )))]
-        Id::Bootnonpmuparity => Ok(BootrstNonPmuParityFault),
-        Id::Bootclkfail => Ok(BootrstClockFault),
-        Id::Bootsw => Ok(BootrstSwTriggered),
-        Id::Bootexnrst => Ok(BootrstExternalNrst),
-        Id::Bootwwdt0 => Ok(BootrstWwdt0Violation),
-        Id::Sysbslexit => Ok(SysrstBslExit),
-        Id::Sysbslentry => Ok(SysrstBslEntry),
-        #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
-        Id::Syswwdt1 => Ok(SysrstWwdt1Violation),
-        #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
-        Id::Sysflashecc => Ok(SysrstFlashEccError),
-        Id::Syscpulock => Ok(SysrstCpuLockupViolation),
-        Id::Sysdbg => Ok(SysrstDebugTriggered),
-        Id::Syssw => Ok(SysrstSwTriggered),
-        Id::Cpudbg => Ok(CpurstDebugTriggered),
-        Id::Cpusw => Ok(CpurstSwTriggered),
-        other => Err(other as u8),
     }
 }

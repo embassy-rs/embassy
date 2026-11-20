@@ -9,9 +9,6 @@ use super::CLOCKS;
 use super::types::{Clocks, PoweredClock};
 use crate::pac;
 use crate::pac::cmc::Ckmode;
-#[cfg(feature = "_mcxa2xx")]
-use crate::pac::scg::Fircvld;
-use crate::pac::scg::{Sircvld, SpllLock};
 
 /// Attempt to go to deep sleep if possible.
 ///
@@ -127,7 +124,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(fro12m) = clocks.fro_12m_root.as_ref()
         && !matches!(fro12m.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.sirccsr().read().sircvld() != Sircvld::EnabledAndValid {}
+        while !scg.sirccsr().read().sircvld() {}
     }
 
     // Ensure FRO45M is up and running
@@ -135,7 +132,7 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(frohf) = clocks.fro_hf_root.as_ref()
         && !matches!(frohf.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.firccsr().read().fircvld() != Fircvld::EnabledAndValid {}
+        while !scg.firccsr().read().fircvld() {}
     }
 
     // Ensure SOSC is up and running
@@ -150,6 +147,6 @@ unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
     if let Some(spll) = clocks.pll1_clk.as_ref()
         && !matches!(spll.power, PoweredClock::AlwaysEnabled)
     {
-        while scg.spllcsr().read().spll_lock() != SpllLock::EnabledAndValid {}
+        while !scg.spllcsr().read().spll_lock() {}
     }
 }

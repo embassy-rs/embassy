@@ -10,16 +10,15 @@
 //! the future stops the measurement and masks/clears its interrupt source.
 
 use core::marker::PhantomData;
+use core::mem::DropGuard;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy_hal_internal::drop::OnDrop;
 use maitake_sync::WaitCell;
 
 pub use crate::clocks::periph_helpers::FreqmeClockSel as ClockSource;
 use crate::clocks::periph_helpers::{FreqmeConfig, FreqmeTargetClockSel, SPConfHelper};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset, with_clocks};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::freqme::CtrlWMeasureInProgress;
 use crate::{Peri, PeripheralType, interrupt, pac, peripherals};
 
 // Software completion tag; hardware RESULT occupies only the lower 31 bits.
@@ -289,7 +288,7 @@ impl<'d> Freqme<'d, Async> {
     /// Wrap this in a timeout if the input clocks might stop.
     /// Any continuous measurement is stopped before the new one-shot starts.
     pub async fn measure(&mut self) -> Result<Measurement, Error> {
-        let _stop = OnDrop::new(|| self.info.stop());
+        let _stop = DropGuard::new((), |()| self.info.stop());
         self.info
             .start(self.scale, InterruptEnable::Enabled, MeasurementMode::OneShot);
         self.info
@@ -416,7 +415,7 @@ impl Info {
                 w.set_ref_scale(scale.exponent());
                 w.set_result_ready_int_en(interrupt.into());
                 w.set_continuous_mode_en(mode.into());
-                w.set_measure_in_progress(CtrlWMeasureInProgress::from_bits(1));
+                w.set_measure_in_progress(true);
             });
         });
     }

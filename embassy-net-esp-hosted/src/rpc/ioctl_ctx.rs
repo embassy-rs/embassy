@@ -1,3 +1,5 @@
+use core::mem::DropGuard;
+
 use micropb::{MessageDecode, MessageEncode, PbDecoder, PbEncoder};
 
 use crate::MAX_IOCTL_SIZE;
@@ -86,25 +88,11 @@ impl Ioctl<'_> {
         let remaining = encoder.into_writer();
         let req_len = buf_len - remaining.len();
 
-        struct CancelOnDrop<'a>(&'a Shared);
+        let ioctl = DropGuard::new(self.shared, |s| s.ioctl_cancel());
 
-        impl CancelOnDrop<'_> {
-            fn defuse(self) {
-                core::mem::forget(self);
-            }
-        }
+        let resp_len = ioctl.ioctl(self.ioctl_buffer, req_len).await;
 
-        impl Drop for CancelOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.ioctl_cancel();
-            }
-        }
-
-        let ioctl = CancelOnDrop(self.shared);
-
-        let resp_len = ioctl.0.ioctl(self.ioctl_buffer, req_len).await;
-
-        ioctl.defuse();
+        DropGuard::dismiss(ioctl);
 
         let mut decoder = PbDecoder::new(&self.ioctl_buffer[..]);
         // Do not fail if we receive more data than what fits into the statically sized vecs.

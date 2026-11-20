@@ -36,12 +36,15 @@ pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
 impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryPwmPin<'d, T, C, A>) {
     /// Create a new  complementary PWM pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            set_as_af!(pin, AfType::output(output_type, crate::gpio::Speed::VeryHigh));
+        let pin = critical_section::with(|_| {
+            set_as_af!(
+                pin,
+                AfType::output(output_type, crate::gpio::Speed::VeryHigh),
+                Flex::set_low
+            )
         });
         ComplementaryPwmPin {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
@@ -51,18 +54,13 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
         pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>,
         pin_config: PwmPinConfig,
     ) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            #[cfg(gpio_v1)]
-            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
-            #[cfg(gpio_v2)]
-            pin.set_as_af(
-                pin.af_num(),
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
-            );
-        });
+        #[cfg(gpio_v1)]
+        let af_type = AfType::output(pin_config.output_type, pin_config.speed);
+        #[cfg(gpio_v2)]
+        let af_type = AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull);
+        let pin = critical_section::with(|_| set_as_af!(pin, af_type, Flex::set_low));
         ComplementaryPwmPin {
-            pin: Flex::new(pin),
+            pin,
             phantom: PhantomData,
         }
     }
@@ -987,7 +985,7 @@ mod tests {
         for dtg in 0u8..=255u8 {
             let dt = reference_dtg_to_dt(dtg);
             let (ckd, bits) = compute_dead_time_value(dt);
-            assert_eq!(ckd, Ckd::Div1);
+            assert!(ckd == Ckd::Div1);
             assert_eq!(bits, dtg);
         }
     }
@@ -998,7 +996,7 @@ mod tests {
             let dt = reference_dtg_to_dt(dtg);
             if dt * 2 > 1008 {
                 let (ckd, bits) = compute_dead_time_value(dt * 2);
-                assert_eq!(ckd, Ckd::Div2);
+                assert!(ckd == Ckd::Div2);
                 assert_eq!(bits, dtg);
             }
         }
@@ -1010,7 +1008,7 @@ mod tests {
             let dt = reference_dtg_to_dt(dtg);
             if dt * 4 > 1008 * 2 {
                 let (ckd, bits) = compute_dead_time_value(dt * 4);
-                assert_eq!(ckd, Ckd::Div4);
+                assert!(ckd == Ckd::Div4);
                 assert_eq!(bits, dtg);
             }
         }

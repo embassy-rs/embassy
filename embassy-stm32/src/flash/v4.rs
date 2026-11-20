@@ -184,6 +184,47 @@ pub(super) fn banks_swapped() -> bool {
     return false;
 }
 
+/// Swap flash banks 1 and 2 and reset into the swapped banks.
+///
+/// `SWAP_BANK` is loaded with `OBL_LAUNCH`, which resets the chip. Returns only if programming
+/// the option bytes failed (`OPTWERR`).
+///
+/// PLEASE READ THE REFERENCE MANUAL - there are nuances to this feature.
+#[cfg(all(flash_dual_bank, flash_v4_u5))]
+pub fn perform_bank_swap() -> Result<core::convert::Infallible, Error> {
+    const OPTKEY1: u32 = 0x0819_2A3B;
+    const OPTKEY2: u32 = 0x4C5D_6E7F;
+
+    wait_idle();
+    let _ = finish();
+
+    // Writing a key to an unlocked register locks it until reset.
+    unsafe { unlock() };
+    if pac::FLASH.nscr().read().optlock() {
+        pac::FLASH.optkeyr().write_value(OPTKEY1);
+        pac::FLASH.optkeyr().write_value(OPTKEY2);
+    }
+
+    let swapped = banks_swapped();
+    pac::FLASH.optr().modify(|w| w.set_swap_bank(!swapped));
+    pac::FLASH.nscr().modify(|w| w.set_optstrt(true));
+    wait_idle();
+
+    let sr = pac::FLASH.nssr().read();
+    if sr.optwerr() {
+        pac::FLASH.nssr().write_value(sr);
+        pac::FLASH.nscr().modify(|w| w.set_optlock(true));
+        unsafe { lock() };
+        return Err(Error::Hardware);
+    }
+
+    // OBL_LAUNCH is ignored unless both LOCK and OPTLOCK are clear.
+    pac::FLASH.nscr().modify(|w| w.set_obl_launch(true));
+    loop {
+        cortex_m::asm::nop();
+    }
+}
+
 #[cfg(bank_setup_configurable)]
 pub(super) fn dual_bank_mode() -> bool {
     let optr = pac::FLASH.optr().read();
@@ -210,6 +251,55 @@ pub(super) fn dual_bank_mode() -> bool {
         } else {
             optr.db1m()
         };
+    }
+}
+
+/// Whether a double ECC error has been detected since the flags were last cleared.
+#[cfg(flash_ecc_nmi)]
+pub(super) fn ecc_double_error() -> bool {
+    #[cfg(flash_v4_u3)]
+    return pac::FLASH.eccdetr().read().eccd();
+
+    #[cfg(not(flash_v4_u3))]
+    {
+        let eccr = pac::FLASH.eccr().read();
+        // ECCD2: double error in the upper double-word of a 128-bit read (single-bank mode).
+        #[cfg(any(flash_v4_l4p, flash_v4_l5, flash_v4_g4c2, flash_v4_g4c3, flash_v4_g4c4))]
+        let eccd2 = eccr.eccd2();
+        #[cfg(not(any(flash_v4_l4p, flash_v4_l5, flash_v4_g4c2, flash_v4_g4c3, flash_v4_g4c4)))]
+        let eccd2 = false;
+        // G0 reports bank 2 errors in ECCR2.
+        #[cfg(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank))]
+        let bank2 = pac::FLASH.eccr2().read().eccd();
+        #[cfg(not(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank)))]
+        let bank2 = false;
+        eccr.eccd() || eccd2 || bank2
+    }
+}
+
+/// Clears the ECC correction and detection flags.
+///
+/// While a correction or detection flag is set, the hardware doesn't flag (nor raise the NMI
+/// for) new double errors, so they must be cleared before reading.
+#[cfg(flash_ecc_nmi)]
+pub(super) fn ecc_clear() {
+    // The flags are write-1-to-clear, the other fields are read-only or keep their value.
+    #[cfg(flash_v4_u3)]
+    {
+        let r = pac::FLASH.ecccorr();
+        r.write_value(r.read());
+        let r = pac::FLASH.eccdetr();
+        r.write_value(r.read());
+    }
+    #[cfg(not(flash_v4_u3))]
+    {
+        let r = pac::FLASH.eccr();
+        r.write_value(r.read());
+    }
+    #[cfg(all(any(flash_v4_g0x0, flash_v4_g0x1), flash_dual_bank))]
+    {
+        let r = pac::FLASH.eccr2();
+        r.write_value(r.read());
     }
 }
 

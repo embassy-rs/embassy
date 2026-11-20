@@ -117,8 +117,7 @@ pub struct Mdf<'d, T: Instance, F: Filter> {
 }
 
 /// Combined configuration for PDM capture on a filter/SITF pair.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Clock generator settings.
     pub clock: ClockConfig,
@@ -181,8 +180,8 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
         D: RxDma<T, F>,
         F: FilterInterrupt,
     {
-        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(sdi, AfType::input(Pull::None));
+        set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh)).persist();
+        set_as_af!(sdi, AfType::input(Pull::None)).persist();
 
         rcc::enable_and_reset::<T>();
         F::Interrupt::unpend();

@@ -48,8 +48,8 @@ impl<'d, D: Driver<'d>> BulkReaderWriter<'d, D> {
 
     fn map_err(e: EndpointError) -> UsbIoError {
         match e {
-            EndpointError::BufferOverflow => UsbIoError::Other,
             EndpointError::Disabled => UsbIoError::Disconnected,
+            _ => UsbIoError::Other,
         }
     }
 }
@@ -77,9 +77,13 @@ impl<'d, D: Driver<'d>> Read for BulkReaderWriter<'d, D> {
             return Ok(to_copy);
         }
 
-        // 2) No leftover → read a fresh bulk packet (up to 512 bytes).
+        // 2) No leftover → read a fresh bulk transfer (up to 512 bytes).
         let mut packet_buf = [0u8; 512];
-        let n = self.ep_out.read(&mut packet_buf).await.map_err(Self::map_err)?;
+        let n = self
+            .ep_out
+            .read_transfer(&mut packet_buf)
+            .await
+            .map_err(Self::map_err)?;
 
         if n == 0 {
             return Ok(0);
@@ -105,7 +109,10 @@ impl<'d, D: Driver<'d>> Write for BulkReaderWriter<'d, D> {
         if to_write == 0 {
             return Ok(0);
         }
-        self.ep_in.write(&buf[..to_write]).await.map_err(Self::map_err)?;
+        self.ep_in
+            .write_transfer(&buf[..to_write], false)
+            .await
+            .map_err(|_| UsbIoError::Disconnected)?;
         Ok(to_write)
     }
 

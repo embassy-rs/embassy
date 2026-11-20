@@ -1,5 +1,6 @@
 use core::cmp::{max, min};
 use core::iter::zip;
+use core::mem::DropGuard;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
@@ -47,6 +48,25 @@ pub enum ScanType {
     /// Passive scan: the station doesn't transmit any probes, just listens for beacons.
     /// Slower, but uses less power.
     Passive,
+}
+
+/// Options for [`Control::init`].
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// The country whose rules the radio follows, from the CLM: the channels and transmit
+    /// power allowed there. Default [`countries::WORLD_WIDE_XX`], under which some channels
+    /// are closed, such as 5 GHz's DFS channels.
+    pub country: countries::Country,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            country: countries::WORLD_WIDE_XX,
+        }
+    }
 }
 
 /// Scan options.
@@ -240,7 +260,7 @@ impl<'a> Control<'a> {
     }
 
     /// Initialize WiFi controller.
-    pub async fn init(&mut self, clm: &[u8]) {
+    pub async fn init(&mut self, clm: &[u8], config: Config) {
         self.load_clm(clm).await;
 
         debug!("Configuring misc stuff...");
@@ -255,7 +275,7 @@ impl<'a> Control<'a> {
         let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
-        let country = countries::WORLD_WIDE_XX;
+        let country = config.country;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
             country_code: [country.code[0], country.code[1], 0, 0],
@@ -739,23 +759,9 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl_inner(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
-        struct CancelOnDrop<'a>(&'a IoctlState);
-
-        impl CancelOnDrop<'_> {
-            fn defuse(self) {
-                core::mem::forget(self);
-            }
-        }
-
-        impl Drop for CancelOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.cancel_ioctl();
-            }
-        }
-
-        let ioctl = CancelOnDrop(self.ioctl_state);
-        let resp_len = ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
-        ioctl.defuse();
+        let ioctl = DropGuard::new(self.ioctl_state, |s| s.cancel_ioctl());
+        let resp_len = ioctl.do_ioctl(kind, cmd, iface, buf).await;
+        DropGuard::dismiss(ioctl);
 
         resp_len
     }

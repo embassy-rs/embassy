@@ -13,12 +13,17 @@
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
+// workaround https://github.com/rust-lang/rust-analyzer/issues/23656
+#[macro_use]
+extern crate core;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
 mod atomic;
 mod macros;
 pub mod time;
+#[cfg(feature = "trustzone-secure")]
+pub mod trustzone;
 mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
@@ -41,6 +46,15 @@ pub mod mode {
     pub(crate) trait SealedMode {
         #[allow(dead_code)]
         const ASYNC: bool;
+        /// `T` in blocking mode, `()` in async mode.
+        #[allow(dead_code)]
+        type IfBlocking<T>;
+        /// `T` in async mode, `()` in blocking mode.
+        #[allow(dead_code)]
+        type IfAsync<T>;
+        /// `Some(v)` in async mode, `None` in blocking mode.
+        #[allow(dead_code)]
+        fn if_async_ref<T>(v: &Self::IfAsync<T>) -> Option<&T>;
     }
 
     /// Operating mode for a peripheral.
@@ -48,9 +62,14 @@ pub mod mode {
     pub trait Mode: SealedMode {}
 
     macro_rules! impl_mode {
-        ($name:ident, $async: expr) => {
+        ($name:ident, $async: expr, $if_blocking:ty, $if_async:ty, |$v:ident| $if_async_ref:expr) => {
             impl SealedMode for $name {
                 const ASYNC: bool = $async;
+                type IfBlocking<T> = $if_blocking;
+                type IfAsync<T> = $if_async;
+                fn if_async_ref<T>($v: &Self::IfAsync<T>) -> Option<&T> {
+                    $if_async_ref
+                }
             }
             impl Mode for $name {}
         };
@@ -63,8 +82,8 @@ pub mod mode {
     #[derive(Clone, Copy)]
     pub struct Async;
 
-    impl_mode!(Blocking, false);
-    impl_mode!(Async, true);
+    impl_mode!(Blocking, false, T, (), |_v| None);
+    impl_mode!(Async, true, (), T, |v| Some(v));
 }
 
 // Always-present hardware
@@ -167,7 +186,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(all(dac, not(dac_v9)))]
+#[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -181,11 +200,10 @@ pub mod dlyb;
 pub mod dma2d;
 #[cfg(dsihost)]
 pub mod dsihost;
-#[cfg(dts)]
+#[cfg(all(dts, not(stm32g5)))]
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
-#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(flash)]
 pub mod flash;
@@ -239,7 +257,7 @@ pub mod mdf;
 pub mod mdios;
 #[cfg(npu)]
 pub mod npu;
-#[cfg(all(opamp, not(stm32c5)))]
+#[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
@@ -255,7 +273,8 @@ pub mod ramcfg;
 pub mod rif;
 #[cfg(rng)]
 pub mod rng;
-#[cfg(all(rtc, not(rtc_v1)))]
+#[cfg(rtc)]
+#[cfg_attr(rtc_v1, path = "rtc/v1.rs")]
 pub mod rtc;
 #[cfg(saes)]
 pub mod saes;
@@ -267,6 +286,8 @@ pub mod sdmmc;
 pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(all(stm32wl, not(feature = "_core-cm0p")))]
+pub mod subghz;
 #[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_u5, tamp_wba, tamp_wl, tamp_n6))]
 pub mod tamp;
 #[cfg(tsc)]
@@ -407,7 +428,10 @@ pub struct Config {
     pub rcc: rcc::Config,
 
     #[cfg(feature = "low-power")]
-    /// RTC config
+    /// RTC config.
+    ///
+    /// Unless a low-power timer is the time driver, the RTC measures the time spent in Stop mode,
+    /// and `init` configures it with this. Pass the same config to [`rtc::Rtc::new`].
     pub rtc: rtc::RtcConfig,
 
     #[cfg(feature = "low-power")]
@@ -420,6 +444,10 @@ pub struct Config {
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
+    /// Stop the IWDG while a debugger halts the core. Defaults to false.
+    #[cfg(dbgmcu)]
+    pub freeze_iwdg_when_halted: bool,
+
     /// On low-power boards (eg. `stm32l4`, `stm32l5`, `stm32wba` and `stm32u5`),
     /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
     /// which needs to be enabled before these pins can be used.
@@ -427,6 +455,12 @@ pub struct Config {
     /// May increase power consumption. Defaults to true.
     #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
     pub enable_independent_io_supply: bool,
+
+    /// Enable the I/O compensation cells for the VDD pins, and for the VDDIO2 pins with
+    /// [`enable_independent_io_supply`](Self::enable_independent_io_supply). For pins switching
+    /// at high speed. Defaults to false.
+    #[cfg(any(stm32u5, stm32u3, stm32wba))]
+    pub enable_io_compensation: bool,
 
     /// Enable ultra-low-power BOR0 mode (discontinuous BOR monitoring) in
     /// Stop 1 and Standby modes.
@@ -545,8 +579,12 @@ impl Default for Config {
             min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(dbgmcu)]
+            freeze_iwdg_when_halted: false,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
+            #[cfg(any(stm32u5, stm32u3, stm32wba))]
+            enable_io_compensation: false,
             #[cfg(stm32wba)]
             enable_ulpmen: false,
             #[cfg(stm32wba)]
@@ -629,7 +667,7 @@ mod dual_core {
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
         #[cfg(feature = "low-power")]
-        rcc_config: UnsafeCell<MaybeUninit<Option<rcc::Config>>>,
+        stop_restore: UnsafeCell<MaybeUninit<Option<rcc::StopRestore>>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -664,7 +702,7 @@ mod dual_core {
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
         let p = init_hw(config);
 
         hsem::get_hsem(1).blocking_notify();
@@ -713,7 +751,7 @@ mod dual_core {
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
 
         let config = unsafe { (*shared_data.config.get()).assume_init() };
 
@@ -731,9 +769,6 @@ mod dual_core {
                     #[cfg(mdma)]
                     config.mdma_interrupt_priority,
                 );
-
-                #[cfg(feature = "exti")]
-                exti::init(cs);
             }
 
             #[cfg(feature = "_time-driver")]
@@ -796,11 +831,14 @@ fn init_hw(config: Config) -> Peripherals {
         {
             crate::pac::RCC.miscensr().write(|w| w.set_dbgens(true));
             crate::pac::RCC.miscenr().read(); // volatile read
-            crate::pac::DBGMCU
-                .cr()
-                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B0x1));
+            crate::pac::DBGMCU.cr().modify(|w| w.set_dbgclken(true));
             crate::pac::DBGMCU.cr().read();
         }
+
+        // The DBGMCU registers are on APB and need their bus clock (RM0091 6.4.7, RM0490 6.4.14,
+        // RM0444 5.4.15, RM0377 7.3.13).
+        #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_l0))]
+        rcc::enable_with_cs_no_refcount::<peripherals::DBGMCU>(cs);
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
@@ -825,7 +863,7 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
             }
-            #[cfg(dbgmcu_h7)]
+            #[cfg(any(dbgmcu_h7, dbgmcu_h7rm0399))]
             {
                 cr.set_d1dbgcken(config.enable_debug_during_sleep);
                 cr.set_d3dbgcken(config.enable_debug_during_sleep);
@@ -835,12 +873,41 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
+        // Only ever set, so a freeze set by a debugger is kept.
+        #[cfg(dbgmcu)]
+        if config.freeze_iwdg_when_halted {
+            #[cfg(any(dbgmcu_c0, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g0, dbgmcu_l0))]
+            crate::pac::DBGMCU.apb1fzr().modify(|w| w.set_iwdg(true));
+            #[cfg(any(dbgmcu_f0, dbgmcu_f2))]
+            crate::pac::DBGMCU.apb1_fz().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_f1)]
+            crate::pac::DBGMCU.cr().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_g4)]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_h5)]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_iwdg_stop(true));
+            #[cfg(dbgmcu_c5)]
+            crate::pac::DBGMCU.dbgmcu_apb1lfzr().modify(|w| w.set_iwdg_stop(true));
+            #[cfg(any(dbgmcu_h7, dbgmcu_h7rm0399))]
+            crate::pac::DBGMCU.apb4fzr1().modify(|w| w.set_iwdg1(true));
+            #[cfg(dbgmcu_l1)]
+            crate::pac::DBGMCU.apb1_fz().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(any(dbgmcu_l4, dbgmcu_l5, dbgmcu_wb, dbgmcu_wl))]
+            crate::pac::DBGMCU.apb1fzr1().modify(|w| w.set_iwdg(true));
+            #[cfg(dbgmcu_n6)]
+            crate::pac::DBGMCU.apb4fz1().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(dbgmcu_u0)]
+            crate::pac::DBGMCU.apb1fzr().modify(|w| w.set_dbg_iwdg_stop(true));
+            #[cfg(any(dbgmcu_u3, dbgmcu_u5, dbgmcu_wba))]
+            crate::pac::DBGMCU.apb1lfzr().modify(|w| w.set_dbg_iwdg_stop(true));
+        }
+
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5, stm32g5)))]
         rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
@@ -958,6 +1025,15 @@ fn init_hw(config: Config) -> Peripherals {
             }
         }
 
+        // RDY1/RDY2 not waited for, as in ST's HAL.
+        #[cfg(any(stm32u5, stm32u3, stm32wba))]
+        if config.enable_io_compensation {
+            crate::pac::SYSCFG.cccsr().modify(|w| {
+                w.set_en1(true);
+                w.set_en2(config.enable_independent_io_supply);
+            });
+        }
+
         // I/O analog switch voltage booster. The bit lives in a different peripheral on almost
         // every family: SYSCFG on most, SBS on the H7RS, PWR on the H5 (where it additionally
         // only takes effect once software declares the analog supply good, RM0481 §10.11).
@@ -1039,9 +1115,6 @@ fn init_hw(config: Config) -> Peripherals {
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
             );
-            #[cfg(feature = "exti")]
-            exti::init(cs);
-
             rcc::init_rcc(cs, config.rcc);
 
             // must be before time_driver init to allow refcount reset
@@ -1054,8 +1127,8 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
-            #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
+            rtc::init_low_power(cs, config.rtc);
+            #[cfg(feature = "low-power")]
             crate::time_driver::LPTimeDriver::set_min_stop_pause(
                 crate::time_driver::get_driver(),
                 cs,
