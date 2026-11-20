@@ -1,4 +1,9 @@
-//! Continuous 1 MHz LPTMR timekeeping with one-shot WAKETIMER alarms.
+//! Continuous FRO16K LPTMR timekeeping with one-shot WAKETIMER alarms.
+//!
+//! LPTMR counts the 16.384 kHz FRO16K clock, which keeps running in Sleep,
+//! Deep Sleep and Power Down. The 1 MHz SIRC-derived `clk_1m` stops in Power
+//! Down (MCXA5 SCG SOSCCSR note), which would freeze timestamps while asleep.
+//! Timestamps are reported in us with a resolution of 1/16384 s (about 61 us).
 //!
 //! LPTMR is never stopped while scheduling. Its compare cannot be freely
 //! rewritten while running (MCXA2 35.3.6, MCXA5 40.3.6), so WAKETIMER handles
@@ -17,11 +22,15 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 use super::{Config, configure, read_counter};
+use crate::clocks::periph_helpers::LptmrClockSel;
 use crate::clocks::{PoweredClock, with_clocks};
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
-const HALF_WRAP: u64 = 1 << 31;
+// Longest alarm interval in us. It keeps observations well inside half of the
+// 32-bit LPTMR wrap (about 36 hours at 16.384 kHz).
+const MAX_ALARM_US: u64 = 1 << 31;
+const COUNTER_HZ: u64 = 16_384;
 // The chip clocking tables specify 16.384 kHz, divided by the wake timer's
 // 4-bit ripple counter (MCXA2 21.3.2/30.5.1.2, MCXA5 28.3.2/37.5.1.2).
 const ALARM_HZ: u64 = 16_384 / 16;
@@ -30,7 +39,7 @@ const ALARM_HZ: u64 = 16_384 / 16;
 const STOP_ALARM_ATTEMPTS: u32 = 1_000_000;
 
 fn alarm_ticks(delta: u64) -> u32 {
-    // delta is bounded by HALF_WRAP before conversion, so this fits in u32.
+    // delta is bounded by MAX_ALARM_US before conversion, so this fits in u32.
     // Add a tick for the unknown phase of the continuously enabled divider.
     // Only the LPTMR timestamp decides when a queued waker is actually due.
     (delta * ALARM_HZ).div_ceil(1_000_000) as u32 + 1
@@ -78,6 +87,10 @@ struct State {
     queue: Queue,
 }
 
+fn ticks_to_us(ticks: u64) -> u64 {
+    ticks * 1_000_000 / COUNTER_HZ
+}
+
 fn extend(previous: u64, counter: u32) -> u64 {
     previous + counter.wrapping_sub(previous as u32) as u64
 }
@@ -85,7 +98,7 @@ fn extend(previous: u64, counter: u32) -> u64 {
 impl State {
     fn now(&mut self) -> u64 {
         self.time = extend(self.time, read_counter());
-        self.time
+        ticks_to_us(self.time)
     }
 
     fn update_alarm(&mut self) {
@@ -102,7 +115,7 @@ impl State {
         let now = self.now();
         // Even an empty queue needs an observation well before a full LPTMR
         // wrap. Bound the u64::MAX queue sentinel before converting to ticks.
-        let delta = next.saturating_sub(now).min(HALF_WRAP);
+        let delta = next.saturating_sub(now).min(MAX_ALARM_US);
         let count = alarm_ticks(delta);
         pac::WAKETIMER0.wake_timer_cnt().write(|w| w.set_wake_cnt(count));
         pac::WAKETIMER0.wake_timer_ctrl().write(|w| {
@@ -181,10 +194,11 @@ pub(crate) fn init(priority: interrupt::Priority) {
     assert_eq!(alarm_source, 16_384);
     let parts = configure(Config {
         power: PoweredClock::AlwaysEnabled,
+        source: LptmrClockSel::Clk16K,
         ..Config::default()
     })
-    .expect("LPTMR time driver requires an always-enabled 1 MHz clock and bus clock >=2 MHz");
-    assert_eq!(parts.freq, 1_000_000);
+    .expect("LPTMR time driver requires FRO16K in the VSYS domain");
+    assert_eq!(parts.freq as u64, COUNTER_HZ);
     core::mem::forget(parts.wake_guard);
     pac::LPTMR0.cmr().write(|w| w.set_compare(u32::MAX));
     critical_section::with(|cs| {
