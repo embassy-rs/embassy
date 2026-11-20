@@ -12,7 +12,7 @@ pub enum IsoWriteError {
     /// The service interval had already started before [`IsoInSlot::write`] was called,
     /// so the service interval was skipped.
     ///
-    /// This will *not* be increment the skipped service interval counter.
+    /// This will reset and *not* increment the skipped service interval counter.
     TooLate,
     /// `data` is larger than larger than the maximum number of
     /// bytes the endpoint is configured to transfer in a service interval.
@@ -22,8 +22,7 @@ pub enum IsoWriteError {
     /// bytes, but High Speed and Super Speed endpoints can be configured to allow
     /// more than one packet per service interval.
     ///
-    /// This also means the service interval will be skipped
-    /// *without* incrementing the skipped service interval counter.
+    /// This will reset and *not* increment the skipped service interval counter.
     BufferOverflow,
 }
 
@@ -79,7 +78,7 @@ pub trait IsoEndpointIn: Endpoint {
     /// Wait until the next transfer can be queued, returning
     ///
     /// * the number of skipped service intervals (if any)
-    ///   since the service interval of the last [`IsoInSlot`], and
+    ///   since the service interval of the last [`IsoInSlot::write`], and
     ///
     /// * an [`IsoInSlot`] for the next available service interval.
     ///
@@ -89,19 +88,17 @@ pub trait IsoEndpointIn: Endpoint {
     /// the device may either respond to the host's request with an empty transfer,
     /// or not respond to the host at all.
     ///
-    /// The first successful call to [`ready`](Self::ready) after the endpoint is enabled
-    /// will report no skipped service intervals.
+    /// After the endpoint is enabled, the skipped service interval count will stay
+    /// at zero until the first call to [`IsoInSlot::write`].
     ///
-    /// If [`ready`](Self::ready) is called too late for the next sequential service interval,
-    /// it will return the number of service intervals that were skipped.
-    /// The skipped service interval counter is now reset.
+    /// After that, if [`ready`](Self::ready) is called too late for the next sequential
+    /// service interval, it will return the number of service intervals that were skipped.
     ///
-    /// If [`IsoInSlot::write`] is called too late, it will return [`IsoWriteError::TooLate`].
-    /// This means the service interval has been skipped,
-    /// but it will *not* increment the skipped service interval counter.
+    /// [`IsoInSlot::write`] will always reset the skipped service interval count
+    /// to zero, regardless of whether it returns an error or not.
     ///
-    /// [`IsoWriteError::BufferOverflow`] also means the service interval will be skipped
-    /// without incrementing the skipped service interval counter.
+    /// If [`IsoInSlot::write`] returns an error, the service interval has been or will be skipped,
+    /// but it will *not* increment the skipped service interval counter, which will stay at zero.
     ///
     /// When the endpoint is disabled, any transfers in the queue will be silently dropped.
     /// If there is an active [`IsoInSlot`], it's transfer will be dropped even if
@@ -110,11 +107,11 @@ pub trait IsoEndpointIn: Endpoint {
     /// # Cancel safety
     ///
     /// Dropping this future will not reset the skipped service interval count
-    /// or reserve a service interval.
+    /// or reserve a service interval and queue slot.
     ///
-    /// Dropping the slot before calling [`IsoInSlot::write`] means the slot in the queue
-    /// and the corresponding service interval are no longer reserved, and can be re-issued
-    /// by [`ready`](Self::ready) (if it is called again in time).
+    /// Dropping the slot before calling [`IsoInSlot::write`] will roll back the effects
+    /// of [`ready`](Self::ready). The service interval and queue slot will no longer be reserved
+    /// and the skipped service interval count will not be reset.
     ///
     /// # Examples
     ///
