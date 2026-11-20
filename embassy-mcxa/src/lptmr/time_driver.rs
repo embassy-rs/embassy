@@ -27,8 +27,9 @@ use crate::clocks::{PoweredClock, with_clocks};
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
-// Longest alarm interval in us. It keeps observations well inside half of the
-// 32-bit LPTMR wrap (about 36 hours at 16.384 kHz).
+// Longest alarm interval in us (about 35.8 minutes). It keeps observations well
+// inside half of the 32-bit LPTMR wrap (about 36 hours at 16.384 kHz). An idle
+// system wakes once per interval for wrap maintenance.
 const MAX_ALARM_US: u64 = 1 << 31;
 const COUNTER_HZ: u64 = 16_384;
 // The chip clocking tables specify 16.384 kHz, divided by the wake timer's
@@ -87,6 +88,7 @@ struct State {
     queue: Queue,
 }
 
+// `ticks * 1_000_000` overflows after about 35.7 years of uptime.
 fn ticks_to_us(ticks: u64) -> u64 {
     ticks * 1_000_000 / COUNTER_HZ
 }
@@ -197,7 +199,7 @@ pub(crate) fn init(priority: interrupt::Priority) {
         source: LptmrClockSel::Clk16K,
         ..Config::default()
     })
-    .expect("LPTMR time driver requires FRO16K in the VSYS domain");
+    .expect("LPTMR time driver requires FRO16K in the VSYS domain and slow_clk >= 32.768 kHz");
     assert_eq!(parts.freq as u64, COUNTER_HZ);
     core::mem::forget(parts.wake_guard);
     pac::LPTMR0.cmr().write(|w| w.set_compare(u32::MAX));

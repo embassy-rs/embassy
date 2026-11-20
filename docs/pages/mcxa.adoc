@@ -44,10 +44,15 @@ The selected peripheral is reserved: its singleton is not returned by `init()`.
 The LPTMR backend counts the 16.384 kHz FRO16K clock in a free-running 32-bit
 counter and uses WAKETIMER0 for one-shot alarms. FRO16K keeps running in Power
 Down, where the SIRC-derived `clk_1m` stops, so timestamps stay continuous across
-all sleep modes. Timestamps are in microseconds with a resolution of about 61 us;
-alarm resolution is approximately 1 ms. It requires FRO16K enabled in the VSYS
-domain (and the VBAT domain on MCXA5), which the default clock configuration does.
-Like the hardware counter, this time base pauses while the debugger halts the core.
+Sleep, Deep Sleep and Power Down. Timestamps are in microseconds with a resolution
+of about 61 us; alarm resolution is approximately 1 ms. Busy-wait delays
+(`embassy_time::Delay`, `block_for`) and `Instant` deadlines shorter than about
+61 us, such as the `Cmp` settling time, can end on the next counter edge. Use
+the OSTIMER backend if this matters. It requires FRO16K enabled in the VSYS
+domain (and the VBAT domain on MCXA5), which the default clock configuration
+does, and an active slow bus clock of at least 32.768 kHz. Timestamps overflow
+after about 35.7 years of uptime. Like the hardware counter, this time base
+pauses while the debugger halts the core.
 
 The standalone LPTMR driver supports polling and interrupt-backed async waits,
 free-running or reset-on-compare mode, direct FRO16K or MRCC clock selection,

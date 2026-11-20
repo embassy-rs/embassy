@@ -55,7 +55,13 @@ async fn main(spawner: Spawner) {
     let expected_period = pulse_interval_us as f32 / 1_000_000.0;
     // Test capture accuracy, not the wakeup precision of the timer driving the
     // GPIO. Keep the 1ms tolerance against the independently measured interval.
-    assert!(within(period, expected_period, 1e-3));
+    #[cfg(not(feature = "time-driver-lptmr"))]
+    let epsilon = 1e-3;
+    // The LPTMR time driver counts FRO16K, while CTIMER2 counts SIRC. These are
+    // independent RC oscillators, so allow 10% between the two measurements.
+    #[cfg(feature = "time-driver-lptmr")]
+    let epsilon = 1e-1;
+    assert!(within(period, expected_period, epsilon));
 
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();
