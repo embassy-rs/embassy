@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 // internal use
 mod ring_buffer;
 
+pub mod barrier;
 pub mod blocking_mutex;
 pub mod channel;
 pub mod lazy_lock;
