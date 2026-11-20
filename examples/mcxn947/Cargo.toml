@@ -1,0 +1,25 @@
+[package]
+name = "embassy-mcxn947-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["set-sp", "set-vtor"] }
+critical-section = "1.2.0"
+defmt = "1.0"
+defmt-rtt = "1.0"
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", default-features = false, features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-mcxn = { version = "0.1.0", path = "../../embassy-mcxn", features = ["defmt", "unstable-pac", "mcxn947"] }
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+
+[profile.release]
+lto = true # better optimizations
+debug = 2  # enough information for defmt/rtt locations
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxn947" }
+]

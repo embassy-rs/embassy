@@ -19,6 +19,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
     - [embassy-rp](https://docs.embassy.dev/embassy-rp/), for the Raspberry Pi RP2040 and RP23xx microcontrollers.
     - [embassy-mspm0](https://docs.embassy.dev/embassy-mspm0/), for the Texas Instruments MSPM0 microcontrollers.
     - [embassy-mcxa](https://docs.embassy.dev/embassy-mcxa/), for NXP's MCX-A series of microcontrollers.
+    - [embassy-mcxn](https://docs.embassy.dev/embassy-mcxn/), for NXP's MCX-N series of microcontrollers (early bring-up: GPIO only).
     - [esp-rs](https://github.com/esp-rs), for the Espressif Systems ESP32 series of chips.
         - Embassy HAL support for Espressif chips, as well as Async Wi-Fi, Bluetooth, and ESP-NOW, is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
     - [ch32-hal](https://github.com/ch32-rs/ch32-hal), for the WCH 32-bit RISC-V(CH32V) series of chips.
@@ -109,6 +110,7 @@ Examples are found in the
 * `examples/rp` are for the RP2040 and RP235x chips.
 * `examples/mcxa266` run on the `FRDM-MCXA266` board.
 * `examples/mcxa577` run on the `FRDM-MCXA577` board.
+* `examples/mcxn947` run on the `FRDM-MCXN947` board.
 * `examples/std` are designed to run locally on your PC.
 
 ### Running examples
