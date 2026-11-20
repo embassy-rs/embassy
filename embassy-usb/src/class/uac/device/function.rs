@@ -2,7 +2,6 @@
 //! frequency control handler, and the feedback endpoint. Only the stream direction differs.
 
 use core::cell::Cell;
-use core::num::NonZeroU32;
 use core::ops::RangeInclusive;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
@@ -23,9 +22,7 @@ use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac1_codes::*;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{
-    Driver, Endpoint, EndpointDisabledError, EndpointInfo, EndpointType, IsoEndpointIn, IsoWriteError,
-};
+use crate::driver::{Driver, Endpoint, EndpointInfo, EndpointType};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
@@ -557,7 +554,7 @@ impl<'d> AudioFunction<'d> {
         max_packet_size: u16,
         feedback_refresh: Option<FeedbackRefresh>,
         alloc_endpoint: impl FnOnce(&mut InterfaceAltBuilder<'_, 'd, D>, u16) -> E,
-    ) -> (E, Option<Feedback<'d, D>>, ControlMonitor<'d>) {
+    ) -> (E, Option<D::EndpointIn>, ControlMonitor<'d>) {
         assert!(
             (1..=MAX_SAMPLE_RATE_COUNT).contains(&self.sample_rates_hz.len()),
             "between one and ten sample rates"
@@ -621,15 +618,34 @@ impl<'d> AudioFunction<'d> {
             streaming_endpoint.info().addr.is_in() == (self.output_terminal == TerminalType::UsbStreaming),
             "the endpoint direction must match the USB-stream terminal"
         );
-        let feedback = feedback_refresh.map(|refresh| (Feedback::allocate(&mut alt), refresh));
+        let feedback = feedback_refresh.map(|refresh| {
+            (
+                alt.alloc_endpoint_in(
+                    EndpointType::Isochronous,
+                    None,
+                    4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
+                    EndpointInterval::from_ms(1),
+                    EndpointOptions::new(),
+                ),
+                refresh,
+            )
+        });
         // The audio data endpoint's descriptors point at the synch endpoint; the synch endpoint's go after.
         Self::write_as_endpoint_descriptors(
             &mut alt,
             &streaming_endpoint.info(),
-            feedback.as_ref().map(|(feedback, _)| feedback),
+            &feedback.as_ref().map(|(feedback, _)| feedback.info()),
         );
         if let Some((feedback, refresh)) = &feedback {
-            feedback.write_descriptor(&mut alt, *refresh);
+            alt.endpoint_descriptor(
+                &feedback.info(),
+                SynchronizationType::NoSynchronization,
+                UsageType::FeedbackEndpoint,
+                &[
+                    *refresh as u8, // bRefresh
+                    0x00,           // bSynchAddress (none)
+                ],
+            );
         }
 
         // Free up the builder: registering the handler needs it back.
@@ -781,15 +797,15 @@ impl AudioFunction<'_> {
     fn write_as_endpoint_descriptors<'d, D: Driver<'d>>(
         alt: &mut InterfaceAltBuilder<'_, 'd, D>,
         endpoint: &EndpointInfo,
-        feedback: Option<&Feedback<'d, D>>,
+        feedback: &Option<EndpointInfo>,
     ) {
         alt.endpoint_descriptor(
             endpoint,
             SynchronizationType::Asynchronous,
             UsageType::DataEndpoint,
             &[
-                0x00,                                     // bRefresh (0)
-                feedback.map_or(0x00, Feedback::address), // bSynchAddress (the feedback endpoint, or none)
+                0x00,                                                   // bRefresh (0)
+                feedback.map_or(0x00, |feedback| feedback.addr.into()), // bSynchAddress (the feedback endpoint, or none)
             ],
         );
         alt.descriptor(
@@ -818,70 +834,5 @@ impl AudioFunction<'_> {
             channel_config |= channel;
         }
         channel_config
-    }
-}
-
-/// The isochronous synch endpoint [UAC 4.6.2]: used for writing sample rate
-/// feedback to the host.
-pub struct Feedback<'d, D: Driver<'d>> {
-    feedback_endpoint: D::EndpointIn,
-}
-
-impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Allocate the synch endpoint: isochronous IN, 24-bit packets.
-    fn allocate(alt: &mut InterfaceAltBuilder<'_, 'd, D>) -> Self {
-        Self {
-            feedback_endpoint: alt.alloc_endpoint_in(
-                EndpointType::Isochronous,
-                None,
-                4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
-                EndpointInterval::from_ms(1),
-                EndpointOptions::new(),
-            ),
-        }
-    }
-
-    /// The endpoint's address, for the audio data endpoint's bSynchAddress.
-    fn address(&self) -> u8 {
-        self.feedback_endpoint.info().addr.into()
-    }
-
-    /// Write the endpoint's standard descriptor [UAC 4.6.2.1]. The class
-    /// specification wants it after the audio data endpoint's, hence a
-    /// separate step.
-    fn write_descriptor(&self, alt: &mut InterfaceAltBuilder<'_, 'd, D>, refresh: FeedbackRefresh) {
-        alt.endpoint_descriptor(
-            &self.feedback_endpoint.info(),
-            SynchronizationType::NoSynchronization,
-            UsageType::FeedbackEndpoint,
-            &[
-                refresh as u8, // bRefresh
-                0x00,          // bSynchAddress (none)
-            ],
-        );
-    }
-
-    /// Wait until the next feedback packet can be queued, returning a reserved slot.
-    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        self.feedback_endpoint.ready().await
-    }
-
-    /// Writes one feedback packet for the next service interval.
-    ///
-    /// Returns how many intervals were skipped before this packet, if any. A packet the host
-    /// does not poll for is dropped rather than sent late.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        crate::class::write_iso_packet(&mut self.feedback_endpoint, data).await
-    }
-
-    /// Waits for the USB host to enable this interface.
-    pub async fn wait_connection(&mut self) {
-        self.feedback_endpoint.wait_enabled().await;
     }
 }

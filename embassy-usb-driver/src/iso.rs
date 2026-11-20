@@ -150,26 +150,6 @@ pub trait IsoEndpointIn: Endpoint {
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError>;
 }
 
-async fn example(mut ep: impl IsoEndpointIn, mut packet_getter: impl FnMut() -> [u8; 8]) {
-    assert!(ep.info().max_packet_size >= 8);
-    ep.wait_enabled().await;
-    loop {
-        let Ok((skipped, slot)) = ep.ready().await else {
-            break;
-        };
-        if let Some(skipped) = skipped {
-            // throw away packets to avoid desynchronization
-            for _ in 0..skipped.get() {
-                let _ = packet_getter();
-            }
-        }
-        match slot.write(&packet_getter()) {
-            Ok(()) | Err(IsoWriteError::TooLate) => {} // in this case, we don't care if we may have sent an empty packet instead of the real packet
-            Err(IsoWriteError::BufferOverflow) => unreachable!(),
-        }
-    }
-}
-
 /// The slot [`IsoSchedule::offer`] picked, including the frame-counter value to arm.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
