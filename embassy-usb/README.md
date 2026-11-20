@@ -49,6 +49,7 @@ role it belongs to:
 | `class-hub` | no | yes |
 | `class-midi` | yes | yes |
 | `class-msc` | yes | yes |
+| `class-mtp` | yes | no |
 | `class-uac` | yes | yes |
 | `class-usbtmc` | yes | no |
 | `class-uvc` | yes | no |
