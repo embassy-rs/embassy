@@ -770,7 +770,7 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_crc_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::crc::SealedInstance for $crate::peripherals::[<CRC $n>] {
                 fn info() -> &'static $crate::crc::Info {
                     static INFO: $crate::crc::Info = $crate::crc::Info {

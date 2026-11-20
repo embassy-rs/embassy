@@ -847,7 +847,7 @@ impl<M: AsyncMode> embedded_hal_async::digital::Wait for Cmp<'_, M> {
 #[macro_export]
 macro_rules! impl_cmp_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::cmp::SealedInstance for $crate::peripherals::[<CMP $n>] {
                 fn info() -> &'static $crate::cmp::Info {
                     static INFO: $crate::cmp::Info = $crate::cmp::Info {

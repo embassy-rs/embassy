@@ -2183,7 +2183,7 @@ pub trait BbqInstance: Instance {
 #[macro_export]
 macro_rules! impl_lpuart_bbq_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             #[allow(private_interfaces)]
             impl $crate::lpuart::bbq::BbqInstance for $crate::peripherals::[<LPUART $n>] {
                 fn bbq_state() -> &'static $crate::lpuart::bbq::BbqState {

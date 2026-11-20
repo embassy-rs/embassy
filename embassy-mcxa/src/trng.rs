@@ -624,7 +624,7 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_trng_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::trng::SealedInstance for $crate::peripherals::[<TRNG $n>] {
                 fn info() -> &'static $crate::trng::Info {
                     static INFO: $crate::trng::Info = $crate::trng::Info {
