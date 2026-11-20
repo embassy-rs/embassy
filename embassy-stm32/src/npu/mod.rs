@@ -637,7 +637,9 @@ impl<'d, T: Instance> Npu<'d, T> {
         })
         .await;
 
-        if res.is_ok() && let Some(f) = end {
+        if res.is_ok()
+            && let Some(f) = end
+        {
             f();
         }
         res
