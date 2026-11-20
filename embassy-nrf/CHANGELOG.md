@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- bugfix: pdm: cancelling `Pdm::sample` no longer hangs forever. It stops sampling, so `Pdm::start` has to be called again afterwards.
 - added: usb: implement `IsoEndpointIn` on USBD (EP8) and USBHS (via `embassy-usb-synopsys-otg`) for scheduled isochronous IN transfers.
 
 - fixed: `buffered_uarte`: RX no longer hangs if interrupts are delayed while both halves of the RX buffer fill up (nRF52, nRF53, nRF91).
