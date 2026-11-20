@@ -14,9 +14,12 @@
 //!
 //! This module provides several API levels to match different use cases:
 //!
-//! ## High-Level Async API (Recommended for Most Users)
+//! ## Borrowed Async Transfer API
 //!
-//! Use the async methods when you want simple, safe DMA transfers:
+//! These low-level starters are unsafe: the caller must keep DMA storage valid
+//! and exclusive until hardware has actually finished accessing it, even if a
+//! transfer is forgotten. See each method's safety contract. A borrowed future
+//! alone does not establish a leak-safe or cancellation-safe ownership boundary.
 //!
 //! | Method | Description |
 //! |--------|-------------|
@@ -53,8 +56,10 @@
 //!
 //!     let mut ch0 = DmaChannel::new(p.DMA_CH0);
 //!     let options = TransferOptions::COMPLETE_INTERRUPT;
-//!     let transfer = ch0.mem_to_mem(&src, &mut dst, options).unwrap();
-//!     transfer.await;
+//!     // SAFETY: aligned DMA-accessible SRAM, source immutable and destination
+//!     // exclusive until normal single-descriptor completion; no cancellation.
+//!     let transfer = unsafe { ch0.mem_to_mem(&src, &mut dst, options) }.unwrap();
+//!     transfer.await.unwrap();
 //! }
 //! ```
 //!
@@ -97,7 +102,12 @@
 //!     builder.add_transfer(&src2, &mut dst2);
 //!     builder.add_transfer(&src3, &mut dst3);
 //!
-//!     let transfer = builder.build(ch0).unwrap();
+//!     // SAFETY (incomplete pending DMA-9): buffers and aligned builder storage
+//!     // must remain live, exclusive
+//!     // and unmoved until ALL descriptors retire, even if this handle is lost.
+//!     // FIXME(DMA-9): blocking_wait is not yet a whole-chain completion proof.
+//!     // This multi-segment illustration must not be run until that is fixed.
+//!     let transfer = unsafe { builder.build(ch0) }.unwrap();
 //!     transfer.blocking_wait();
 //! }
 //! ```
@@ -235,8 +245,11 @@ impl WordSize {
     }
 }
 
-/// Trait for word-sizes that are supported.
-pub trait Word: Copy + 'static {
+/// DMA word types: `u8`, `u16`, and `u32`.
+///
+/// This trait is sealed so transfer widths always match the Rust object's layout.
+#[allow(private_bounds)]
+pub trait Word: sealed::SealedWord + Copy + 'static {
     /// The word size for this type.
     fn size() -> WordSize;
 }
@@ -512,6 +525,12 @@ pub struct InvalidParameters;
 pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
 
 pub(crate) mod sealed {
+    pub trait SealedWord {}
+
+    impl SealedWord for u8 {}
+    impl SealedWord for u16 {}
+    impl SealedWord for u32 {}
+
     /// Sealed trait for DMA channels.
     pub trait SealedChannel {
         /// The dma instance number
@@ -1128,11 +1147,13 @@ impl DmaChannel<'_> {
     // Type-Safe Transfer Methods (Embassy-style API)
     // ========================================================================
 
-    /// Perform a memory-to-memory DMA transfer (simplified API).
+    /// Start a memory-to-memory DMA transfer of `src.len()` words.
     ///
     /// This is a type-safe wrapper that uses the `Word` trait to determine
     /// the correct transfer width automatically. Uses the global eDMA TCD
     /// register accessor internally.
+    /// A larger destination is allowed; its tail is left unchanged. DMA starts
+    /// before this function returns, not on the first poll of the future.
     ///
     /// # Arguments
     ///
@@ -1142,14 +1163,21 @@ impl DmaChannel<'_> {
     ///
     /// # Safety
     ///
-    /// The source and destination buffers must remain valid for the
-    /// duration of the transfer.
-    pub fn mem_to_mem<W: Word>(
-        &mut self,
-        src: &[W],
-        dst: &mut [W],
+    /// - Source and destination storage must remain live, properly aligned,
+    ///   DMA-accessible and cache-coherent until all hardware accesses retire.
+    /// - The source must remain immutable and the destination exclusively owned
+    ///   by this transfer: no CPU or other DMA access to the destination, nor
+    ///   writes to the source, while hardware can access them.
+    /// - These obligations survive dropping or forgetting the returned handle.
+    ///   Borrow lifetimes and `Drop` alone are not a retirement proof. In
+    ///   particular, cancellation currently has a pending-START retirement gap
+    ///   (DMA-7); do not release or reuse storage based on `Drop` alone.
+    pub unsafe fn mem_to_mem<'b, W: Word>(
+        &'b mut self,
+        src: &'b [W],
+        dst: &'b mut [W],
         options: TransferOptions,
-    ) -> Result<Transfer<'_>, InvalidParameters> {
+    ) -> Result<Transfer<'b>, InvalidParameters> {
         if src.is_empty() || src.len() > dst.len() || src.len() > DMA_MAX_TRANSFER_SIZE {
             return Err(InvalidParameters);
         }
@@ -1158,7 +1186,7 @@ impl DmaChannel<'_> {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: src.as_ptr(),
                 dst_ptr: dst.as_mut_ptr(),
-                dst_count: dst.len(),
+                dst_count: src.len(),
                 src_incr: true,
                 dst_incr: true,
                 circular: false,
@@ -1175,6 +1203,17 @@ impl DmaChannel<'_> {
     /// This performs a DMA transfer where the source address remains fixed
     /// (pattern value) while the destination address increments through the buffer.
     /// It's useful for quickly filling large memory regions with a constant value.
+    /// DMA starts before this function returns, not on the first poll.
+    ///
+    /// # Safety
+    ///
+    /// - The pattern and destination must remain live, properly aligned,
+    ///   DMA-accessible and cache-coherent until all hardware accesses retire.
+    /// - The pattern must remain immutable; the destination must remain
+    ///   exclusive to this transfer, with no CPU or other DMA access.
+    /// - These obligations apply even if the handle is dropped or forgotten.
+    ///   Lifetimes and `Drop` do not prove retirement. Cancellation still has
+    ///   the pending-START gap (DMA-7); do not reuse storage based on `Drop` alone.
     ///
     /// # Arguments
     ///
@@ -1209,17 +1248,20 @@ impl DmaChannel<'_> {
     ///     let pattern = 0xDEADBEEF_u32;
     ///     let mut buffer = [0u32; 256];
     ///
-    ///     unsafe {
-    ///         ch0.memset(&pattern, &mut buffer, TransferOptions::COMPLETE_INTERRUPT).unwrap().await;
-    ///     }
+    ///     // SAFETY: aligned DMA-accessible SRAM; pattern immutable and buffer
+    ///     // exclusive until normal single-descriptor completion, no cancellation.
+    ///     let transfer = unsafe {
+    ///         ch0.memset(&pattern, &mut buffer, TransferOptions::COMPLETE_INTERRUPT)
+    ///     }.unwrap();
+    ///     transfer.await.unwrap();
     /// # }
     /// ```
-    pub fn memset<W: Word>(
-        &mut self,
-        pattern: &W,
-        dst: &mut [W],
+    pub unsafe fn memset<'b, W: Word>(
+        &'b mut self,
+        pattern: &'b W,
+        dst: &'b mut [W],
         options: TransferOptions,
-    ) -> Result<Transfer<'_>, InvalidParameters> {
+    ) -> Result<Transfer<'b>, InvalidParameters> {
         if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
             return Err(InvalidParameters);
         }
@@ -2056,8 +2098,11 @@ pub(crate) fn half_waker(dma: usize, channel: usize) -> &'static WaitCell {
 /// An in-progress DMA transfer.
 ///
 /// This type implements `Future` and can be `.await`ed to wait for the
-/// transfer to complete. Dropping the transfer will abort it.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
+/// transfer to complete. Hardware is already armed when this handle is returned.
+/// Dropping it attempts to stop the channel, but is not currently a complete
+/// retirement boundary (DMA-7). Forgetting it does not stop DMA. The starter's
+/// safety obligations remain in force until hardware can no longer access storage.
+#[must_use = "DMA is already armed; retain storage until actual hardware completion or retirement"]
 pub struct Transfer<'a> {
     channel: DmaChannel<'a>,
 }
@@ -2748,6 +2793,10 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 ///     builder.add_transfer(&src3, &mut dst3);
 ///
 ///     // Build and execute
+///     // SAFETY (incomplete pending DMA-9): buffers and builder must stay live and
+///     // unmoved, sources immutable and destinations exclusive until retirement.
+///     // FIXME(DMA-9): await does not yet prove whole-chain completion. Do not
+///     // run this multi-segment illustration until that completion gap is fixed.
 ///     let transfer = unsafe { builder.build(ch0).unwrap() };
 ///     transfer.await;
 /// # }
@@ -2826,8 +2875,23 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     ///
     /// # Returns
     ///
-    /// A `Transfer` future that completes when the entire chain has executed.
-    pub fn build(&mut self, channel: DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
+    /// A `Transfer` future tracking the channel. Currently its completion can
+    /// reflect an intermediate descriptor, not the entire chain (DMA-9).
+    ///
+    /// # Safety
+    ///
+    /// - The builder's aligned TCD storage must be DMA-accessible and coherent.
+    ///   Keep the builder at this exact address, live and unmodified: do not move,
+    ///   drop, clear, rebuild, or otherwise mutate it while hardware can fetch
+    ///   any descriptor in the chain.
+    /// - All segment buffers must remain live, aligned, DMA-accessible and
+    ///   coherent, with sources immutable and destinations exclusive to DMA.
+    /// - Keep these guarantees until the entire chain and all accepted work
+    ///   actually retire, including if the returned handle is dropped or
+    ///   forgotten. Its borrow is only an aid, not a leak-safety argument.
+    /// - Neither the current per-descriptor completion indication (DMA-9) nor
+    ///   the current cancellation path (DMA-7) proves whole-chain retirement.
+    pub unsafe fn build<'b>(&'b mut self, channel: DmaChannel<'b>) -> Result<Transfer<'b>, Error> {
         if self.count == 0 {
             return Err(Error::Configuration);
         }

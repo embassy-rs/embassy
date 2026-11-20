@@ -86,7 +86,12 @@ async fn main(_spawner: Spawner) {
     // - Sets INTMAJOR on all TCDs
     // - Loads the first TCD into hardware
     // - Returns a Transfer future
-    let transfer = builder.build(dma_ch0).expect("Failed to build scatter-gather");
+    // SAFETY (incomplete pending DMA-9): aligned SRAM TCDs/buffers are provided;
+    // all must stay live/unmoved and destinations exclusive until retirement.
+    // FIXME(DMA-9): blocking_wait can finish at an intermediate descriptor.
+    // The following inspection/builder drop still needs fix 2's whole-chain
+    // retirement proof. Compile-only illustration until then; do not run.
+    let transfer = unsafe { builder.build(dma_ch0) }.expect("Failed to build scatter-gather");
     transfer.blocking_wait();
 
     defmt::info!("Scatter-gather transfer complete!");
