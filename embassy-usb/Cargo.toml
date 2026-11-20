@@ -56,6 +56,7 @@ class-all = [
     "class-hub",
     "class-midi",
     "class-msc",
+    "class-mtp",
     "class-printer",
     "class-uac",
     "class-usbtmc",
@@ -81,6 +82,7 @@ class-cdc-ncm = ["device", "dep:embassy-net-driver-channel"]
 class-cmsis-dap-v2 = ["device"]
 class-dfu = ["device", "dep:embassy-time"]
 class-gud = ["device"]
+class-mtp = ["device"]
 class-usbtmc = ["device"]
 class-uvc = ["device"]
 class-vendor = ["device", "embedded-io"]
