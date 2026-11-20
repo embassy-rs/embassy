@@ -116,7 +116,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -2428,13 +2428,13 @@ impl<'a> Drop for Transfer<'a> {
     }
 }
 
-/// A ring buffer for continuous DMA reception.
+/// Storage for finite, peripheral-paced DMA receive windows.
 ///
 /// Can only be constructed by drivers in this HAL, and not from the application.
 ///
-/// This structure manages a circular DMA transfer, allowing continuous
-/// reception of data without losing bytes between reads. It uses both
-/// half-transfer and complete-transfer interrupts to track available data.
+/// Hardware stops at the end of the allocation. The peripheral owner must
+/// disable/read back its request source and pause DMA before inspecting or
+/// copying data. Only a fully consumed or explicitly cleared window is reused.
 pub struct RingBuffer<'channel, 'buf, W: Word> {
     /// Reference to the DmaChannel for the duration of the DMA transfer.
     ///
@@ -2446,8 +2446,13 @@ pub struct RingBuffer<'channel, 'buf, W: Word> {
     buf: NonNull<[W]>,
     /// Buffer length cached for convenience
     buf_len: usize,
-    /// Read position in the buffer (consumer side)
-    read_pos: AtomicUsize,
+    /// Positions in the current window, never reduced modulo capacity.
+    read_pos: usize,
+    write_pos: usize,
+    /// Peripheral source retained for rearming the unused tail.
+    peri_addr: *const W,
+    /// No CPU slice may be created while hardware owns the window.
+    armed: bool,
     /// Phantom data to tie the lifetime to the original buffer
     _lt: PhantomData<&'buf mut [W]>,
 }
@@ -2458,204 +2463,126 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
     /// # Safety
     ///
     /// The caller must ensure:
-    /// - The DMA channel has been configured for circular transfer
+    /// - The channel and peripheral request source are stopped
     /// - The buffer remains valid for the lifetime of the ring buffer
     /// - Only one RingBuffer exists per DMA channel at a time
-    pub(crate) unsafe fn new(channel: DmaChannel<'channel>, buf: &'buf mut [W]) -> Self {
+    pub(crate) unsafe fn new(channel: DmaChannel<'channel>, buf: &'buf mut [W], peri_addr: *const W) -> Self {
         let buf_len = buf.len();
         Self {
             channel,
             buf: NonNull::from(buf),
             buf_len,
-            read_pos: AtomicUsize::new(0),
+            read_pos: 0,
+            write_pos: 0,
+            peri_addr,
+            armed: false,
             _lt: PhantomData,
         }
     }
 
-    /// Get a slice reference to the buffer.
+    pub(crate) fn available(&self) -> usize {
+        assert!(!self.armed);
+        self.write_pos - self.read_pos
+    }
+
+    /// The peripheral owner must disable and read back its request source first.
+    pub(crate) fn pause(&mut self) -> Result<(), Error> {
+        if !self.armed {
+            return Ok(());
+        }
+        self.channel.stop();
+        self.armed = false;
+        if self.channel.errors().is_some() {
+            return Err(Error::BusError);
+        }
+        // A finite window leaves DADDR one-past-end on full completion. Never
+        // reduce it modulo capacity: full and empty must remain distinguishable.
+        let daddr = self.channel.tcd().tcd_daddr().read().daddr() as usize;
+        let base = self.buf.as_ptr() as *const W as usize;
+        let bytes = daddr.checked_sub(base).ok_or(Error::Configuration)?;
+        let width = core::mem::size_of::<W>();
+        if !bytes.is_multiple_of(width) {
+            return Err(Error::Configuration);
+        }
+        let written = bytes / width;
+        if written < self.write_pos || written > self.buf_len {
+            return Err(Error::Configuration);
+        }
+        self.write_pos = written;
+        Ok(())
+    }
+
+    /// Rearm only unused storage; do not recycle a full window's unread tail.
     ///
     /// # Safety
-    ///
-    /// The caller must ensure that DMA is not actively writing to the
-    /// portion of the buffer being accessed, or that the access is
-    /// appropriately synchronized.
-    #[inline]
-    unsafe fn buf_slice(&self) -> &[W] {
-        unsafe { self.buf.as_ref() }
-    }
-
-    /// Get the current DMA write position in the buffer.
-    ///
-    /// This reads the current destination address from the DMA controller
-    /// and calculates the buffer offset.
-    fn dma_write_pos(&self) -> usize {
-        let t = self.channel.tcd();
-        let daddr = t.tcd_daddr().read().daddr() as usize;
-        let buf_start = self.buf.as_ptr() as *const W as usize;
-
-        // Calculate offset from buffer start
-        let offset = daddr.wrapping_sub(buf_start) / core::mem::size_of::<W>();
-
-        // Ensure we're within bounds (DMA wraps around)
-        offset % self.buf_len
-    }
-
-    /// Returns the number of bytes available to read.
-    pub fn available(&self) -> usize {
-        let write_pos = self.dma_write_pos();
-        let read_pos = self.read_pos.load(Ordering::Acquire);
-
-        if write_pos >= read_pos {
-            write_pos - read_pos
-        } else {
-            self.buf_len - read_pos + write_pos
+    /// The peripheral request source is disabled and read back. `peri_addr`
+    /// remains valid and no CPU references into the allocation may escape.
+    pub(crate) unsafe fn resume(&mut self) -> Result<bool, InvalidParameters> {
+        assert!(!self.armed);
+        if self.read_pos == self.buf_len {
+            self.read_pos = 0;
+            self.write_pos = 0;
         }
-    }
-
-    /// Check if the buffer has overrun (data was lost).
-    ///
-    /// This happens when DMA writes faster than the application reads.
-    pub fn is_overrun(&self) -> bool {
-        // In a true overrun, the DMA would have wrapped around and caught up
-        // to our read position. We can detect this by checking if available()
-        // equals the full buffer size (minus 1 to distinguish from empty).
-        self.available() >= self.buf_len - 1
-    }
-
-    /// Read data from the ring buffer into the provided slice.
-    ///
-    /// Returns the number of elements read, which may be less than
-    /// `dst.len()` if not enough data is available.
-    ///
-    /// This method does not block; use `read_async()` for async waiting.
-    pub fn read_immediate(&self, dst: &mut [W]) -> usize {
-        let write_pos = self.dma_write_pos();
-        let read_pos = self.read_pos.load(Ordering::Acquire);
-
-        // Calculate available bytes
-        let available = if write_pos >= read_pos {
-            write_pos - read_pos
-        } else {
-            self.buf_len - read_pos + write_pos
+        if self.write_pos == self.buf_len {
+            return Ok(false);
+        }
+        // SAFETY: DMA is retired, no source slice escapes read_quiescent, and
+        // only the never-written tail is borrowed for the next finite window.
+        let tail = unsafe {
+            core::slice::from_raw_parts_mut(
+                (self.buf.as_ptr() as *mut W).add(self.write_pos),
+                self.buf_len - self.write_pos,
+            )
         };
-
-        let to_read = dst.len().min(available);
-        if to_read == 0 {
-            return 0;
-        }
-
-        // Safety: We only read from portions of the buffer that DMA has
-        // already written to (between read_pos and write_pos).
-        let buf = unsafe { self.buf_slice() };
-
-        // Read data, handling wrap-around
-        let first_chunk = (self.buf_len - read_pos).min(to_read);
-        dst[..first_chunk].copy_from_slice(&buf[read_pos..read_pos + first_chunk]);
-
-        if to_read > first_chunk {
-            let second_chunk = to_read - first_chunk;
-            dst[first_chunk..to_read].copy_from_slice(&buf[..second_chunk]);
-        }
-
-        // Update read position
-        let new_read_pos = (read_pos + to_read) % self.buf_len;
-        self.read_pos.store(new_read_pos, Ordering::Release);
-
-        to_read
-    }
-
-    /// Read data from the ring buffer asynchronously.
-    ///
-    /// This waits until at least one byte is available, then reads as much
-    /// as possible into the destination buffer.
-    ///
-    /// Returns the number of elements read.
-    pub async fn read(&self, dst: &mut [W]) -> Result<usize, Error> {
-        use core::future::poll_fn;
-
-        if dst.is_empty() {
-            return Ok(0);
-        }
-
-        poll_fn(|cx| {
-            loop {
-                if self.channel.errors().is_some() {
-                    return Poll::Ready(Err(Error::BusError));
-                }
-                // Check for overrun
-                if self.is_overrun() {
-                    return Poll::Ready(Err(Error::Overrun));
-                }
-
-                // Try to read immediately
-                let n = self.read_immediate(dst);
-                if n > 0 {
-                    return Poll::Ready(Ok(n));
-                }
-
-                // Register wakers for both half and complete interrupts
-                let state = &STATES[self.channel.dma()][self.channel.channel()];
-                let complete_registered = state.waker.poll_wait(cx).is_pending();
-                let half_registered = state.half_waker.poll_wait(cx).is_pending();
-
-                // Check again after registering waker (avoid race)
-                let n = self.read_immediate(dst);
-                if n > 0 {
-                    return Poll::Ready(Ok(n));
-                }
-
-                if complete_registered && half_registered {
-                    return Poll::Pending;
-                }
-            }
-        })
-        .await
-    }
-
-    /// Clear the ring buffer, discarding all unread data.
-    pub fn clear(&self) {
-        let write_pos = self.dma_write_pos();
-        self.read_pos.store(write_pos, Ordering::Release);
-    }
-
-    /// Stop the DMA transfer and consume the ring buffer.
-    ///
-    /// Returns any remaining unread data count.
-    pub fn stop(mut self) -> usize {
-        let res = self.teardown();
-        drop(self);
-        res
-    }
-
-    /// Enable the DMA channel request.
-    ///
-    /// Call this to start continuous reception.
-    /// This is separated from setup to allow for any additional configuration
-    /// before starting the transfer.
-    ///
-    /// ## SAFETY
-    ///
-    /// The Dma Channel must have been setup with proper manual configuration prior to
-    /// calling `enable_dma_request`. See safety requirements of the configuration methods
-    /// for more details.
-    pub(crate) unsafe fn enable_dma_request(&self) {
         unsafe {
+            self.channel.setup_read_from_peripheral(
+                self.peri_addr,
+                tail,
+                false,
+                TransferOptions {
+                    half_transfer_interrupt: true,
+                    complete_transfer_interrupt: true,
+                    priority: Priority::default(),
+                },
+            )?;
+            // setup_read_from_peripheral uses DREQ and no destination rewind:
+            // hardware stops at capacity even if no interrupt is serviced.
+            self.channel.enable_interrupt();
             self.channel.enable_request();
         }
+        self.armed = true;
+        Ok(true)
     }
 
-    /// Stop the DMA transfer. Intended to be called by `stop()` or `Drop`.
-    fn teardown(&mut self) -> usize {
-        // The peripheral wrapper shuts down and reads back its request source
-        // before this field is dropped. Sample progress only after retirement.
-        self.channel.stop();
-        self.available()
+    pub(crate) fn read_quiescent(&mut self, dst: &mut [W]) -> usize {
+        assert!(!self.armed);
+        let n = dst.len().min(self.available());
+        // SAFETY: pause retired DMA, and no new request can access this buffer
+        // until resume. Unlike an optimistic copy/recheck, there is no race.
+        let buf = unsafe { self.buf.as_ref() };
+        dst[..n].copy_from_slice(&buf[self.read_pos..self.read_pos + n]);
+        self.read_pos += n;
+        n
+    }
+
+    pub(crate) fn clear_quiescent(&mut self) {
+        assert!(!self.armed);
+        self.read_pos = 0;
+        self.write_pos = 0;
+    }
+
+    pub(crate) fn poll_wait(&self, cx: &mut Context<'_>) -> bool {
+        let state = &STATES[self.channel.dma()][self.channel.channel()];
+        let complete_registered = state.waker.poll_wait(cx).is_pending();
+        let half_registered = state.half_waker.poll_wait(cx).is_pending();
+        complete_registered && half_registered
     }
 }
 
 impl<W: Word> Drop for RingBuffer<'_, '_, W> {
     fn drop(&mut self) {
-        self.teardown();
+        // The peripheral wrapper disables and reads back its request first.
+        self.channel.stop();
     }
 }
 
@@ -2746,16 +2673,13 @@ impl<'a> DmaChannel<'a> {
         Ok(())
     }
 
-    /// Set up a circular DMA transfer for continuous peripheral-to-memory reception.
-    ///
-    /// This configures the DMA channel for circular operation with both half-transfer
-    /// and complete-transfer interrupts enabled. The transfer runs continuously until
-    /// stopped via [`RingBuffer::stop()`].
+    /// Create a receive window. The owner calls `resume` before enabling its
+    /// peripheral request, and `pause` before copying or reusing storage.
     ///
     /// # Arguments
     ///
     /// * `peri_addr` - Peripheral register address to read from
-    /// * `buf` - Destination buffer (should be power-of-2 size for best efficiency)
+    /// * `buf` - Nonempty destination buffer, at most DMA_MAX_TRANSFER_SIZE words
     ///
     /// # Returns
     ///
@@ -2764,26 +2688,17 @@ impl<'a> DmaChannel<'a> {
     /// # Safety
     ///
     /// - The peripheral address must be valid for reads.
-    /// - The peripheral's DMA request must be configured to trigger this channel.
-    pub(crate) unsafe fn setup_circular_read<'buf, W: Word>(
+    /// - The peripheral's DMA request must be disabled and read back, with the
+    ///   channel stopped. Its mux must select the corresponding request source.
+    pub(crate) unsafe fn setup_buffered_read<'buf, W: Word>(
         &mut self,
         peri_addr: *const W,
         buf: &'buf mut [W],
     ) -> Result<RingBuffer<'_, 'buf, W>, InvalidParameters> {
-        unsafe {
-            self.setup_circular_read_from_peripheral(
-                peri_addr,
-                buf,
-                true,
-                TransferOptions {
-                    half_transfer_interrupt: true,
-                    complete_transfer_interrupt: true,
-                    priority: Priority::default(),
-                },
-            )?;
+        if buf.is_empty() || buf.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
         }
-
-        Ok(unsafe { RingBuffer::new(self.reborrow(), buf) })
+        Ok(unsafe { RingBuffer::new(self.reborrow(), buf, peri_addr) })
     }
 }
 

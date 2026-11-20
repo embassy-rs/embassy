@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use embassy_hal_internal::Peri;
 
 use super::*;
@@ -17,10 +15,16 @@ pub struct Dma<'d> {
 impl sealed::Sealed for Dma<'_> {}
 impl Mode for Dma<'_> {}
 
-/// Lpuart RX driver with ring-buffered DMA support.
+/// Buffered DMA receiver using finite, peripheral-paced windows.
+///
+/// DMA stops at allocation capacity instead of overwriting unread data. Reads
+/// briefly pause requests and retire DMA before copying. A full allocation
+/// stays stopped until consumed; without flow control, UART FIFO overflow is
+/// possible during consumer delays and is reported as a sticky Overrun error.
 pub struct RingBufferedLpuartRx<'peri, 'ring> {
     ring: RingBuffer<'peri, 'ring, u8>,
     info: &'static Info,
+    error: Option<crate::dma::Error>,
 }
 
 impl Drop for RingBufferedLpuartRx<'_, '_> {
@@ -489,44 +493,43 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         Ok(())
     }
 
-    /// Start a continuously running borrowed DMA receive ring.
+    /// Start a borrowed, buffered DMA receiver.
     ///
     /// # Safety
     ///
     /// `buf` must be aligned DMA-accessible, coherent storage that remains live
     /// and exclusive to this receiver until DMA actually retires, even if the
     /// receiver is forgotten. Drop normally disables the UART request and drains
-    /// DMA, but forgetting does neither. The caller must also prevent DMA from
-    /// lapping a CPU read: the current ring does not prove overwrite exclusion
-    /// or detect every full lap (DMA-15). This is not an owning-buffer API.
-    /// Ring request pacing (DMA-14) is also unresolved; this safety boundary is
-    /// not a certification of the ring's receive/accounting behavior.
+    /// DMA, but forgetting does neither. CPU reads retire DMA before copying;
+    /// callers need not race a continuously wrapping producer. Forgetting the
+    /// receiver still does not retain its backing allocation.
     pub unsafe fn into_ring_dma_rx<'buf: 'a>(
         &mut self,
         buf: &'buf mut [u8],
     ) -> Result<RingBufferedLpuartRx<'_, 'buf>, InvalidParameters> {
         let info = self.info;
-        let ring = self.setup_ring_buffer(buf)?;
-        unsafe { ring.enable_dma_request() };
+        let mut ring = self.setup_ring_buffer(buf)?;
+        // SAFETY: setup_ring_buffer disabled/read back RDMAE and stopped the
+        // channel. The caller supplies the storage lifetime/exclusivity contract.
+        unsafe { ring.resume()? };
         info.regs().baud().modify(|w| w.set_rdmae(true));
-        Ok(RingBufferedLpuartRx { ring, info })
+        Ok(RingBufferedLpuartRx {
+            ring,
+            info,
+            error: None,
+        })
     }
 
-    /// Set up a ring buffer for continuous DMA reception.
-    ///
-    /// This configures the DMA channel for circular operation, enabling continuous
-    /// reception of data without gaps. The DMA will continuously write received
-    /// bytes into the buffer, wrapping around when it reaches the end.
+    /// Set up a finite DMA receive allocation without enabling its request source.
     ///
     /// This method encapsulates all the low-level setup:
     /// - Configures the DMA request source for this LPUART instance
-    /// - Enables the RX DMA request in the LPUART peripheral
-    /// - Sets up the circular DMA transfer
-    /// - Enables the NVIC interrupt for async wakeups
+    /// - Disables/read backs RX DMA requests and retires the previous transfer
+    /// - Prepares storage for finite receive windows
     ///
     /// # Arguments
     ///
-    /// * `buf` - Destination buffer for received data (power-of-2 size is ideal for efficiency)
+    /// * `buf` - Nonempty destination buffer, no larger than DMA_MAX_TRANSFER_SIZE
     ///
     /// # Returns
     ///
@@ -577,9 +580,8 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     ///      let (_, mut rx) = lpuart.split();
     ///
     ///      let buf = RX_RING_BUFFER.take();
-    ///      // Set up the ring buffer with circular DMA
-    ///      // SAFETY: static exclusive SRAM; never forget the receiver and
-    ///      // constrain incoming traffic so DMA cannot lap a CPU copy.
+    ///      // SAFETY: static exclusive DMA-accessible SRAM; never forget the
+    ///      // receiver while its backing allocation could be reused.
     ///      let mut ring_buf = unsafe { rx.into_ring_dma_rx(buf) }.unwrap();
     ///      let mut read_buf = [0u8; 16];
     ///      let n = ring_buf.read(&mut read_buf).await.unwrap();
@@ -592,33 +594,109 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         // Get the peripheral data register address
         let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
-        // Configure DMA request source for this LPUART instance (type-safe)
-        unsafe {
-            self.mode.dma.set_request_source(self.mode.request);
-        }
-
         // Configure before enabling the request source. Invalid parameters must
         // not leave the UART issuing requests to a previous descriptor.
         self.info.regs().baud().modify(|w| w.set_rdmae(false));
         let _ = self.info.regs().baud().read();
+        self.mode.dma.stop();
 
-        // Set up circular DMA transfer (this also enables NVIC interrupt)
-        unsafe { self.mode.dma.setup_circular_read(peri_addr, buf) }
+        unsafe {
+            self.mode.dma.set_request_source(self.mode.request);
+            self.mode.dma.setup_buffered_read(peri_addr, buf)
+        }
     }
 }
 
 impl<'peri, 'buf> RingBufferedLpuartRx<'peri, 'buf> {
-    /// Read from the ring buffer
-    pub fn read<'d>(
-        &mut self,
-        dst: &'d mut [u8],
-    ) -> impl Future<Output = core::result::Result<usize, crate::dma::Error>> + use<'_, 'buf, 'd> {
-        self.ring.read(dst)
+    /// Read a batch, pausing and retiring DMA before copying from its allocation.
+    ///
+    /// Notification remains DMA half/full/error driven. A short burst smaller
+    /// than the remaining window's half threshold may wait for more traffic;
+    /// this API does not introduce a UART idle-interrupt binding.
+    /// Cancellation leaves the long-lived receiver armed. Overrun and DMA errors
+    /// remain sticky until `clear`, which explicitly discards buffered data.
+    pub async fn read(&mut self, dst: &mut [u8]) -> Result<usize, crate::dma::Error> {
+        use core::task::Poll;
+        if dst.is_empty() {
+            return Ok(0);
+        }
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        core::future::poll_fn(|cx| {
+            loop {
+                let registered = self.ring.poll_wait(cx);
+                if let Err(error) = self.pause() {
+                    return Poll::Ready(Err(error));
+                }
+                let n = self.ring.read_quiescent(dst);
+                // FIFO overflow during the CPU copy is a data gap too. Do not clear
+                // its evidence or report unconditional success before rearming.
+                if self.info.regs().stat().read().or() {
+                    self.error = Some(crate::dma::Error::Overrun);
+                    return Poll::Ready(Err(crate::dma::Error::Overrun));
+                }
+                if let Err(error) = self.rearm() {
+                    return Poll::Ready(Err(error));
+                }
+                if n > 0 {
+                    return Poll::Ready(Ok(n));
+                }
+                if registered {
+                    return Poll::Pending;
+                }
+            }
+        })
+        .await
     }
 
-    /// Clear the current contents of the ring buffer
+    fn pause(&mut self) -> Result<(), crate::dma::Error> {
+        critical_section::with(|_| {
+            self.info.regs().baud().modify(|w| w.set_rdmae(false));
+            let _ = self.info.regs().baud().read();
+        });
+        let result = self.ring.pause();
+        let error = result.err().or_else(|| {
+            self.info
+                .regs()
+                .stat()
+                .read()
+                .or()
+                .then_some(crate::dma::Error::Overrun)
+        });
+        if let Some(error) = error {
+            self.error = Some(error);
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn rearm(&mut self) -> Result<(), crate::dma::Error> {
+        // SAFETY: pause disabled/read back the source and retired DMA. No CPU
+        // slice survives read_quiescent. Only consumed/unused storage is armed.
+        match unsafe { self.ring.resume() } {
+            Ok(true) => {
+                critical_section::with(|_| self.info.regs().baud().modify(|w| w.set_rdmae(true)));
+                Ok(())
+            }
+            Ok(false) => Ok(()), // Full allocation still contains unread data.
+            Err(_) => {
+                self.error = Some(crate::dma::Error::Configuration);
+                Err(crate::dma::Error::Configuration)
+            }
+        }
+    }
+
+    /// Discard buffered data and FIFO contents, acknowledge errors, and rearm.
+    /// This is explicit data-gap recovery, not a lossless operation.
     pub fn clear(&mut self) {
-        self.ring.clear();
+        let _ = self.pause();
+        self.info.regs().fifo().modify(|w| w.set_rxflush(true));
+        let _ = check_and_clear_rx_errors(self.info);
+        self.ring.clear_quiescent();
+        self.error = None;
+        let _ = self.rearm();
     }
 }
 

@@ -1,19 +1,10 @@
-//! LPUART Ring Buffer DMA example for MCXA276.
+//! Buffered UART DMA reception on MCXA577.
 //!
-//! This example demonstrates using the high-level `LpuartRxDma::setup_ring_buffer()`
-//! API for continuous circular DMA reception from a UART peripheral.
-//!
-//! # Features demonstrated:
-//! - `LpuartRxDma::setup_ring_buffer()` for continuous peripheral-to-memory DMA
-//! - `RingBuffer` for async reading of received data
-//! - Handling of potential overrun conditions
-//! - Half-transfer and complete-transfer interrupts for timely wakeups
-//!
-//! # How it works:
-//! 1. Create an `LpuartRxDma` driver with a DMA channel
-//! 2. Call `setup_ring_buffer()` which handles all low-level DMA configuration
-//! 3. Application asynchronously reads data as it arrives via `ring_buf.read()`
-//! 4. Both half-transfer and complete-transfer interrupts wake the reader
+//! Hardware receives one byte per request and stops at allocation capacity;
+//! it never wraps over unread data. Reads pause/drain DMA before copying.
+//! Half/full DMA events wake the reader, so short bursts can wait for more data.
+//! Slow consumers can overflow the UART FIFO without sender flow control.
+//! This echo expands its input: use paced bursts, not an unlimited byte stream.
 
 #![no_std]
 #![no_main]
@@ -26,7 +17,7 @@ use embassy_mcxa::lpuart::{Config, Dma, Lpuart, LpuartTx};
 use panic_probe as _;
 use static_cell::ConstStaticCell;
 
-// Ring buffer for RX - power of 2 is ideal for modulo efficiency
+// Bounded RX storage; power-of-two capacity is not required.
 static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);
 
 /// Helper to write a byte as hex to UART
@@ -63,19 +54,17 @@ async fn main(_spawner: Spawner) {
     tx.write(b"LPUART Ring Buffer DMA Example\r\n").await.unwrap();
     tx.write(b"==============================\r\n\r\n").await.unwrap();
 
-    tx.write(b"Setting up circular DMA for UART RX...\r\n").await.unwrap();
+    tx.write(b"Setting up buffered DMA for UART RX...\r\n").await.unwrap();
 
     let buf = RX_RING_BUFFER.take();
-    // Set up the ring buffer with circular DMA
-    // SAFETY (incomplete pending DMA-14/15): static exclusive SRAM remains live,
-    // but this echo loop does not bound incoming traffic against DMA overwrite.
-    // Compile-only illustration until ring pacing/accounting is repaired.
+    // SAFETY: static, exclusive DMA-accessible storage; this main task never
+    // forgets the receiver. The driver retires DMA before CPU copies or reuse.
     let mut ring_buf = unsafe { rx.into_ring_dma_rx(buf) }.unwrap();
 
     tx.write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
         .await
         .unwrap();
-    tx.write(b"The DMA continuously receives in the background.\r\n\r\n")
+    tx.write(b"DMA buffers batches; half/full events wake RX. Pace input bursts.\r\n\r\n")
         .await
         .unwrap();
 
@@ -106,10 +95,11 @@ async fn main(_spawner: Spawner) {
             Ok(_) => {
                 // No data, shouldn't happen with async read
             }
-            Err(_) => {
-                // Overrun detected
-                tx.write(b"ERROR: Ring buffer overrun!\r\n").await.unwrap();
-                defmt::error!("Ring buffer overrun!");
+            Err(error) => {
+                tx.write(b"ERROR: RX data gap or DMA error; discarding buffered data.\r\n")
+                    .await
+                    .unwrap();
+                defmt::error!("Buffered DMA RX error: {:?}", error);
                 ring_buf.clear();
             }
         }

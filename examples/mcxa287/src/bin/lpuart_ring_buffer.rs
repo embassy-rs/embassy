@@ -1,4 +1,8 @@
-//! Circular DMA UART RX with overrun recovery.
+//! Buffered DMA UART RX with explicit data-gap recovery.
+//!
+//! Hardware stops at capacity; reads pause/drain DMA before copying. Half/full
+//! notifications can leave short bursts waiting for more input. Pace incoming
+//! traffic: this echo expands data and can overflow the FIFO without flow control.
 
 #![no_std]
 #![no_main]
@@ -44,18 +48,17 @@ async fn main(_spawner: Spawner) {
     tx.write(b"LPUART Ring Buffer DMA Example\r\n").await.unwrap();
     tx.write(b"==============================\r\n\r\n").await.unwrap();
 
-    tx.write(b"Setting up circular DMA for UART RX...\r\n").await.unwrap();
+    tx.write(b"Setting up buffered DMA for UART RX...\r\n").await.unwrap();
 
     let buf = RX_RING_BUFFER.take();
-    // SAFETY (incomplete pending DMA-14/15): static exclusive SRAM remains live,
-    // but this echo loop does not bound incoming traffic against DMA overwrite.
-    // Compile-only illustration until ring pacing/accounting is repaired.
+    // SAFETY: static, exclusive DMA-accessible storage; this main task never
+    // forgets the receiver. The driver retires DMA before CPU copies or reuse.
     let mut ring_buf = unsafe { rx.into_ring_dma_rx(buf) }.unwrap();
 
     tx.write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
         .await
         .unwrap();
-    tx.write(b"The DMA continuously receives in the background.\r\n\r\n")
+    tx.write(b"DMA buffers batches; half/full events wake RX. Pace input bursts.\r\n\r\n")
         .await
         .unwrap();
 
@@ -81,9 +84,11 @@ async fn main(_spawner: Spawner) {
                 defmt::info!("Received {} bytes, total: {}", n, total_received);
             }
             Ok(_) => {}
-            Err(_) => {
-                tx.write(b"ERROR: Ring buffer overrun!\r\n").await.unwrap();
-                defmt::error!("Ring buffer overrun!");
+            Err(error) => {
+                tx.write(b"ERROR: RX data gap or DMA error; discarding buffered data.\r\n")
+                    .await
+                    .unwrap();
+                defmt::error!("Buffered DMA RX error: {:?}", error);
                 ring_buf.clear();
             }
         }
