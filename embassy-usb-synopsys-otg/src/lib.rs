@@ -2402,30 +2402,25 @@ where
 {
     ep: &'a mut Endpoint<'d, In, M>,
     frame: u32,
-    skipped: Option<NonZeroU32>,
 }
 
 impl<M> IsoInSlot for IsoSlot<'_, '_, M>
 where
     M: RawMutex + Copy,
 {
-    fn skipped(&self) -> Option<NonZeroU32> {
-        self.skipped
-    }
-
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
         }
         if !self.ep.state.in_enabled.load(Ordering::Acquire) {
-            return Err(IsoWriteError::Disabled);
+            return Ok(());
         }
 
         let span = self.ep.frame_span();
         let interval = self.ep.service_interval();
         let armed = self.ep.mutex.lock(|| {
             if !self.ep.state.in_enabled.load(Ordering::Acquire) {
-                return Err(IsoWriteError::Disabled);
+                return Ok(());
             }
             let ahead = forward(self.ep.fnsof(), self.frame, span);
             if ahead != 1 {
@@ -2474,7 +2469,7 @@ where
         }
     }
 
-    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,
             EndpointType::Isochronous,
@@ -2519,11 +2514,13 @@ where
             total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
             // The even/odd bit can only name the next tick, so wait until `offer.frame` is that tick.
             if self.wait_until_arm_point(offer.frame, interval, span).await? {
-                return Ok(IsoSlot {
-                    ep: self,
-                    frame: offer.frame,
-                    skipped: NonZeroU32::new(total_skipped),
-                });
+                return Ok((
+                    NonZeroU32::new(total_skipped),
+                    IsoSlot {
+                        ep: self,
+                        frame: offer.frame,
+                    },
+                ));
             }
         }
     }

@@ -1271,14 +1271,9 @@ impl<'d> driver::EndpointIn for Endpoint<'d, In> {
 pub struct IsoSlot<'a, 'd> {
     ep: &'a mut Endpoint<'d, In>,
     frame: u32,
-    skipped: Option<NonZeroU32>,
 }
 
 impl IsoInSlot for IsoSlot<'_, '_> {
-    fn skipped(&self) -> Option<NonZeroU32> {
-        self.skipped
-    }
-
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
@@ -1286,15 +1281,15 @@ impl IsoInSlot for IsoSlot<'_, '_> {
 
         let regs = self.ep.regs;
         let written_frame = critical_section::with(|cs| {
-            if !In::is_enabled(regs, ISO_EP) {
-                return Err(IsoWriteError::Disabled);
-            }
             if !ISO_SOF_SEEN.load(Ordering::Acquire) {
                 return Err(IsoWriteError::TooLate);
             }
             let now = u32::from(regs.framecntr().read().framecntr());
             if forward(now, self.frame, ISO_FRAME_SPAN) != 1 {
                 return Err(IsoWriteError::TooLate);
+            }
+            if !In::is_enabled(regs, ISO_EP) {
+                return Ok(now);
             }
             // Copies `data` into the peripheral's ISOIN buffer via EasyDMA. Hardware latches it
             // at the next SOF and automatically responds with a ZLP if uncollected on later frames.
@@ -1322,7 +1317,7 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
         }
     }
 
-    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,
             EndpointType::Isochronous,
@@ -1394,11 +1389,7 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
             .await?;
 
             if ready {
-                return Ok(IsoSlot {
-                    ep: self,
-                    frame,
-                    skipped: NonZeroU32::new(total_skipped),
-                });
+                return Ok((NonZeroU32::new(total_skipped), IsoSlot { ep: self, frame }));
             }
 
             current = u32::from(self.regs.framecntr().read().framecntr());
