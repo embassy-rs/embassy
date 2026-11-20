@@ -2122,7 +2122,7 @@ impl Timings {
             (freq * 300) / 1000 + 1
         };
 
-        let mut ccr;
+        let ccr;
         let duty;
         let mode;
 
@@ -2130,23 +2130,23 @@ impl Timings {
         if frequency <= 100_000 {
             duty = Duty::Duty2_1;
             mode = Mode::Standard;
-            ccr = {
-                let ccr = clock / (frequency * 2);
-                if ccr < 4 { 4 } else { ccr }
-            };
+            // Round up like the ST HAL so SCL never runs faster than requested.
+            ccr = clock.div_ceil(frequency * 2).max(4);
         } else {
             const DUTYCYCLE: u8 = 0;
             mode = Mode::Fast;
             if DUTYCYCLE == 0 {
                 duty = Duty::Duty2_1;
-                ccr = clock / (frequency * 3);
-                ccr = if ccr < 1 { 1 } else { ccr };
+                ccr = clock.div_ceil(frequency * 3).max(1);
             } else {
                 duty = Duty::Duty16_9;
-                ccr = clock / (frequency * 25);
-                ccr = if ccr < 1 { 1 } else { ccr };
+                ccr = clock.div_ceil(frequency * 25).max(1);
             }
         }
+
+        // CCR is a 12-bit field. Larger values would be truncated to a much higher SCL frequency,
+        // so use the slowest frequency the field can hold instead.
+        let ccr = ccr.min(0xFFF);
 
         Self {
             freq: freq as u8,
@@ -2176,5 +2176,37 @@ impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scl_hz(clock: u32, frequency: u32) -> u32 {
+        let t = Timings::new(Hertz(clock), Hertz(frequency));
+        let ccr = t.ccr as u32;
+        if frequency <= 100_000 {
+            clock / (2 * ccr)
+        } else {
+            clock / (3 * ccr)
+        }
+    }
+
+    #[test]
+    fn scl_is_not_faster_than_requested() {
+        for mhz in 2..=50 {
+            let clock = mhz * 1_000_000;
+            for frequency in [10_000, 50_000, 100_000, 200_000, 400_000] {
+                assert!(scl_hz(clock, frequency) <= frequency, "{} Hz at {} MHz", frequency, mhz);
+            }
+        }
+        assert_eq!(Timings::new(Hertz(16_000_000), Hertz(400_000)).ccr, 14);
+        assert_eq!(Timings::new(Hertz(42_000_000), Hertz(400_000)).ccr, 35);
+    }
+
+    #[test]
+    fn ccr_stays_within_12_bits() {
+        assert_eq!(Timings::new(Hertz(50_000_000), Hertz(1_000)).ccr, 0xFFF);
     }
 }
