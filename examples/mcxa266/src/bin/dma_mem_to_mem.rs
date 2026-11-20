@@ -71,7 +71,10 @@ async fn main(_spawner: Spawner) {
 
     // Perform type-safe memory-to-memory transfer using Embassy-style async API
     // Using async `.await` - the executor can run other tasks while waiting!
-    let transfer = dma_ch0.mem_to_mem(src, dst, options).unwrap();
+    // SAFETY: separate aligned static SRAM buffers; source stays immutable and
+    // destination exclusive until successful single-descriptor completion.
+    // This main task does not cancel or forget the transfer.
+    let transfer = unsafe { dma_ch0.mem_to_mem(src, dst, options) }.unwrap();
     transfer.await.unwrap();
 
     defmt::info!("DMA mem-to-mem transfer complete!");
@@ -102,8 +105,10 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Filling with pattern 0xDEADBEEF...");
 
     // Using blocking_wait() for demonstration - also shows non-async usage
-    let transfer = dma_ch0.memset(&pattern, mst, options).unwrap();
-    transfer.blocking_wait();
+    // SAFETY: aligned DMA-accessible SRAM; pattern stays live and immutable and
+    // mst remains exclusive through blocking single-descriptor completion.
+    let transfer = unsafe { dma_ch0.memset(&pattern, mst, options) }.unwrap();
+    transfer.blocking_wait().unwrap();
 
     defmt::info!("DMA memset complete!");
     defmt::info!("Memset Buffer (after): {=[?]}", mst.as_slice());
