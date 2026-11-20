@@ -20,6 +20,15 @@ impl Mode for Dma<'_> {}
 /// Lpuart RX driver with ring-buffered DMA support.
 pub struct RingBufferedLpuartRx<'peri, 'ring> {
     ring: RingBuffer<'peri, 'ring, u8>,
+    info: &'static Info,
+}
+
+impl Drop for RingBufferedLpuartRx<'_, '_> {
+    fn drop(&mut self) {
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
+        let _ = self.info.regs().baud().read();
+        // `ring` drops next and retires accepted requests before releasing buf.
+    }
 }
 
 struct TxDmaGuard<'a> {
@@ -36,10 +45,8 @@ impl<'a> TxDmaGuard<'a> {
     fn complete(self) {
         // Cleanup
         self.info.regs().baud().modify(|w| w.set_tdmae(false));
-        unsafe {
-            self.dma.disable_request();
-            self.dma.clear_done();
-        }
+        let _ = self.info.regs().baud().read();
+        self.dma.stop();
         // Don't run drop since we've cleaned up
         core::mem::forget(self);
     }
@@ -47,14 +54,9 @@ impl<'a> TxDmaGuard<'a> {
 
 impl Drop for TxDmaGuard<'_> {
     fn drop(&mut self) {
-        // Abort the DMA transfer if still running
-        unsafe {
-            self.dma.disable_request();
-            self.dma.clear_done();
-            self.dma.clear_interrupt();
-        }
-        // Disable UART TX DMA request
         self.info.regs().baud().modify(|w| w.set_tdmae(false));
+        let _ = self.info.regs().baud().read();
+        self.dma.stop();
     }
 }
 
@@ -75,10 +77,8 @@ impl<'a> RxDmaGuard<'a> {
         cortex_m::asm::dsb();
         // Cleanup
         self.info.regs().baud().modify(|w| w.set_rdmae(false));
-        unsafe {
-            self.dma.disable_request();
-            self.dma.clear_done();
-        }
+        let _ = self.info.regs().baud().read();
+        self.dma.stop();
         // Don't run drop since we've cleaned up
         core::mem::forget(self);
     }
@@ -86,14 +86,9 @@ impl<'a> RxDmaGuard<'a> {
 
 impl Drop for RxDmaGuard<'_> {
     fn drop(&mut self) {
-        // Abort the DMA transfer if still running
-        unsafe {
-            self.dma.disable_request();
-            self.dma.clear_done();
-            self.dma.clear_interrupt();
-        }
-        // Disable UART RX DMA request
         self.info.regs().baud().modify(|w| w.set_rdmae(false));
+        let _ = self.info.regs().baud().read();
+        self.dma.stop();
     }
 }
 
@@ -218,15 +213,9 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         let guard = TxDmaGuard::new(dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        core::future::poll_fn(|cx| guard.dma.poll_complete(cx))
+            .await
+            .map_err(|_| Error::Other)?;
 
         // Transfer completed successfully - clean up without aborting
         guard.complete();
@@ -264,15 +253,9 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         let guard = TxDmaGuard::new(dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        core::future::poll_fn(|cx| guard.dma.poll_complete(cx))
+            .await
+            .map_err(|_| Error::Other)?;
 
         // Transfer completed successfully - clean up without aborting
         guard.complete();
@@ -428,15 +411,9 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         let guard = RxDmaGuard::new(rx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        core::future::poll_fn(|cx| guard.dma.poll_complete(cx))
+            .await
+            .map_err(|_| Error::Other)?;
 
         // Transfer completed successfully - clean up without aborting
         guard.complete();
@@ -478,15 +455,9 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         let guard = RxDmaGuard::new(rx_dma.reborrow(), self.info);
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        core::future::poll_fn(|cx| guard.dma.poll_complete(cx))
+            .await
+            .map_err(|_| Error::Other)?;
 
         // Transfer completed successfully - clean up without aborting
         guard.complete();
@@ -518,13 +489,27 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
         Ok(())
     }
 
-    pub fn into_ring_dma_rx<'buf: 'a>(
+    /// Start a continuously running borrowed DMA receive ring.
+    ///
+    /// # Safety
+    ///
+    /// `buf` must be aligned DMA-accessible, coherent storage that remains live
+    /// and exclusive to this receiver until DMA actually retires, even if the
+    /// receiver is forgotten. Drop normally disables the UART request and drains
+    /// DMA, but forgetting does neither. The caller must also prevent DMA from
+    /// lapping a CPU read: the current ring does not prove overwrite exclusion
+    /// or detect every full lap (DMA-15). This is not an owning-buffer API.
+    /// Ring request pacing (DMA-14) is also unresolved; this safety boundary is
+    /// not a certification of the ring's receive/accounting behavior.
+    pub unsafe fn into_ring_dma_rx<'buf: 'a>(
         &mut self,
         buf: &'buf mut [u8],
     ) -> Result<RingBufferedLpuartRx<'_, 'buf>, InvalidParameters> {
+        let info = self.info;
         let ring = self.setup_ring_buffer(buf)?;
         unsafe { ring.enable_dma_request() };
-        Ok(RingBufferedLpuartRx { ring })
+        info.regs().baud().modify(|w| w.set_rdmae(true));
+        Ok(RingBufferedLpuartRx { ring, info })
     }
 
     /// Set up a ring buffer for continuous DMA reception.
@@ -593,7 +578,9 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
     ///
     ///      let buf = RX_RING_BUFFER.take();
     ///      // Set up the ring buffer with circular DMA
-    ///      let mut ring_buf = rx.into_ring_dma_rx(buf).unwrap();
+    ///      // SAFETY: static exclusive SRAM; never forget the receiver and
+    ///      // constrain incoming traffic so DMA cannot lap a CPU copy.
+    ///      let mut ring_buf = unsafe { rx.into_ring_dma_rx(buf) }.unwrap();
     ///      let mut read_buf = [0u8; 16];
     ///      let n = ring_buf.read(&mut read_buf).await.unwrap();
     /// # }
@@ -610,8 +597,10 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
             self.mode.dma.set_request_source(self.mode.request);
         }
 
-        // Enable RX DMA request in the LPUART peripheral
-        self.info.regs().baud().modify(|w| w.set_rdmae(true));
+        // Configure before enabling the request source. Invalid parameters must
+        // not leave the UART issuing requests to a previous descriptor.
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
+        let _ = self.info.regs().baud().read();
 
         // Set up circular DMA transfer (this also enables NVIC interrupt)
         unsafe { self.mode.dma.setup_circular_read(peri_addr, buf) }

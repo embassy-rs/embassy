@@ -27,9 +27,6 @@
 //!
 //! Run with: `cargo run --release --bin dma-stress`.
 //! The example ends with a `bkpt` so the binary does not loop forever.
-//!
-//! FIXME(DMA-7): cancellation/recovery below is not yet a sound retirement
-//! boundary. Compile only until fix 2; do not run this stress program yet.
 
 #![no_std]
 #![no_main]
@@ -459,7 +456,7 @@ async fn phase_blocking_wait(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut
         // SAFETY: disjoint static byte buffers held through blocking completion.
         let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
             Ok(t) => {
-                t.blocking_wait();
+                t.blocking_wait().unwrap();
                 Ok(())
             }
             Err(e) => Err(e),
@@ -485,8 +482,8 @@ async fn phase_cancel(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
     // transfer to confirm the channel is usable again.
     Pattern::Hash.fill(&mut src[..]);
     {
-        // SAFETY (incomplete pending DMA-7): disjoint static SRAM, but drop/reuse
-        // still lacks DMA-7's pending-START retirement proof. Do not run yet.
+        // SAFETY: disjoint static SRAM; Drop drains pending START and ACTIVE
+        // before either buffer is reused below.
         let t = match unsafe { chan.mem_to_mem::<u8>(&src[..4096], &mut dst[..4096], opts) } {
             Ok(t) => t,
             Err(_) => {
@@ -502,7 +499,6 @@ async fn phase_cancel(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
     Pattern::Ramp.fill(&mut src[..len]);
     dst[..len].fill(0);
     // SAFETY: disjoint static byte buffers, held through normal completion.
-    // FIXME(DMA-7): prior cancellation must retire before reaching this point.
     let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
         Ok(t) => Ok(t.await),
         Err(e) => Err(e),
@@ -552,7 +548,7 @@ fn phase_invalid_parameters(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut 
     // SAFETY: disjoint static byte buffers held through blocking completion.
     let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts2) } {
         Ok(t) => {
-            t.blocking_wait();
+            t.blocking_wait().unwrap();
             Ok(())
         }
         Err(e) => Err(e),

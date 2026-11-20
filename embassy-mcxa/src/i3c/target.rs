@@ -5,8 +5,7 @@ use core::marker::PhantomData;
 use core::mem::DropGuard;
 use core::num::NonZeroU32;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize, Ordering, fence};
-use core::task::Poll;
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 
 use bbqueue::BBQueue;
 use bbqueue::prod_cons::stream::StreamGrantW;
@@ -341,6 +340,7 @@ impl<'a> TxDmaGuard<'a> {
             .regs()
             .sdmactrl()
             .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+        let _ = self.info.regs().sdmactrl().read();
         self.dma.stop();
         self.dma_active = false;
     }
@@ -353,6 +353,7 @@ impl Drop for TxDmaGuard<'_> {
                 .regs()
                 .sdmactrl()
                 .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+            let _ = self.info.regs().sdmactrl().read();
             self.dma.stop();
         }
         self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
@@ -403,6 +404,9 @@ impl<'d> I3c<'d> {
     }
 
     fn check_status(&self) -> Result<(), IOError> {
+        if self.bbq_state.rx_dma_error.load(Ordering::Acquire) {
+            return Err(IOError::Other);
+        }
         let status = self.info.regs().sstatus().read();
         let errwarn = self.info.regs().serrwarn().read();
 
@@ -695,6 +699,7 @@ impl<'d> I3c<'d> {
             .sdmactrl()
             .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
 
+        let _ = self.info.regs().sdmactrl().read();
         // Stop any in-flight TX DMA transfer.
         self.tx_dma.stop();
 
@@ -792,7 +797,20 @@ impl<'d> I3c<'d> {
         // is therefore safe for shared access.
         let queue = unsafe { &*self.bbq_state.rx_queue.get() };
         let cons = queue.stream_consumer();
-        let rgr = cons.wait_read().await;
+        let rgr = match embassy_futures::select::select(
+            self.info
+                .wait_cell()
+                .wait_for(|| self.bbq_state.rx_dma_error.load(Ordering::Acquire)),
+            cons.wait_read(),
+        )
+        .await
+        {
+            embassy_futures::select::Either::First(_) => return Err(IOError::Other),
+            embassy_futures::select::Either::Second(grant) => grant,
+        };
+        if self.bbq_state.rx_dma_error.load(Ordering::Acquire) {
+            return Err(IOError::Other);
+        }
         let avail = rgr.len();
         let n = buf.len().min(avail);
         buf[..n].copy_from_slice(&rgr[..n]);
@@ -1067,15 +1085,9 @@ impl<'d> I3c<'d> {
         // Wait for DMA to complete. Safe to await here:
         // the controller is now draining the FIFO so DMA always makes
         // progress to completion.
-        poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+        poll_fn(|cx| guard.dma.poll_complete(cx))
+            .await
+            .map_err(|_| IOError::Other)?;
 
         cortex_m::asm::dsb();
         guard.complete_dma();
@@ -1176,39 +1188,27 @@ impl<'d> I3c<'d> {
     async fn dma_tx_run(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
         let regs_ptr = self.info.regs();
-        let _drop = DropGuard::new((), |()| {
-            regs_ptr.sdmactrl().modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
-        });
 
         if !rest.is_empty() {
             self.dma_tx_arm(rest)?;
+            let on_drop = DropGuard::new((), |()| {
+                regs_ptr.sdmactrl().modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+                let _ = regs_ptr.sdmactrl().read();
+                self.tx_dma.stop();
+            });
 
-            poll_fn(|cx| {
-                let _ = self.tx_dma.wait_cell().poll_wait(cx);
-                if self.tx_dma.is_done() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
+            poll_fn(|cx| self.tx_dma.poll_complete(cx))
+                .await
+                .map_err(|_| IOError::Other)?;
 
             cortex_m::asm::dsb();
 
-            self.info
-                .regs()
-                .sdmactrl()
-                .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
-            unsafe {
-                self.tx_dma.disable_request();
-                self.tx_dma.clear_done();
-            }
+            drop(on_drop);
         }
 
         self.wait_tx_space().await?;
         self.info.regs().swdatabe().write(|w| w.set_data(*last));
 
-        DropGuard::dismiss(_drop);
         Ok(rest.len())
     }
 
@@ -1432,120 +1432,134 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let info = T::info();
-        let regs = info.regs();
-        let bbq = T::bbq_state();
-        let s_status = regs.sintmasked().read();
+        critical_section::with(|_| {
+            let info = T::info();
+            let regs = info.regs();
+            let bbq = T::bbq_state();
+            let s_status = regs.sintmasked().read();
 
-        // ===== BBQ RX path =====
-        //
-        // The BBQ owns the latched STOP flag. On either a bus Stop or
-        // a DMA-major-loop completion (signaled by `dma_rx_complete_cb`
-        // via the `STATE_RXDMA_COMPLETE` bit), we commit the bytes that
-        // landed and immediately re-arm DMA into the next grant.
-        //
-        // We W1C SSTATUS.STOP but deliberately keep SINTSET.STOP armed
-        // so the next transaction-end fires us again. `wait_for_end_of_chain`
-        // and friends rely on the level-triggered `STNOTSTOP` instead of
-        // the latched STOP and remain correct.
-        let pre = bbq.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
-        let rx_present = (pre & STATE_RXDMA_PRESENT) != 0;
-        let dma_complete = (pre & STATE_RXDMA_COMPLETE) != 0;
-        let stop_fired = s_status.stop();
-        let mut handled_stop = false;
-        if rx_present && (stop_fired || dma_complete) {
-            let rxgr_active = (pre & STATE_RXGR_ACTIVE) != 0;
-
-            // Only tear down + rebuild the RX DMA grant when there is
-            // actual work to commit: either the major loop completed
-            // (`dma_complete`), or a bus Stop fired AND we observed at
-            // least one byte landing in the current grant. The slave
-            // bus also emits a Stop after our outbound IBI directed
-            // read (no RX bytes received during that phase); if we
-            // finalized on every such Stop we'd needlessly disable DMA,
-            // open a fresh grant, and reprogram TCD — leaving a small
-            // window where the controller's next write can push bytes
-            // into an unarmed RX FIFO and latch SERRWARN.ORUN.
+            // ===== BBQ RX path =====
             //
-            // SAFETY: ISR context; rxdma + rxgr owned by BbqState while
-            // RXDMA_PRESENT + RXGR_ACTIVE are set.
-            let rx_has_data = if rxgr_active {
-                unsafe {
-                    let rxdma = &*bbq.rxdma.get();
-                    let rxgr = &*bbq.rxgr.get();
-                    rxdma.daddr() as usize != rxgr.as_ptr() as usize
+            // The BBQ owns the latched STOP flag. On either a bus Stop or
+            // a DMA-major-loop completion (signaled by `dma_rx_complete_cb`
+            // via the `STATE_RXDMA_COMPLETE` bit), we commit the bytes that
+            // landed and immediately re-arm DMA into the next grant.
+            //
+            // We W1C SSTATUS.STOP but deliberately keep SINTSET.STOP armed
+            // so the next transaction-end fires us again. `wait_for_end_of_chain`
+            // and friends rely on the level-triggered `STNOTSTOP` instead of
+            // the latched STOP and remain correct.
+            let pre = bbq.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+            let rx_present = (pre & STATE_RXDMA_PRESENT) != 0;
+            let dma_complete = (pre & STATE_RXDMA_COMPLETE) != 0;
+            let stop_fired = s_status.stop();
+            let mut handled_stop = false;
+            if rx_present && (stop_fired || dma_complete) {
+                let rxgr_active = (pre & STATE_RXGR_ACTIVE) != 0;
+                let dma_failed = rxgr_active && unsafe { (&*bbq.rxdma.get()).errors().is_some() };
+                if dma_failed {
+                    regs.sdmactrl().modify(|w| w.set_dmafb(SdmactrlDmafb::NotUsed));
+                    let _ = regs.sdmactrl().read();
+                    unsafe {
+                        (&*bbq.rxdma.get()).stop();
+                        drop(bbq.rxgr.get().read());
+                    }
+                    bbq.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
+                    bbq.rx_dma_error.store(true, Ordering::Release);
+                    info.wait_cell().wake();
                 }
-            } else {
-                false
-            };
 
-            if rxgr_active && (dma_complete || (stop_fired && rx_has_data)) {
-                // SAFETY: rxdma + rxgr present, ISR context.
-                unsafe { bbq.finalize_read(info) };
-            }
-            let rx_idle = (bbq.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
-            if rx_idle {
-                // SAFETY: rxdma present, no active grant, ISR context.
-                unsafe { bbq.start_read_transfer(info) };
-            }
-            if stop_fired {
-                regs.sstatus().write(|w| w.set_stop(true));
-                regs.sintset().write(|w| w.set_stop(true));
-                bbq.stop_seq.fetch_add(1, Ordering::AcqRel);
-                handled_stop = true;
-            }
-        }
+                // Only tear down + rebuild the RX DMA grant when there is
+                // actual work to commit: either the major loop completed
+                // (`dma_complete`), or a bus Stop fired AND we observed at
+                // least one byte landing in the current grant. The slave
+                // bus also emits a Stop after our outbound IBI directed
+                // read (no RX bytes received during that phase); if we
+                // finalized on every such Stop we'd needlessly disable DMA,
+                // open a fresh grant, and reprogram TCD — leaving a small
+                // window where the controller's next write can push bytes
+                // into an unarmed RX FIFO and latch SERRWARN.ORUN.
+                //
+                // SAFETY: ISR context; rxdma + rxgr owned by BbqState while
+                // RXDMA_PRESENT + RXGR_ACTIVE are set.
+                let rx_has_data = if rxgr_active && !dma_failed {
+                    unsafe {
+                        let rxdma = &*bbq.rxdma.get();
+                        let rxgr = &*bbq.rxgr.get();
+                        rxdma.daddr() as usize != rxgr.as_ptr() as usize
+                    }
+                } else {
+                    false
+                };
 
-        // Compute the remaining set of enables that fired (excluding the
-        // STOP we just consumed above).
-        let mut s_to_clear = s_status;
-        if handled_stop {
-            s_to_clear.set_stop(false);
-        }
+                if rxgr_active && !dma_failed && (dma_complete || (stop_fired && rx_has_data)) {
+                    // SAFETY: rxdma + rxgr present, ISR context.
+                    unsafe { bbq.finalize_read(info) };
+                }
+                let rx_idle = (bbq.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
+                if rx_idle && !bbq.rx_dma_error.load(Ordering::Acquire) {
+                    // SAFETY: rxdma present, no active grant, ISR context.
+                    unsafe { bbq.start_read_transfer(info) };
+                }
+                if stop_fired {
+                    regs.sstatus().write(|w| w.set_stop(true));
+                    regs.sintset().write(|w| w.set_stop(true));
+                    bbq.stop_seq.fetch_add(1, Ordering::AcqRel);
+                    handled_stop = true;
+                }
+            }
 
-        if s_to_clear.0 != 0 {
-            // The TX path is now DMA-driven, so the IRQ has no per-Start
-            // refill work to do. Just W1C the source enables that fired
-            // and wake the task. We deliberately leave `start` latched
-            // so callers observing `SSTATUS.START` (e.g. `dma_send_ibi`)
-            // can act on it; `listen()` W1Cs it explicitly.
-            regs.sintclr().write(|w| w.0 = s_to_clear.0);
+            // Compute the remaining set of enables that fired (excluding the
+            // STOP we just consumed above).
+            let mut s_to_clear = s_status;
+            if handled_stop {
+                s_to_clear.set_stop(false);
+            }
+
+            if s_to_clear.0 != 0 {
+                // The TX path is now DMA-driven, so the IRQ has no per-Start
+                // refill work to do. Just W1C the source enables that fired
+                // and wake the task. We deliberately leave `start` latched
+                // so callers observing `SSTATUS.START` (e.g. `dma_send_ibi`)
+                // can act on it; `listen()` W1Cs it explicitly.
+                regs.sintclr().write(|w| w.0 = s_to_clear.0);
+                info.wait_cell().wake();
+                return;
+            }
+
+            if handled_stop {
+                // BBQ handled this IRQ end-to-end. Still wake potential
+                // waiters of `STNOTSTOP=Stopped` (e.g. `wait_for_end_of_chain`).
+                info.wait_cell().wake();
+                return;
+            }
+
+            // Spurious: NVIC asserted but no S-side masked event. Could be a
+            // latched NVIC pending bit, an M-side enable, or some hardware
+            // edge that already cleared by the time we read. Clear all enables
+            // on both sides and unpend NVIC; `listen()` will re-arm what it
+            // needs on its next poll. Do NOT touch SERRWARN here — if there's
+            // a real error flag the listen closure must still observe it.
+            let m_enables = regs.mintset().read();
+            let s_enables = regs.sintset().read();
+            if m_enables.0 != 0 {
+                regs.mintclr().write(|w| w.0 = m_enables.0);
+            }
+            if s_enables.0 != 0 {
+                // Keep STOP armed for the BBQ path.
+                let mut e = s_enables;
+                if rx_present {
+                    e.set_stop(false);
+                }
+                if e.0 != 0 {
+                    regs.sintclr().write(|w| w.0 = e.0);
+                }
+            }
+
+            T::Interrupt::unpend();
+
             info.wait_cell().wake();
-            return;
-        }
-
-        if handled_stop {
-            // BBQ handled this IRQ end-to-end. Still wake potential
-            // waiters of `STNOTSTOP=Stopped` (e.g. `wait_for_end_of_chain`).
-            info.wait_cell().wake();
-            return;
-        }
-
-        // Spurious: NVIC asserted but no S-side masked event. Could be a
-        // latched NVIC pending bit, an M-side enable, or some hardware
-        // edge that already cleared by the time we read. Clear all enables
-        // on both sides and unpend NVIC; `listen()` will re-arm what it
-        // needs on its next poll. Do NOT touch SERRWARN here — if there's
-        // a real error flag the listen closure must still observe it.
-        let m_enables = regs.mintset().read();
-        let s_enables = regs.sintset().read();
-        if m_enables.0 != 0 {
-            regs.mintclr().write(|w| w.0 = m_enables.0);
-        }
-        if s_enables.0 != 0 {
-            // Keep STOP armed for the BBQ path.
-            let mut e = s_enables;
-            if rx_present {
-                e.set_stop(false);
-            }
-            if e.0 != 0 {
-                regs.sintclr().write(|w| w.0 = e.0);
-            }
-        }
-
-        T::Interrupt::unpend();
-
-        info.wait_cell().wake();
+        });
     }
 }
 
@@ -1598,6 +1612,8 @@ pub(crate) const STATE_RXDMA_COMPLETE: u32 = 0b0001_0000;
 pub struct BbqState {
     /// State flags. See STATE_* constants.
     pub(crate) state: AtomicU32,
+    /// Sticky until reset/reinitialization; a faulty grant is never published.
+    rx_dma_error: AtomicBool,
 
     /// Monotonic counter incremented by `on_interrupt` whenever the
     /// hardware-latched `SSTATUS.STOP` bit is observed and W1C'd.
@@ -1634,6 +1650,7 @@ impl BbqState {
     pub(crate) const fn new() -> Self {
         Self {
             state: AtomicU32::new(0),
+            rx_dma_error: AtomicBool::new(false),
             stop_seq: core::sync::atomic::AtomicU8::new(0),
             rx_queue: GroundedCell::uninit(),
             rxgr: GroundedCell::uninit(),
@@ -1666,6 +1683,7 @@ impl BbqState {
         // Disable the RX DMA request line so the controller cannot push
         // more bytes into the RX FIFO while we tear down the grant.
         info.regs().sdmactrl().modify(|w| w.set_dmafb(SdmactrlDmafb::NotUsed));
+        let _ = info.regs().sdmactrl().read();
 
         // SAFETY: RXDMA_PRESENT guarantees initialization, and the function's
         // safety contract guarantees exclusive access.
@@ -1700,6 +1718,7 @@ impl BbqState {
 
         // Reset the STOP sequence counter.
         self.stop_seq.store(0, Ordering::Release);
+        self.rx_dma_error.store(false, Ordering::Release);
     }
 
     /// Re-arm RX DMA using the retained queue and channel.
@@ -1789,6 +1808,7 @@ impl BbqState {
 
         // Publish INITED + RXDMA_PRESENT *before* opening the first
         // grant so that start_read_transfer sees the right state.
+        self.rx_dma_error.store(false, Ordering::Release);
         self.state.store(STATE_INITED | STATE_RXDMA_PRESENT, Ordering::Release);
 
         // Open the first grant + program DMA + enable SDMACTRL.dmafb.
@@ -1810,6 +1830,9 @@ impl BbqState {
     /// since with BBQ the FIFO is continuously drained and the
     /// `SSTATUS.RX_PEND` flag never latches.
     fn has_pending(&'static self) -> bool {
+        if self.rx_dma_error.load(Ordering::Acquire) {
+            return true;
+        }
         if (self.state.load(Ordering::Acquire) & STATE_RXDMA_PRESENT) == 0 {
             return false;
         }
@@ -1834,20 +1857,8 @@ impl BbqState {
             // every FIFO byte (the bus Stop fires when SCL/SDA quiesce,
             // but a few bytes may still be queued in the RX FIFO).
             info.regs().sdmactrl().modify(|w| w.set_dmafb(SdmactrlDmafb::NotUsed));
-            rxdma.disable_request();
-
-            // Drain residual FIFO bytes. Bounded by FIFO depth at AHB
-            // clock — microseconds. Mirrors the spin in the previous
-            // per-call dma_rx_run path.
-            let deadline = 2_000u32;
-            let mut spins = 0u32;
-            while !rxdma.is_done() && info.regs().sstatus().read().rx_pend() && spins < deadline {
-                spins = spins.wrapping_add(1);
-                cortex_m::asm::nop();
-            }
-
-            rxdma.clear_done();
-            fence(Ordering::AcqRel);
+            let _ = info.regs().sdmactrl().read();
+            rxdma.stop();
 
             // Bytes-written = (current DMA destination addr) - (grant base addr),
             // clamped to grant capacity (in case the major loop completed

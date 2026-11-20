@@ -67,7 +67,10 @@ async fn main(_spawner: Spawner) {
 
     let buf = RX_RING_BUFFER.take();
     // Set up the ring buffer with circular DMA
-    let mut ring_buf = rx.into_ring_dma_rx(buf).unwrap();
+    // SAFETY (incomplete pending DMA-14/15): static exclusive SRAM remains live,
+    // but this echo loop does not bound incoming traffic against DMA overwrite.
+    // Compile-only illustration until ring pacing/accounting is repaired.
+    let mut ring_buf = unsafe { rx.into_ring_dma_rx(buf) }.unwrap();
 
     tx.write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
         .await

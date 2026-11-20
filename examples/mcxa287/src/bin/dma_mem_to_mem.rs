@@ -99,7 +99,7 @@ async fn main(_spawner: Spawner) {
     // SAFETY: aligned DMA-accessible SRAM; pattern stays live and immutable and
     // mst remains exclusive through blocking single-descriptor completion.
     let transfer = unsafe { dma_ch0.memset(&pattern, mst, options) }.unwrap();
-    transfer.blocking_wait();
+    transfer.blocking_wait().unwrap();
 
     defmt::info!("DMA memset complete!");
     defmt::info!("Memset Buffer (after): {=[?]}", mst.as_slice());

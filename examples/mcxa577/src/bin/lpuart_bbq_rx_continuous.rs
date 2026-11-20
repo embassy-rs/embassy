@@ -52,7 +52,7 @@ async fn lpuart3_task(mut uart: LpuartBbq) {
 
         let tx_buf = [0xaa; TRANSFER_LEN];
         uart.write_all(&tx_buf).await.unwrap();
-        uart.flush().await;
+        uart.flush().await.unwrap();
         info!("LPUART3 wrote {} bytes of 0xaa", tx_buf.len());
     }
 }
@@ -62,7 +62,7 @@ async fn lpuart1_task(mut uart: LpuartBbq) {
     loop {
         let tx_buf = [0x55; TRANSFER_LEN];
         uart.write_all(&tx_buf).await.unwrap();
-        uart.flush().await;
+        uart.flush().await.unwrap();
         info!("LPUART1 wrote {} bytes of 0x55", tx_buf.len());
 
         Timer::after_millis(10).await;

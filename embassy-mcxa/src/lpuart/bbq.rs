@@ -43,6 +43,8 @@ pub enum BbqError {
     InvalidContinuousRxSize,
     /// Continuous DMA reused a half before it was published
     Overrun,
+    /// DMA failed. Reception/transmission remains stopped until reinitialized.
+    Dma,
 }
 
 impl core::fmt::Display for BbqError {
@@ -668,7 +670,13 @@ impl LpuartBbq {
         //
         // SAFETY: We have ensured we are in the INITING state, and interrupts are not yet active.
         unsafe {
-            LpuartBbqTx::initialize_tx_state(parts.state, parts.tx_dma_ch, parts.tx_buffer, parts.tx_dma_req);
+            LpuartBbqTx::initialize_tx_state(
+                parts.state,
+                parts.tx_dma_ch,
+                parts.tx_buffer,
+                parts.tx_dma_req,
+                parts.vtable.int_pend,
+            );
         }
 
         // Setup the RX state
@@ -751,15 +759,15 @@ impl LpuartBbq {
     /// Wait for all bytes in the outgoing buffer to be flushed asynchronously.
     ///
     /// See [`LpuartBbqTx::flush`] for more information
-    pub fn flush(&mut self) -> impl Future<Output = ()> {
+    pub fn flush(&mut self) -> impl Future<Output = Result<(), BbqError>> {
         self.tx.flush()
     }
 
     /// Busy wait until all transmitting has completed
     ///
     /// See [`LpuartBbqTx::blocking_flush`] for more information
-    pub fn blocking_flush(&mut self) {
-        self.tx.blocking_flush();
+    pub fn blocking_flush(&mut self) -> Result<(), BbqError> {
+        self.tx.blocking_flush()
     }
 
     /// Borrow split parts.
@@ -810,8 +818,7 @@ impl embedded_io_async::Write for LpuartBbq {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush().await;
-        Ok(())
+        self.flush().await
     }
 }
 
@@ -839,9 +846,10 @@ impl LpuartBbqTx {
     /// of the given BbqState.
     unsafe fn initialize_tx_state(
         state: &'static BbqState,
-        dma: DmaChannel<'static>,
+        mut dma: DmaChannel<'static>,
         tx_buffer: &'static mut [u8],
         request_num: u8,
+        callback: fn(),
     ) {
         // Enable the DMA interrupt to handle "transfer complete" interrupts
         dma.enable_interrupt();
@@ -857,6 +865,8 @@ impl LpuartBbqTx {
         // SAFETY: We have exclusive access to the shared TX components, and the interrupt
         // is not yet enabled. We move ownership of these resources to the shared area.
         unsafe {
+            dma.set_callback(callback);
+            state.tx_dma_error.store(false, Ordering::Release);
             state.tx_queue.get().write(BBQueue::new_with_storage(cont));
             state.txdma.get().write(dma);
             state.txdma_num.store(request_num, Ordering::Release);
@@ -896,7 +906,13 @@ impl LpuartBbqTx {
         //
         // SAFETY: We have ensured we are in the INITING state, and the interrupt is not yet active.
         unsafe {
-            Self::initialize_tx_state(parts.state, parts.dma_ch, parts.buffer, parts.dma_req);
+            Self::initialize_tx_state(
+                parts.state,
+                parts.dma_ch,
+                parts.buffer,
+                parts.dma_req,
+                parts.vtable.int_pend,
+            );
         }
 
         // Update our state to "initialized", and that we have the TXDMA channel present
@@ -945,7 +961,20 @@ impl LpuartBbqTx {
         let tx_queue = unsafe { &*self.state.tx_queue.get() };
 
         let prod = tx_queue.stream_producer();
-        let mut wgr = prod.wait_grant_max_remaining(buf.len()).await;
+        let mut wgr = match select(
+            self.state
+                .tx_flushed
+                .wait_for(|| self.state.tx_dma_error.load(Ordering::Acquire)),
+            prod.wait_grant_max_remaining(buf.len()),
+        )
+        .await
+        {
+            Either::First(_) => return Err(BbqError::Dma),
+            Either::Second(grant) => grant,
+        };
+        if self.state.tx_dma_error.load(Ordering::Acquire) {
+            return Err(BbqError::Dma);
+        }
         let to_copy = buf.len().min(wgr.len());
         wgr[..to_copy].copy_from_slice(&buf[..to_copy]);
         wgr.commit(to_copy);
@@ -957,24 +986,38 @@ impl LpuartBbqTx {
     /// Wait for all bytes in the outgoing buffer to be flushed asynchronously.
     ///
     /// When this method completes, the outgoing buffer is empty.
-    pub async fn flush(&mut self) {
+    pub async fn flush(&mut self) -> Result<(), BbqError> {
         // Discard the result on wait_for as we never close the waiter.
         let _ = self
             .state
             .tx_flushed
             .wait_for(|| {
                 // We are idle when there is no TXGR active
-                (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0
+                self.state.tx_dma_error.load(Ordering::Acquire)
+                    || (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0
             })
             .await;
+        if self.state.tx_dma_error.load(Ordering::Acquire) {
+            Err(BbqError::Dma)
+        } else {
+            Ok(())
+        }
     }
 
     /// Busy wait until all transmitting has completed
     ///
     /// When this method completes, the outgoing buffer is empty.
-    pub fn blocking_flush(&mut self) {
+    pub fn blocking_flush(&mut self) -> Result<(), BbqError> {
         while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {
+            if self.state.tx_dma_error.load(Ordering::Acquire) {
+                return Err(BbqError::Dma);
+            }
             core::hint::spin_loop()
+        }
+        if self.state.tx_dma_error.load(Ordering::Acquire) {
+            Err(BbqError::Dma)
+        } else {
+            Ok(())
         }
     }
 
@@ -1004,9 +1047,8 @@ impl LpuartBbqTx {
 
                 // Stop the DMA
                 self.info.regs().baud().modify(|w| w.set_tdmae(false));
-                txdma.disable_request();
-                txdma.clear_done();
-                fence(Ordering::Acquire);
+                let _ = self.info.regs().baud().read();
+                txdma.stop();
 
                 // Then take the grant by ownership, and drop it, which releases the grant
                 _ = self.state.txgr.get().read();
@@ -1044,9 +1086,11 @@ impl LpuartBbqTx {
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
         if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_INITED {
-            (self.vtable.int_disable)();
-            super::disable_peripheral(self.info);
-            self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
+            critical_section::with(|_| {
+                (self.vtable.int_disable)();
+                self.state.state.store(STATE_UNINIT, Ordering::Release);
+                super::disable_peripheral(self.info);
+            });
         }
 
         (ptr, len, tx_dma)
@@ -1120,6 +1164,7 @@ impl embedded_io_async::Error for BbqError {
             BbqError::MaxFrameTooLarge => embedded_io::ErrorKind::OutOfMemory,
             BbqError::InvalidContinuousRxSize => embedded_io::ErrorKind::InvalidInput,
             BbqError::Overrun => embedded_io::ErrorKind::Other,
+            BbqError::Dma => embedded_io::ErrorKind::Other,
         }
     }
 }
@@ -1133,8 +1178,7 @@ impl embedded_io_async::Write for LpuartBbqTx {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.flush().await;
-        Ok(())
+        self.flush().await
     }
 }
 
@@ -1198,6 +1242,7 @@ impl LpuartBbqRx {
             state.rx_published_pos.store(0, Ordering::Release);
             state.rx_publish_pending.store(false, Ordering::Release);
             state.rx_overrun.store(false, Ordering::Release);
+            state.rx_dma_error.store(false, Ordering::Release);
             state.rxdma.get().write(dma);
             state.rxdma_num.store(request_num, Ordering::Release);
         }
@@ -1340,6 +1385,9 @@ impl LpuartBbqRx {
         // initialized. The rx_queue is safe to access in a shared manner after initialization.
         let queue = unsafe { &*self.state.rx_queue.get() };
         let cons = queue.stream_consumer();
+        if self.state.rx_dma_error.load(Ordering::Acquire) {
+            return Err(BbqError::Dma);
+        }
         if self.state.rx_overrun.load(Ordering::Acquire) {
             return Err(BbqError::Overrun);
         }
@@ -1347,15 +1395,24 @@ impl LpuartBbqRx {
         // The overrun future is first so a simultaneously-ready error wins over
         // queued data. The flag is sticky until explicitly cleared or reinitialized.
         let rgr = match select(
-            self.state
-                .rx_overrun_wait
-                .wait_for(|| self.state.rx_overrun.load(Ordering::Acquire)),
+            self.state.rx_overrun_wait.wait_for(|| {
+                self.state.rx_overrun.load(Ordering::Acquire) || self.state.rx_dma_error.load(Ordering::Acquire)
+            }),
             cons.wait_read(),
         )
         .await
         {
-            Either::First(_) => return Err(BbqError::Overrun),
+            Either::First(_) => {
+                return Err(if self.state.rx_dma_error.load(Ordering::Acquire) {
+                    BbqError::Dma
+                } else {
+                    BbqError::Overrun
+                });
+            }
             Either::Second(rgr) => {
+                if self.state.rx_dma_error.load(Ordering::Acquire) {
+                    return Err(BbqError::Dma);
+                }
                 if self.state.rx_overrun.load(Ordering::Acquire) {
                     drop(rgr);
                     return Err(BbqError::Overrun);
@@ -1415,6 +1472,7 @@ impl LpuartBbqRx {
 
             // Stop the DMA
             self.info.regs().baud().modify(|w| w.set_rdmae(false));
+            let _ = self.info.regs().baud().read();
             rxdma.clear_callback();
             rxdma.stop();
 
@@ -1455,8 +1513,11 @@ impl LpuartBbqRx {
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
         if (state & !rx_state_bits) == STATE_INITED {
-            super::disable_peripheral(self.info);
-            self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
+            critical_section::with(|_| {
+                (self.vtable.int_disable)();
+                self.state.state.store(STATE_UNINIT, Ordering::Release);
+                super::disable_peripheral(self.info);
+            });
         }
 
         (ptr, len, rx_dma)
@@ -1613,6 +1674,8 @@ pub(crate) struct BbqState {
     rx_publish_pending: AtomicBool,
     /// Sticky continuous-DMA overrun indication.
     rx_overrun: AtomicBool,
+    rx_dma_error: AtomicBool,
+    tx_dma_error: AtomicBool,
     /// Wakes a blocked reader when a continuous-DMA overrun occurs.
     rx_overrun_wait: WaitCell,
     /// The "incoming" receive grant, which DMA will write to.
@@ -1642,6 +1705,8 @@ impl BbqState {
             rx_published_pos: AtomicU32::new(0),
             rx_publish_pending: AtomicBool::new(false),
             rx_overrun: AtomicBool::new(false),
+            rx_dma_error: AtomicBool::new(false),
+            tx_dma_error: AtomicBool::new(false),
             rx_overrun_wait: WaitCell::new(),
             rxgr: GroundedCell::uninit(),
             txgr: GroundedCell::uninit(),
@@ -1683,10 +1748,8 @@ impl BbqState {
 
             // Stop the DMA
             info.regs().baud().modify(|w| w.set_tdmae(false));
-            txdma.disable_request();
-            txdma.clear_done();
-            // TODO: Some other way of ensuring the DMA is completely stopped?
-            fence(Ordering::Acquire);
+            let _ = info.regs().baud().read();
+            txdma.stop();
 
             // The max transfer length was the lesser of capacity / 4 or the max DMA transfer size
             // in a single transaction. This is because the `read()` used to create this grant may
@@ -1724,12 +1787,8 @@ impl BbqState {
             // Stop the active DMA.
             // The DMA may NOT be done yet if this was an idle interrupt
             info.regs().baud().modify(|w| w.set_rdmae(false));
-            rxdma.disable_request();
-            rxdma.clear_done();
-
-            // Fence to ensure all DMA written bytes are complete, and we can see
-            // any writes to the DADDR
-            fence(Ordering::AcqRel);
+            let _ = info.regs().baud().read();
+            rxdma.stop();
 
             // Calculate the number of bytes written using the current write address of the
             // DMA channel, minus our starting address.
@@ -1787,6 +1846,7 @@ impl BbqState {
         // access to the channel while the transfer is stopped.
         let rxdma = unsafe { &mut *self.rxdma.get() };
         info.regs().baud().modify(|w| w.set_rdmae(false));
+        let _ = info.regs().baud().read();
         rxdma.stop();
         self.rx_publish_pending.store(false, Ordering::Release);
         self.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
@@ -2211,171 +2271,200 @@ macro_rules! impl_lpuart_bbq_instance {
 // SAFETY: Should only be called by the `on_interrupt` function in ISR context, with
 // the shared BbqState properly initialized in the INITED state
 unsafe fn handler(info: &'static Info, state: &'static BbqState) {
-    let regs = info.regs();
-    let ctrl = regs.ctrl().read();
-    let stat = regs.stat().read();
+    critical_section::with(|_| {
+        // A retired DMA callback may have pended this IRQ before teardown
+        // cleared it. Validate the owner before any possibly gated MMIO.
+        if state.state.load(Ordering::Acquire) & STATE_INITED != STATE_INITED {
+            return;
+        }
+        let regs = info.regs();
+        let ctrl = regs.ctrl().read();
+        let stat = regs.stat().read();
 
-    // Just clear any errors - TODO, signal these to the consumer?
-    // For now, we just clear + discard errors if they occur.
-    let or = stat.or();
-    let pf = stat.pf();
-    let fe = stat.fe();
-    let nf = stat.nf();
-    let idle = stat.idle();
-    regs.stat().modify(|w| {
-        w.set_or(or);
-        w.set_pf(pf);
-        w.set_fe(fe);
-        w.set_nf(nf);
-        w.set_idle(idle);
-    });
+        // Just clear any errors - TODO, signal these to the consumer?
+        // For now, we just clear + discard errors if they occur.
+        let or = stat.or();
+        let pf = stat.pf();
+        let fe = stat.fe();
+        let nf = stat.nf();
+        let idle = stat.idle();
+        regs.stat().modify(|w| {
+            w.set_or(or);
+            w.set_pf(pf);
+            w.set_fe(fe);
+            w.set_nf(nf);
+            w.set_idle(idle);
+        });
 
-    //
-    // RX state machine
-    //
+        //
+        // RX state machine
+        //
 
-    // Check DMA complete or idle interrupt occurred - we need to stop
-    // the current RX transfer in either case.
-    let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+        // Check DMA complete or idle interrupt occurred - we need to stop
+        // the current RX transfer in either case.
+        let pre_clear = state.state.fetch_and(!STATE_RXDMA_COMPLETE, Ordering::AcqRel);
 
-    // SAFETY NOTE: The RXDMA_PRESENT bit is used to mediate whether the interrupt should
-    // act the shared RX data. This is used by functions like `teardown` to disable interrupt
-    // access to shared data when tearing down.
-    let rx_present = (pre_clear & STATE_RXDMA_PRESENT) != 0;
-    if rx_present {
-        let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
-        let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
-        let continuous = RxDmaMode::from_state_bits(pre_clear).is_continuous();
+        // SAFETY NOTE: The RXDMA_PRESENT bit is used to mediate whether the interrupt should
+        // act the shared RX data. This is used by functions like `teardown` to disable interrupt
+        // access to shared data when tearing down.
+        let rx_present = (pre_clear & STATE_RXDMA_PRESENT) != 0;
+        if rx_present {
+            let rx_active = (pre_clear & STATE_RXGR_ACTIVE) != 0;
+            let dma_complete = (pre_clear & STATE_RXDMA_COMPLETE) != 0;
+            let continuous = RxDmaMode::from_state_bits(pre_clear).is_continuous();
 
-        if continuous {
-            if rx_active {
-                // SAFETY: Continuous mode owns a fixed staging ring, RXDMA is present
-                // and active, and this is the serialized LPUART ISR.
-                let result = unsafe {
-                    let rxdma = &*state.rxdma.get();
-                    match rxdma.ping_pong_status() {
-                        Some(status) => match status.granted_buffer() {
-                            // A boundary and an IDLE can be observed in the same ISR pass,
-                            // so the tail already staged in the now-active half must be
-                            // flushed here too or it stalls until the next boundary.
-                            Ok(Some(buffer)) => match state.publish_continuous_buffer(buffer) {
-                                Ok(true) => state.publish_continuous_partial(),
-                                other => other,
+            // A DMA-only error also pends this handler via the channel callback.
+            // Do not publish a faulty grant or silently rearm it as a new transfer.
+            let dma_failed = rx_active && unsafe { (&*state.rxdma.get()).errors().is_some() };
+            if dma_failed {
+                regs.baud().modify(|w| w.set_rdmae(false));
+                let _ = regs.baud().read();
+                unsafe {
+                    (&*state.rxdma.get()).stop();
+                    if rx_active && !continuous {
+                        drop(state.rxgr.get().read());
+                    }
+                }
+                state.state.fetch_and(!STATE_RXGR_ACTIVE, Ordering::AcqRel);
+                state.rx_dma_error.store(true, Ordering::Release);
+                state.rx_overrun_wait.wake();
+            } else if continuous && !state.rx_dma_error.load(Ordering::Acquire) {
+                if rx_active {
+                    // SAFETY: Continuous mode owns a fixed staging ring, RXDMA is present
+                    // and active, and this is the serialized LPUART ISR.
+                    let result = unsafe {
+                        let rxdma = &*state.rxdma.get();
+                        match rxdma.ping_pong_status() {
+                            Some(status) => match status.granted_buffer() {
+                                // A boundary and an IDLE can be observed in the same ISR pass,
+                                // so the tail already staged in the now-active half must be
+                                // flushed here too or it stalls until the next boundary.
+                                Ok(Some(buffer)) => match state.publish_continuous_buffer(buffer) {
+                                    Ok(true) => state.publish_continuous_partial(),
+                                    other => other,
+                                },
+                                // No buffer has been granted yet, that means we are still waiting
+                                // for the first half to be completed. This also happen at the very beginning of the transfer.
+                                Ok(None) => state.publish_continuous_partial(),
+                                Err(_) => {
+                                    state.record_continuous_overrun();
+                                    Err(())
+                                }
                             },
-                            // No buffer has been granted yet, that means we are still waiting
-                            // for the first half to be completed. This also happen at the very beginning of the transfer.
-                            Ok(None) => state.publish_continuous_partial(),
-                            Err(_) => {
+                            None => {
                                 state.record_continuous_overrun();
                                 Err(())
                             }
-                        },
-                        None => {
-                            state.record_continuous_overrun();
-                            Err(())
+                        }
+                    };
+
+                    if result.is_err() || state.rx_overrun.load(Ordering::Acquire) {
+                        // Stop both the peripheral request source and DMA before
+                        // returning the sticky error. clear_overrun() may re-arm RX.
+                        regs.ctrl().modify(|w| w.set_ilie(false));
+                        // SAFETY: Continuous RX is active in the serialized UART ISR.
+                        unsafe {
+                            state.stop_continuous_read(info);
                         }
                     }
-                };
-
-                if result.is_err() || state.rx_overrun.load(Ordering::Acquire) {
-                    // Stop both the peripheral request source and DMA before
-                    // returning the sticky error. clear_overrun() may re-arm RX.
-                    regs.ctrl().modify(|w| w.set_ilie(false));
-                    // SAFETY: Continuous RX is active in the serialized UART ISR.
+                } else if !state.rx_overrun.load(Ordering::Acquire) {
+                    // Initial transition from Idle -> Receiving. Once started, continuous
+                    // mode remains active until teardown.
+                    //
+                    // SAFETY: RXDMA is present, no transfer is active, and this is ISR context.
                     unsafe {
-                        state.stop_continuous_read(info);
+                        let started = state.start_continuous_read(info);
+                        regs.ctrl().modify(|w| w.set_ilie(started));
                     }
                 }
-            } else if !state.rx_overrun.load(Ordering::Acquire) {
-                // Initial transition from Idle -> Receiving. Once started, continuous
-                // mode remains active until teardown.
-                //
-                // SAFETY: RXDMA is present, no transfer is active, and this is ISR context.
-                unsafe {
-                    let started = state.start_continuous_read(info);
-                    regs.ctrl().modify(|w| w.set_ilie(started));
+            } else if !state.rx_dma_error.load(Ordering::Acquire) {
+                if rx_active && (idle || dma_complete) {
+                    // State change, move from Receiving -> Idle
+                    //
+                    // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+                    // checked that RXGR_ACTIVE is set, we are in ISR context
+                    unsafe {
+                        state.finalize_read(info);
+                    }
                 }
-            }
-        } else {
-            if rx_active && (idle || dma_complete) {
-                // State change, move from Receiving -> Idle
-                //
-                // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
-                // checked that RXGR_ACTIVE is set, we are in ISR context
-                unsafe {
-                    state.finalize_read(info);
-                }
-            }
 
-            // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
-            // Only do this if RXDMA is present. We re-load from state to ensure we see when
-            // `finalize_read` just cleared the bit.
-            let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
-            if rx_idle {
-                // Either Idle -> Receiving or Idle -> Idle
-                //
-                // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
-                // checked there isn't a write grant active, and we are in ISR context.
-                unsafe {
-                    let started = state.start_read_transfer(info);
-                    // Enable ILIE if we started a transfer, otherwise (keep) disabled.
-                    // ILIE - Idle Line Interrupt Enable
-                    regs.ctrl().modify(|w| w.set_ilie(started));
+                // If we are now idle, attempt to "reload" the transfer and being receiving again ASAP.
+                // Only do this if RXDMA is present. We re-load from state to ensure we see when
+                // `finalize_read` just cleared the bit.
+                let rx_idle = (state.state.load(Ordering::Acquire) & STATE_RXGR_ACTIVE) == 0;
+                if rx_idle {
+                    // Either Idle -> Receiving or Idle -> Idle
+                    //
+                    // SAFETY: The HAL driver is initialized, we checked that RXDMA_PRESENT is set, we
+                    // checked there isn't a write grant active, and we are in ISR context.
+                    unsafe {
+                        let started = state.start_read_transfer(info);
+                        // Enable ILIE if we started a transfer, otherwise (keep) disabled.
+                        // ILIE - Idle Line Interrupt Enable
+                        regs.ctrl().modify(|w| w.set_ilie(started));
+                    }
                 }
             }
         }
-    }
 
-    //
-    // TX state machine
-    //
+        //
+        // TX state machine
+        //
 
-    // SAFETY NOTE: The TXDMA_PRESENT bit is used to mediate whether the interrupt should
-    // act the shared TX data. This is used by functions like `teardown` to disable interrupt
-    // access to shared data when tearing down.
-    let tx_state = state.state.load(Ordering::Acquire);
-    let tx_present = (tx_state & STATE_TXDMA_PRESENT) != 0;
-    if tx_present {
-        // Handle TX data - TCIE is only enabled if we are transmitting, and we only
-        // check that the outgoing transfer is complete. In the future, we might
-        // try to do this a bit earlier if the DMA completes but we haven't yet
-        // drained the TX fifo yet.
-        let txie_set = ctrl.tcie();
-        let tc_complete = regs.stat().read().tc();
-        let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
+        // SAFETY NOTE: The TXDMA_PRESENT bit is used to mediate whether the interrupt should
+        // act the shared TX data. This is used by functions like `teardown` to disable interrupt
+        // access to shared data when tearing down.
+        let tx_state = state.state.load(Ordering::Acquire);
+        let tx_present = (tx_state & STATE_TXDMA_PRESENT) != 0;
+        if tx_present {
+            // Handle TX data - TCIE is only enabled if we are transmitting, and we only
+            // check that the outgoing transfer is complete. In the future, we might
+            // try to do this a bit earlier if the DMA completes but we haven't yet
+            // drained the TX fifo yet.
+            let txie_set = ctrl.tcie();
+            let tc_complete = regs.stat().read().tc();
+            let txgr_present = (tx_state & STATE_TXGR_ACTIVE) != 0;
+            let dma_failed = txgr_present && unsafe { (&*state.txdma.get()).errors().is_some() };
 
-        let tx_did_finish = txie_set && tc_complete && txgr_present;
-        if tx_did_finish {
-            // State change, move from Transmitting -> Idle
-            //
-            // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
-            // we've checked TXGR_ACTIVE is set, we are in ISR context.
-            unsafe {
-                state.finalize_write(info);
+            let tx_did_finish = txgr_present && (dma_failed || (txie_set && tc_complete));
+            if dma_failed {
+                state.tx_dma_error.store(true, Ordering::Release);
+                regs.ctrl().modify(|w| w.set_tcie(false));
             }
-        }
+            if tx_did_finish {
+                // State change, move from Transmitting -> Idle
+                //
+                // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
+                // we've checked TXGR_ACTIVE is set, we are in ISR context.
+                unsafe {
+                    state.finalize_write(info);
+                }
+            }
 
-        // If we are now idle, attempt to "reload" the transfer and begin transmitting again.
-        // Only do this if TXDMA is present.
-        let tx_idle = (state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0;
-        if tx_idle {
-            // Either Idle -> Transmitting or Idle -> Idle
-            //
-            // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
-            // we've checked TXGR_ACTIVE is NOT set, we are in ISR context.
-            unsafe {
-                let started = state.start_write_transfer(info);
-                // Enable tcie if we started a transfer, otherwise (keep) disabled.
-                // TCIE - Transfer Complete Interrupt Enable
-                regs.ctrl().modify(|w| w.set_tcie(started));
+            // If we are now idle, attempt to "reload" the transfer and begin transmitting again.
+            // Only do this if TXDMA is present.
+            let tx_idle = (state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) == 0;
+            if dma_failed {
+                state.tx_flushed.wake();
+            } else if tx_idle && !state.tx_dma_error.load(Ordering::Acquire) {
+                // Either Idle -> Transmitting or Idle -> Idle
+                //
+                // SAFETY: The driver has been initialized, we've checked TXDMA_PRESENT is set,
+                // we've checked TXGR_ACTIVE is NOT set, we are in ISR context.
+                unsafe {
+                    let started = state.start_write_transfer(info);
+                    // Enable tcie if we started a transfer, otherwise (keep) disabled.
+                    // TCIE - Transfer Complete Interrupt Enable
+                    regs.ctrl().modify(|w| w.set_tcie(started));
 
-                // Did we go from "transmitting" to "idle" in this ISR? If so, wake any "flush" waiters.
-                if tx_did_finish && !started {
-                    state.tx_flushed.wake();
+                    // Did we go from "transmitting" to "idle" in this ISR? If so, wake any "flush" waiters.
+                    if tx_did_finish && !started {
+                        state.tx_flushed.wake();
+                    }
                 }
             }
         }
-    }
+    });
 }
 
 impl<T: BbqInstance> Handler<T::Interrupt> for BbqInterruptHandler<T> {

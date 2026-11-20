@@ -102,13 +102,11 @@
 //!     builder.add_transfer(&src2, &mut dst2);
 //!     builder.add_transfer(&src3, &mut dst3);
 //!
-//!     // SAFETY (incomplete pending DMA-9): buffers and aligned builder storage
-//!     // must remain live, exclusive
-//!     // and unmoved until ALL descriptors retire, even if this handle is lost.
-//!     // FIXME(DMA-9): blocking_wait is not yet a whole-chain completion proof.
-//!     // This multi-segment illustration must not be run until that is fixed.
+//!     // SAFETY: aligned DMA-accessible storage; builder stays live and unmoved,
+//!     // sources immutable and destinations exclusive until the whole chain
+//!     // retires. This example does not forget the retirement owner.
 //!     let transfer = unsafe { builder.build(ch0) }.unwrap();
-//!     transfer.blocking_wait();
+//!     transfer.blocking_wait().unwrap();
 //! }
 //! ```
 
@@ -279,7 +277,8 @@ impl Word for u32 {
 pub struct TransferOptions {
     /// Enable interrupt on half transfer complete.
     pub half_transfer_interrupt: bool,
-    /// Enable interrupt on transfer complete.
+    /// Enable interrupt on transfer complete. Starters returning [`Transfer`]
+    /// always enable this notification, even if this field is false.
     pub complete_transfer_interrupt: bool,
     /// Transfer priority
     pub priority: Priority,
@@ -918,17 +917,11 @@ impl DmaChannel<'_> {
     /// Commit a completed buffer after the peripheral driver has copied it.
     ///
     /// Committing a buffer that is not currently granted, or committing after the
-    /// state has already gone sticky-overrun, stops hardware requests.
+    /// state has already gone sticky-overrun, leaves the channel in sticky error.
+    /// The peripheral owner must stop its source and retire accepted work.
     pub(crate) fn commit_ping_pong_buffer(&self, buffer: PingPongSelector) -> Result<(), Error> {
         fence(Ordering::Release);
         let result = update_ping_pong_status(self.dma(), self.channel(), |status| status.commit(buffer));
-        if result.is_err() {
-            // Stop accepting requests immediately. The peripheral driver will
-            // disable its request source and fully drain ACTIVE in its ISR.
-            unsafe {
-                self.disable_request();
-            }
-        }
         result
     }
 
@@ -1017,6 +1010,8 @@ impl DmaChannel<'_> {
         t.ch_es().write(|w| w.set_err(true));
         // INT: Resets to all zeroes (disabled), "int" is cleared by writing 1
         t.ch_int().write(|w| w.set_int(true));
+        // Clear stale error evidence before enabling its interrupt source.
+        t.ch_csr().modify(|w| w.set_eei(true));
     }
 
     /// Start an async transfer.
@@ -1027,7 +1022,7 @@ impl DmaChannel<'_> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure the DMA channel has been properly configured
+    /// The caller must ensure the DMA channel is quiescent and properly configured
     /// and that source/destination buffers remain valid for the duration
     /// of the transfer.
     #[allow(unused)]
@@ -1036,6 +1031,7 @@ impl DmaChannel<'_> {
         let t = self.tcd();
         t.ch_csr().modify(|w| w.set_done(true));
         t.ch_int().write(|w| w.set_int(true));
+        t.tcd_csr().modify(|w| w.set_intmajor(true));
 
         // Enable the channel request
         t.ch_csr().modify(|w| {
@@ -1124,7 +1120,8 @@ impl DmaChannel<'_> {
         // Write this last after all other TCD registers are configured
         t.tcd_csr().write(|w| {
             w.set_intmajor(params.options.complete_transfer_interrupt);
-            w.set_inthalf(params.options.half_transfer_interrupt);
+            // RM: INTHALF is not supported when BITER is one.
+            w.set_inthalf(params.options.half_transfer_interrupt && major > 1);
             w.set_start(params.software);
             w.set_esg(false);
             w.set_majorelink(false);
@@ -1132,11 +1129,7 @@ impl DmaChannel<'_> {
             w.set_esda(false);
             w.set_bwc(Bwc::NoStall);
 
-            w.set_dreq(if params.circular {
-                false // Don't clear ERQ on complete (circular)
-            } else {
-                true // Auto-disable request after major loop
-            });
+            w.set_dreq(!params.circular);
         });
 
         // Memory & compiler barrier after setting START
@@ -1169,19 +1162,19 @@ impl DmaChannel<'_> {
     ///   by this transfer: no CPU or other DMA access to the destination, nor
     ///   writes to the source, while hardware can access them.
     /// - These obligations survive dropping or forgetting the returned handle.
-    ///   Borrow lifetimes and `Drop` alone are not a retirement proof. In
-    ///   particular, cancellation currently has a pending-START retirement gap
-    ///   (DMA-7); do not release or reuse storage based on `Drop` alone.
+    ///   Normal destruction drains pending software work before returning, but
+    ///   forgetting a borrowed handle does not stop DMA or retain its storage.
     pub unsafe fn mem_to_mem<'b, W: Word>(
         &'b mut self,
         src: &'b [W],
         dst: &'b mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Result<Transfer<'b>, InvalidParameters> {
         if src.is_empty() || src.len() > dst.len() || src.len() > DMA_MAX_TRANSFER_SIZE {
             return Err(InvalidParameters);
         }
 
+        options.complete_transfer_interrupt = true;
         unsafe {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: src.as_ptr(),
@@ -1212,8 +1205,8 @@ impl DmaChannel<'_> {
     /// - The pattern must remain immutable; the destination must remain
     ///   exclusive to this transfer, with no CPU or other DMA access.
     /// - These obligations apply even if the handle is dropped or forgotten.
-    ///   Lifetimes and `Drop` do not prove retirement. Cancellation still has
-    ///   the pending-START gap (DMA-7); do not reuse storage based on `Drop` alone.
+    ///   Normal destruction drains pending software work before returning;
+    ///   forgetting the handle does not stop DMA or retain its storage.
     ///
     /// # Arguments
     ///
@@ -1260,12 +1253,13 @@ impl DmaChannel<'_> {
         &'b mut self,
         pattern: &'b W,
         dst: &'b mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Result<Transfer<'b>, InvalidParameters> {
         if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
             return Err(InvalidParameters);
         }
 
+        options.complete_transfer_interrupt = true;
         unsafe {
             self.setup_transfers(DmaTransferParameters {
                 src_ptr: pattern,
@@ -1297,12 +1291,17 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
+    /// - Keep storage live, DMA-accessible, coherent and exclusive through
+    ///   retirement, even if the handle is forgotten. Before cancellation,
+    ///   disable the peripheral's DMA request and read that register back;
+    ///   this channel-only handle cannot shut down the peripheral for you.
     pub unsafe fn write_to_peripheral<W: Word>(
         &mut self,
         buf: &[W],
         peri_addr: *mut W,
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
+        options.complete_transfer_interrupt = true;
         unsafe {
             self.setup_write_to_peripheral(buf, peri_addr, false, options)?;
             self.enable_request();
@@ -1326,12 +1325,17 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
+    /// - Keep storage live, DMA-accessible, coherent and exclusive through
+    ///   retirement, even if the handle is forgotten. Before cancellation,
+    ///   disable the peripheral's DMA request and read that register back;
+    ///   this channel-only handle cannot shut down the peripheral for you.
     pub unsafe fn read_from_peripheral<W: Word>(
         &mut self,
         peri_addr: *const W,
         buf: &mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
+        options.complete_transfer_interrupt = true;
         unsafe {
             self.setup_read_from_peripheral(peri_addr, buf, false, options)?;
             self.enable_request();
@@ -1451,6 +1455,9 @@ impl DmaChannel<'_> {
     /// - All operations must be compatible with the configured DMA request.
     /// - If the returned transfer is forgotten, the sequence must remain valid until the transfer
     ///   completes.
+    /// - Before cancellation, disable and read back the peripheral's DMA request
+    ///   source. Retain the sequence at its current address, and all buffers,
+    ///   until accepted requests and descriptor fetches have retired.
     pub unsafe fn write_to_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralWriteOperation<'_>],
@@ -1511,6 +1518,9 @@ impl DmaChannel<'_> {
     /// - All operations must be compatible with the configured DMA request.
     /// - If the returned transfer is forgotten, the sequence must remain valid and inaccessible
     ///   until the transfer completes.
+    /// - Before cancellation, disable and read back the peripheral's DMA request
+    ///   source. Retain the sequence at its current address, and all buffers,
+    ///   until accepted requests and descriptor fetches have retired.
     pub unsafe fn read_from_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralReadOperation<'_>],
@@ -1744,6 +1754,8 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// Disabling requests on an active transfer may leave the transfer incomplete.
+    /// This does not retire accepted work. Disable and read back the peripheral
+    /// request source, then use `stop` before releasing storage or rewriting TCDs.
     pub(crate) unsafe fn disable_request(&self) {
         let t = self.tcd();
         t.ch_csr().modify(|w| {
@@ -1752,67 +1764,117 @@ impl DmaChannel<'_> {
         });
     }
 
-    /// Abort the transfer.
+    /// Retire accepted work before releasing buffers, descriptors, or grants.
     ///
-    /// When this returns, DMA can no longer access the transfer's buffers or
-    /// descriptors and the channel completion state has been cleared. A wake
-    /// stored in the `WaitCell` before aborting may remain. This is fine
-    /// because a wake only prompts the waiter to recheck completion state;
-    /// it does not indicate completion by itself.
+    /// The peripheral owner must first disable its request source and read the
+    /// peripheral register back. No other channel may subsequently link to this
+    /// channel. We wait for HRS to deassert before clearing ERQ (A2 RM
+    /// 15.5.9.1 / A5 RM 23.5.9.1), then drain START as well as ACTIVE (A2
+    /// 15.5.6.1 / A5 23.5.6.1). Disabling ERQ does not cancel software START.
     ///
-    /// With IRQs masked we:
-    /// 1. Clear `ERQ`/`EARQ` so no further service requests are issued.
-    /// 2. Spin until `CH_CSR.ACTIVE` clears, so any in-flight minor loop
-    ///    or software-triggered transfer drains.
-    /// 3. Clear `CH_CSR.DONE` and `CH_INT.INT` (both W1C) bookkeeping.
-    /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
-    ///    dropped on the floor instead of running redundantly after CS
-    ///    exit.
+    /// A finite software SG chain drains to its final interrupt or an error:
+    /// idle gaps between descriptors are not a retirement boundary. This can
+    /// wait for the whole chain, not just one minor loop. It deliberately does
+    /// not use global CX/HALT, which would affect independently owned channels.
+    /// A stalled bus can prevent retirement; a timeout must not release memory
+    /// while hardware can still access it.
     pub(crate) fn stop(&self) {
         let t = self.tcd();
-        let irq = self.channel.interrupt();
+        let state = &STATES[self.dma()][self.channel()];
 
-        critical_section::with(|_| {
-            // 1. Stop accepting new requests.
+        if t.ch_csr().read().erq() {
+            while self.hardware_request_pending() {
+                core::hint::spin_loop();
+            }
             t.ch_csr().modify(|w| {
                 w.set_erq(false);
                 w.set_earq(false);
             });
+        }
 
-            // 2. Mask interrupts so we don't have to worry about the
-            // IRQ firing while we're in the middle of the shutdown
-            // sequence.
+        if state.software_scatter_gather.load(Ordering::Acquire) {
+            while self.errors().is_none() && !self.is_done() {
+                core::hint::spin_loop();
+            }
+        }
+
+        // Read START first: arbitration clears it as execution begins. The
+        // following ACTIVE read catches that transition. No new request source
+        // remains, and software SG has reached its terminal event above.
+        while t.tcd_csr().read().start() || t.ch_csr().read().active() {
+            core::hint::spin_loop();
+        }
+
+        critical_section::with(|_| {
+            // TCD writes are prohibited while ACTIVE. Only mask TCD interrupts
+            // after retirement, and preserve error evidence before W1C.
+            let _ = self.errors();
+            t.ch_csr().modify(|w| {
+                w.set_erq(false);
+                w.set_earq(false);
+                w.set_eei(false);
+                w.set_done(true);
+            });
             t.tcd_csr().modify(|w| {
                 w.set_intmajor(false);
                 w.set_inthalf(false);
             });
-
-            // 3. Drop any IRQ the hardware queued in the NVIC while we
-            //    were masked.
-            cortex_m::peripheral::NVIC::unpend(irq);
+            t.ch_es().write(|w| w.set_err(true));
+            t.ch_int().write(|w| w.set_int(true));
+            cortex_m::peripheral::NVIC::unpend(self.channel.interrupt());
+            state.peripheral_scatter_gather_active.store(false, Ordering::Release);
+            state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+            state.software_scatter_gather.store(false, Ordering::Release);
+            set_ping_pong_status(self.dma(), self.channel(), None);
         });
 
-        // 4. Wait for any in-flight minor loop / SW-triggered transfer
-        //    to drain. Bounded by the size of one minor loop / SW
-        //    transfer this driver issues (microseconds at most).
-        while t.ch_csr().read().active() {
-            core::hint::spin_loop();
-        }
+        cortex_m::asm::dsb();
+        fence(Ordering::Acquire);
+    }
 
-        // 5. Clear completion bookkeeping (W1C).
-        t.ch_int().write(|w| w.set_int(true));
-        t.ch_csr().modify(|w| w.set_done(true));
+    fn hardware_request_pending(&self) -> bool {
+        let hrs = match self.dma() {
+            0 => pac::DMA0.mp_hrs().read().hrs(),
+            #[cfg(feature = "_mcxa5xx")]
+            1 => pac::DMA1.mp_hrs().read().hrs(),
+            _ => unreachable!(),
+        };
+        (hrs & (1 << self.channel())) != 0
+    }
+
+    /// Preserve error-only terminal outcomes independently of DONE and W1C.
+    pub(crate) fn errors(&self) -> Option<TransferErrors> {
         let state = &STATES[self.dma()][self.channel()];
-        state.peripheral_scatter_gather_active.store(false, Ordering::Release);
-        state.peripheral_scatter_gather_done.store(false, Ordering::Release);
-        set_ping_pong_status(self.dma(), self.channel(), None);
+        let es = self.tcd().ch_es().read();
+        if es.err() {
+            state.errors.fetch_or(es.0, Ordering::AcqRel);
+        }
+        let errors = state.errors.load(Ordering::Acquire);
+        // ERR can be asserted without a low-byte detail (e.g. cancellation).
+        (errors != 0).then_some(TransferErrors(errors as u8))
+    }
 
-        fence(Ordering::SeqCst);
+    /// Register before checking predicates, consuming stored wakes until a
+    /// future interrupt is guaranteed to have a registered waiter.
+    pub(crate) fn poll_complete(&self, cx: &mut Context<'_>) -> Poll<Result<(), TransferErrors>> {
+        loop {
+            let registered = self.wait_cell().poll_wait(cx).is_pending();
+            if let Some(errors) = self.errors() {
+                return Poll::Ready(Err(errors));
+            }
+            if self.is_done() {
+                fence(Ordering::Acquire);
+                return Poll::Ready(self.errors().map_or(Ok(()), Err));
+            }
+            if registered {
+                return Poll::Pending;
+            }
+        }
     }
 
     /// Return true if the current transfer has completed.
     ///
-    /// Regular transfers use the hardware DONE flag. Peripheral-paced SG uses
+    /// Regular transfers use the hardware DONE flag. Final-interrupt SG uses
     /// a completion latch set by its final-only interrupt.
     pub(crate) fn is_done(&self) -> bool {
         let state = &STATES[self.dma()][self.channel()];
@@ -1841,14 +1903,18 @@ impl DmaChannel<'_> {
     /// Reset the channel state for a regular transfer.
     fn prepare_regular_transfer(&self) {
         let state = &STATES[self.dma()][self.channel()];
+        state.errors.store(0, Ordering::Release);
+        state.software_scatter_gather.store(false, Ordering::Release);
         state.peripheral_scatter_gather_active.store(false, Ordering::Release);
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
         set_ping_pong_status(self.dma(), self.channel(), None);
     }
 
-    /// Select final-interrupt completion tracking for peripheral-paced SG.
+    /// Select final-interrupt completion tracking for a finite SG sequence.
     fn prepare_peripheral_scatter_gather(&self) {
         let state = &STATES[self.dma()][self.channel()];
+        state.errors.store(0, Ordering::Release);
+        state.software_scatter_gather.store(false, Ordering::Release);
         state.peripheral_scatter_gather_done.store(false, Ordering::Release);
         state.peripheral_scatter_gather_active.store(true, Ordering::Release);
         set_ping_pong_status(self.dma(), self.channel(), None);
@@ -2059,12 +2125,16 @@ struct State {
     waker: WaitCell,
     /// WaitCell for half-transfer interrupt
     half_waker: WaitCell,
+    /// Raw CH_ES including ERR; kept until the next transfer is configured.
+    errors: AtomicU32,
+    /// Finite auto-started memory SG must retire the entire chain on Drop.
+    software_scatter_gather: AtomicBool,
     /// Packed ping-pong ownership state shared by DMA and peripheral ISRs.
     /// Zero means the channel is not configured for ping-pong operation.
     ping_pong_status: AtomicU32,
-    /// Whether this channel currently contains a peripheral-paced SG sequence.
+    /// Whether this channel currently uses final-interrupt SG completion.
     peripheral_scatter_gather_active: AtomicBool,
-    /// Set when final peripheral-paced SG completion is observed.
+    /// Set when final SG completion is observed.
     peripheral_scatter_gather_done: AtomicBool,
 }
 
@@ -2073,6 +2143,8 @@ impl State {
         Self {
             waker: WaitCell::new(),
             half_waker: WaitCell::new(),
+            errors: AtomicU32::new(0),
+            software_scatter_gather: AtomicBool::new(false),
             ping_pong_status: AtomicU32::new(0),
             peripheral_scatter_gather_active: AtomicBool::new(false),
             peripheral_scatter_gather_done: AtomicBool::new(false),
@@ -2099,9 +2171,10 @@ pub(crate) fn half_waker(dma: usize, channel: usize) -> &'static WaitCell {
 ///
 /// This type implements `Future` and can be `.await`ed to wait for the
 /// transfer to complete. Hardware is already armed when this handle is returned.
-/// Dropping it attempts to stop the channel, but is not currently a complete
-/// retirement boundary (DMA-7). Forgetting it does not stop DMA. The starter's
-/// safety obligations remain in force until hardware can no longer access storage.
+/// Dropping it retires accepted work. Software scatter-gather cancellation may
+/// drain the entire finite chain. Peripheral users must disable and read back
+/// their request source before dropping the handle. Forgetting it does not stop
+/// DMA; the starter's storage obligations remain in force until retirement.
 #[must_use = "DMA is already armed; retain storage until actual hardware completion or retirement"]
 pub struct Transfer<'a> {
     channel: DmaChannel<'a>,
@@ -2117,7 +2190,7 @@ impl<'a> Transfer<'a> {
 
     /// Check if the transfer is still running.
     pub fn is_running(&self) -> bool {
-        !self.channel.is_done()
+        self.channel.errors().is_none() && !self.channel.is_done()
     }
 
     /// Get the remaining transfer count.
@@ -2126,17 +2199,18 @@ impl<'a> Transfer<'a> {
         t.tcd_citer_elinkno().read().citer()
     }
 
-    /// Block until the transfer completes.
-    pub fn blocking_wait(self) {
+    /// Block until completion or an error, retire accepted work, and return its
+    /// result. A permanently stalled bus can prevent retirement and block here.
+    pub fn blocking_wait(self) -> Result<(), TransferErrors> {
         while self.is_running() {
             core::hint::spin_loop();
         }
-
-        // Ensure all DMA writes are visible
-        fence(Ordering::Release);
-
-        // Don't run drop (which would abort)
-        core::mem::forget(self);
+        // Drop retires accepted work, including error paths, before the caller
+        // can inspect or reuse storage. Do not forget the retirement owner.
+        self.channel.stop();
+        let result = self.channel.errors().map_or(Ok(()), Err);
+        drop(self);
+        result
     }
 
     /// Wait for the half-transfer interrupt asynchronously.
@@ -2155,34 +2229,33 @@ impl<'a> Transfer<'a> {
         use core::future::poll_fn;
 
         poll_fn(|cx| {
-            let state = &STATES[self.channel.dma()][self.channel.channel()];
+            loop {
+                let state = &STATES[self.channel.dma()][self.channel.channel()];
 
-            // Register the half-transfer waker
-            let _ = state.half_waker.poll_wait(cx);
+                // Register the half-transfer waker
+                let registered = state.half_waker.poll_wait(cx).is_pending();
 
-            // Check if there's an error
-            let t = self.channel.tcd();
-            let es = t.ch_es().read();
-            if es.err() {
-                // Currently, all error fields are in the lowest 8 bits, as-casting truncates
-                let errs = es.0 as u8;
-                return Poll::Ready(Err(TransferErrors(errs)));
-            }
+                // Check if there's an error
+                let t = self.channel.tcd();
+                if let Some(errors) = self.channel.errors() {
+                    return Poll::Ready(Err(errors));
+                }
 
-            // Check if we're past the half-way point
-            let biter = t.tcd_biter_elinkno().read().biter();
-            let citer = t.tcd_citer_elinkno().read().citer();
-            let half_point = biter / 2;
+                // Check if we're past the half-way point
+                let biter = t.tcd_biter_elinkno().read().biter();
+                let citer = t.tcd_citer_elinkno().read().citer();
+                let half_point = biter / 2;
 
-            if self.channel.is_done() {
-                // Transfer completed before half-transfer
-                Poll::Ready(Ok(false))
-            } else if citer <= half_point {
-                // We're past the half-way point
-                fence(Ordering::SeqCst);
-                Poll::Ready(Ok(true))
-            } else {
-                Poll::Pending
+                if self.channel.is_done() {
+                    // Transfer completed before half-transfer
+                    return Poll::Ready(Ok(false));
+                } else if biter > 1 && citer <= half_point {
+                    // We're past the half-way point
+                    fence(Ordering::SeqCst);
+                    return Poll::Ready(Ok(true));
+                } else if registered {
+                    return Poll::Pending;
+                }
             }
         })
         .await
@@ -2340,41 +2413,15 @@ impl<'a> Future for Transfer<'a> {
     type Output = Result<(), TransferErrors>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // We must register our waker even if the WaitCell currently has a
-        // stale WOKEN bit set (e.g. from a previously-cancelled transfer's
-        // late completion IRQ). `poll_wait` only registers the waker when
-        // it would return `Pending`; if it consumes a stored wake it
-        // returns `Ready(_)` *without* registering. Loop until the waker
-        // is actually registered (poll_wait returns Pending) or until the
-        // hardware reports the transfer is complete.
-        loop {
-            if self.channel.is_done() {
-                // Ensure all DMA writes are visible before returning
-                fence(Ordering::Acquire);
-                let es = self.channel.tcd().ch_es().read();
-                return if es.err() {
-                    Poll::Ready(Err(TransferErrors(es.0 as u8)))
-                } else {
-                    Poll::Ready(Ok(()))
-                };
-            }
-
-            match STATES[self.channel.dma()][self.channel.channel()].waker.poll_wait(cx) {
-                Poll::Pending => return Poll::Pending,
-                // Consumed a stale wake; loop and re-check is_done, then
-                // try registering the waker again on the next iteration.
-                Poll::Ready(_) => continue,
-            }
-        }
+        self.channel.poll_complete(cx)
     }
 }
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        // `abort` leaves the channel quiescent and clears all completion
-        // bookkeeping (DONE/INT/NVIC/WaitCell) so the next user of this
-        // channel starts from a clean slate. Safe to call unconditionally;
-        // it's cheap when the transfer is already complete.
+        // `abort` retires accepted work and clears DONE/INT/NVIC bookkeeping.
+        // Stored WaitCell wakes may remain; waiter registration consumes them
+        // before waiting for a future event. Cheap after normal completion.
         self.abort();
 
         fence(Ordering::Release);
@@ -2531,29 +2578,36 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
         }
 
         poll_fn(|cx| {
-            // Check for overrun
-            if self.is_overrun() {
-                return Poll::Ready(Err(Error::Overrun));
+            loop {
+                if self.channel.errors().is_some() {
+                    return Poll::Ready(Err(Error::BusError));
+                }
+                // Check for overrun
+                if self.is_overrun() {
+                    return Poll::Ready(Err(Error::Overrun));
+                }
+
+                // Try to read immediately
+                let n = self.read_immediate(dst);
+                if n > 0 {
+                    return Poll::Ready(Ok(n));
+                }
+
+                // Register wakers for both half and complete interrupts
+                let state = &STATES[self.channel.dma()][self.channel.channel()];
+                let complete_registered = state.waker.poll_wait(cx).is_pending();
+                let half_registered = state.half_waker.poll_wait(cx).is_pending();
+
+                // Check again after registering waker (avoid race)
+                let n = self.read_immediate(dst);
+                if n > 0 {
+                    return Poll::Ready(Ok(n));
+                }
+
+                if complete_registered && half_registered {
+                    return Poll::Pending;
+                }
             }
-
-            // Try to read immediately
-            let n = self.read_immediate(dst);
-            if n > 0 {
-                return Poll::Ready(Ok(n));
-            }
-
-            // Register wakers for both half and complete interrupts
-            let state = &STATES[self.channel.dma()][self.channel.channel()];
-            let _ = state.waker.poll_wait(cx);
-            let _ = state.half_waker.poll_wait(cx);
-
-            // Check again after registering waker (avoid race)
-            let n = self.read_immediate(dst);
-            if n > 0 {
-                return Poll::Ready(Ok(n));
-            }
-
-            Poll::Pending
         })
         .await
     }
@@ -2592,22 +2646,10 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
 
     /// Stop the DMA transfer. Intended to be called by `stop()` or `Drop`.
     fn teardown(&mut self) -> usize {
-        let available = self.available();
-
-        // Disable the channel
-        let t = self.channel.tcd();
-        t.ch_csr().modify(|w| {
-            w.set_erq(false);
-            w.set_earq(false)
-        });
-
-        // Clear flags
-        t.ch_int().write(|w| w.set_int(true));
-        t.ch_csr().modify(|w| w.set_done(true));
-
-        fence(Ordering::Release);
-
-        available
+        // The peripheral wrapper shuts down and reads back its request source
+        // before this field is dropped. Sample progress only after retirement.
+        self.channel.stop();
+        self.available()
     }
 }
 
@@ -2793,12 +2835,11 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 ///     builder.add_transfer(&src3, &mut dst3);
 ///
 ///     // Build and execute
-///     // SAFETY (incomplete pending DMA-9): buffers and builder must stay live and
-///     // unmoved, sources immutable and destinations exclusive until retirement.
-///     // FIXME(DMA-9): await does not yet prove whole-chain completion. Do not
-///     // run this multi-segment illustration until that completion gap is fixed.
+///     // SAFETY: aligned DMA-accessible storage stays live; the builder remains
+///     // unmoved, sources immutable and destinations exclusive until the whole
+///     // chain retires. This example does not forget the handle.
 ///     let transfer = unsafe { builder.build(ch0).unwrap() };
-///     transfer.await;
+///     transfer.await.unwrap();
 /// # }
 /// ```
 pub struct ScatterGatherBuilder<'a, W: Word> {
@@ -2875,8 +2916,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     ///
     /// # Returns
     ///
-    /// A `Transfer` future tracking the channel. Currently its completion can
-    /// reflect an intermediate descriptor, not the entire chain (DMA-9).
+    /// A `Transfer` future tracking final-chain completion or an error.
     ///
     /// # Safety
     ///
@@ -2889,8 +2929,8 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     /// - Keep these guarantees until the entire chain and all accepted work
     ///   actually retire, including if the returned handle is dropped or
     ///   forgotten. Its borrow is only an aid, not a leak-safety argument.
-    /// - Neither the current per-descriptor completion indication (DMA-9) nor
-    ///   the current cancellation path (DMA-7) proves whole-chain retirement.
+    /// - Normal destruction drains the finite software-started chain, which may
+    ///   wait for all segments. Forgetting the handle performs no retirement.
     pub unsafe fn build<'b>(&'b mut self, channel: DmaChannel<'b>) -> Result<Transfer<'b>, Error> {
         if self.count == 0 {
             return Err(Error::Configuration);
@@ -2908,8 +2948,8 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
         // the hardware will NOT auto-execute the loaded TCD.
         //
         // Strategy:
-        // - First TCD: ESG | INTMAJOR (no START - we add it manually after loading)
-        // - Middle TCDs: ESG | INTMAJOR | START (auto-execute when loaded via S/G)
+        // - First TCD: ESG (no START - we add it manually after loading)
+        // - Middle TCDs: ESG | START (auto-execute when loaded via S/G)
         // - Last TCD: INTMAJOR | START (auto-execute, no further linking)
         for i in 0..self.count {
             let is_first = i == 0;
@@ -2923,7 +2963,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
                 } else {
                     // First of multiple - ESG to link, no START (we add START manually)
                     self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
-                    self.tcds[i].csr = 0x0012; // ESG | INTMAJOR
+                    self.tcds[i].csr = 0x0010; // ESG; only the final TCD interrupts
                 }
             } else if is_last {
                 // Last TCD (not first) - no ESG, but START so it auto-executes
@@ -2932,11 +2972,14 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
             } else {
                 // Middle TCD - ESG to link, and START so it auto-executes
                 self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
-                self.tcds[i].csr = 0x0013; // ESG | INTMAJOR | START
+                self.tcds[i].csr = 0x0011; // ESG | START
             }
         }
 
-        channel.prepare_regular_transfer();
+        channel.prepare_peripheral_scatter_gather();
+        STATES[channel.dma()][channel.channel()]
+            .software_scatter_gather
+            .store(true, Ordering::Release);
         let t = channel.tcd();
 
         // Reset channel state - clear DONE, disable requests, clear errors
@@ -2992,106 +3035,121 @@ pub struct ScatterGatherResult {
 /// # Safety
 /// Must be called from the correct DMA channel interrupt context.
 pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
-    crate::perf_counters::incr_interrupt_edma0();
+    // Serialize the entire status/acknowledgement/latch transaction against
+    // channel retirement and reuse in a higher-priority interrupt executor.
+    critical_section::with(|_| {
+        crate::perf_counters::incr_interrupt_edma0();
 
-    let t = match dma {
-        0 => pac::EDMA_TCD0.tcd(channel),
-        #[cfg(feature = "_mcxa5xx")]
-        1 => pac::EDMA_TCD1.tcd(channel),
-        _ => unreachable!(),
-    };
-
-    if !t.ch_int().read().int() {
-        // The interrupt has been cleared, ignore this spurious interrupt.
-        return;
-    }
-
-    let state = &STATES[dma][channel];
-
-    if ping_pong_status(dma, channel).is_some() {
-        // Clear the observed boundary before sampling progress. If another
-        // boundary occurs while this ISR runs, hardware will latch CH_INT again
-        // instead of that newer event being lost in this W1C operation.
-        t.ch_int().write(|w| w.set_int(true));
-
-        let done = t.ch_csr().read().done();
-        let biter = t.tcd_biter_elinkno().read().biter();
-        let citer = t.tcd_citer_elinkno().read().citer();
-
-        let valid = biter >= 2 && biter.is_multiple_of(2) && citer <= biter;
-        let another_boundary = t.ch_int().read().int();
-        // `current` independently validates this phase classification. If ISR
-        // latency spans another boundary, the sampled buffer will be unexpected
-        // (or a previous grant will remain), deliberately producing an overrun.
-        let completed = if !valid || another_boundary {
-            None
-        } else if done {
-            // If DONE is set, it means Buffer B has completed.
-            Some(PingPongSelector::BufferB)
-        } else if citer > 0 && citer <= biter / 2 {
-            // If CITER is in the first half, it means Buffer A is currently being transferred.
-            Some(PingPongSelector::BufferA)
-        } else if citer > biter / 2 {
-            // B completed, but a new A request already cleared DONE.
-            Some(PingPongSelector::BufferB)
-        } else {
-            None
+        let t = match dma {
+            0 => pac::EDMA_TCD0.tcd(channel),
+            #[cfg(feature = "_mcxa5xx")]
+            1 => pac::EDMA_TCD1.tcd(channel),
+            _ => unreachable!(),
         };
 
-        let granted = match completed {
-            Some(buffer) => update_ping_pong_status(dma, channel, |status| status.grant_completed(buffer)),
-            None => Err(Error::Overrun),
-        };
-        if granted.is_err() {
-            let _ = update_ping_pong_status(dma, channel, |status| {
-                status.set_overrun();
-                Ok(())
-            });
-            // Prevent DMA from entering another half before the peripheral ISR
-            // disables its request source and drains any active minor loop.
-            t.ch_csr().modify(|w| {
-                w.set_erq(false);
-                w.set_earq(false);
-            });
-        }
-
-        return;
-    }
-
-    // Read TCD CSR to determine interrupt source
-    let csr = t.tcd_csr().read();
-
-    // Check if this is a half-transfer interrupt
-    // INTHALF is set and we're at or past the half-way point
-    if csr.inthalf() {
-        let biter = t.tcd_biter_elinkno().read().biter();
-        let citer = t.tcd_citer_elinkno().read().citer();
-        let half_point = biter / 2;
-
-        if citer <= half_point && citer > 0 {
-            // Half-transfer interrupt - wake half_waker
-            crate::perf_counters::incr_interrupt_edma0_wake();
+        let state = &STATES[dma][channel];
+        let es = t.ch_es().read();
+        if es.err() {
+            // Error-only interrupts need not set INT or DONE. Preserve the entire
+            // outcome before acknowledging anything. Keep ERR asserted until the
+            // owner shuts down the peripheral and retires the channel; masking EEI
+            // prevents an interrupt storm while retaining the hardware evidence.
+            state.errors.fetch_or(es.0, Ordering::AcqRel);
+            t.ch_csr().modify(|w| w.set_eei(false));
+            waker(dma, channel).wake();
             half_waker(dma, channel).wake();
         }
-    }
 
-    // Peripheral-paced SG enables INTMAJOR only on its final TCD, so CH_INT
-    // can be latched as whole-chain completion while that mode is active.
-    let wake = if state.peripheral_scatter_gather_active.load(Ordering::Acquire) {
-        state.peripheral_scatter_gather_done.store(true, Ordering::Release);
-        true
-    } else {
-        t.ch_csr().read().done()
-    };
+        if !t.ch_int().read().int() {
+            // The interrupt has been cleared, ignore this spurious interrupt.
+            return;
+        }
 
-    // Clear INT flag
-    t.ch_int().write(|w| w.set_int(true));
+        if ping_pong_status(dma, channel).is_some() {
+            // Clear the observed boundary before sampling progress. If another
+            // boundary occurs while this ISR runs, hardware will latch CH_INT again
+            // instead of that newer event being lost in this W1C operation.
+            t.ch_int().write(|w| w.set_int(true));
 
-    // If the transfer is done or if we're in peripheral
-    if wake {
-        crate::perf_counters::incr_interrupt_edma0_wake();
-        waker(dma, channel).wake();
-    }
+            let done = t.ch_csr().read().done();
+            let biter = t.tcd_biter_elinkno().read().biter();
+            let citer = t.tcd_citer_elinkno().read().citer();
+
+            let valid = biter >= 2 && biter.is_multiple_of(2) && citer <= biter;
+            let another_boundary = t.ch_int().read().int();
+            // `current` independently validates this phase classification. If ISR
+            // latency spans another boundary, the sampled buffer will be unexpected
+            // (or a previous grant will remain), deliberately producing an overrun.
+            let completed = if !valid || another_boundary {
+                None
+            } else if done {
+                // If DONE is set, it means Buffer B has completed.
+                Some(PingPongSelector::BufferB)
+            } else if citer > 0 && citer <= biter / 2 {
+                // If CITER is in the first half, it means Buffer A is currently being transferred.
+                Some(PingPongSelector::BufferA)
+            } else if citer > biter / 2 {
+                // B completed, but a new A request already cleared DONE.
+                Some(PingPongSelector::BufferB)
+            } else {
+                None
+            };
+
+            let granted = match completed {
+                Some(buffer) => update_ping_pong_status(dma, channel, |status| status.grant_completed(buffer)),
+                None => Err(Error::Overrun),
+            };
+            if granted.is_err() {
+                let _ = update_ping_pong_status(dma, channel, |status| {
+                    status.set_overrun();
+                    Ok(())
+                });
+                // The callback pends the owning peripheral ISR, which disables its
+                // source, reads it back and retires this channel before reuse. Do
+                // not clear ERQ ahead of the documented source/HRS handshake here.
+            }
+
+            return;
+        }
+
+        // Acknowledge the observed event before sampling terminal state. A later
+        // completion either appears in the samples below or leaves INT asserted
+        // for another dispatch; it cannot be erased by a trailing W1C.
+        t.ch_int().write(|w| w.set_int(true));
+
+        // Read TCD CSR to determine interrupt source
+        let csr = t.tcd_csr().read();
+
+        // Check if this is a half-transfer interrupt
+        // INTHALF is set and we're at or past the half-way point
+        if csr.inthalf() {
+            let biter = t.tcd_biter_elinkno().read().biter();
+            let citer = t.tcd_citer_elinkno().read().citer();
+            let half_point = biter / 2;
+
+            if citer <= half_point && citer > 0 {
+                // Half-transfer interrupt - wake half_waker
+                crate::perf_counters::incr_interrupt_edma0_wake();
+                half_waker(dma, channel).wake();
+            }
+        }
+
+        // Finite SG enables INTMAJOR only on its final TCD, so CH_INT
+        // can be latched as whole-chain completion while that mode is active.
+        let wake = if state.peripheral_scatter_gather_active.load(Ordering::Acquire) {
+            state.peripheral_scatter_gather_done.store(true, Ordering::Release);
+            true
+        } else {
+            t.ch_csr().read().done()
+        };
+
+        // If the transfer is done or if we're in peripheral
+        if wake {
+            crate::perf_counters::incr_interrupt_edma0_wake();
+            waker(dma, channel).wake();
+            half_waker(dma, channel).wake();
+        }
+    });
 }
 
 #[doc(hidden)]
