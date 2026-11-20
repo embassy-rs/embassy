@@ -4,104 +4,170 @@ use core::num::NonZeroU32;
 
 use crate::{Endpoint, EndpointDisabledError};
 
-/// Why [`IsoInSlot::write`] did not queue the packet.
+/// Why [`IsoInSlot::write`] did not queue the transfer.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IsoWriteError {
-    /// The slot had already started before [`IsoInSlot::write`] was called. Nothing was queued.
+    /// The service interval had already started before [`IsoInSlot::write`] was called,
+    /// so the service interval was skipped.
+    ///
+    /// This will *not* be increment the skipped service interval counter.
     TooLate,
-    /// `data` is larger than [`EndpointInfo::max_packet_size`](crate::EndpointInfo::max_packet_size).
+    /// `data` is larger than larger than the maximum number of
+    /// bytes the endpoint is configured to transfer in a service interval.
+    ///
+    /// For Full Speed endpoints, this means at most
+    /// [`EndpointInfo::max_packet_size`](crate::EndpointInfo::max_packet_size)
+    /// bytes, but High Speed and Super Speed endpoints can be configured to allow
+    /// more than one packet per service interval.
+    ///
+    /// This also means the service interval will be skipped
+    /// *without* incrementing the skipped service interval counter.
     BufferOverflow,
-    /// The endpoint is disabled.
-    Disabled,
-}
-
-impl From<EndpointDisabledError> for IsoWriteError {
-    fn from(_: EndpointDisabledError) -> Self {
-        Self::Disabled
-    }
 }
 
 impl core::fmt::Display for IsoWriteError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::TooLate => write!(f, "Isochronous packet submitted too late"),
+            Self::TooLate => write!(f, "Isochronous transfer submitted too late"),
             Self::BufferOverflow => write!(f, "Buffer overflow"),
-            Self::Disabled => write!(f, "Endpoint disabled"),
         }
     }
 }
 
 impl core::error::Error for IsoWriteError {}
 
-/// A reserved isochronous IN slot, borrowing the endpoint that produced it.
-///
-/// Consuming the slot with [`write`](Self::write) queues one packet for this service interval
-/// without waiting. Dropping the slot without calling [`write`](Self::write) leaves this interval
-/// empty: nothing is armed, the hardware answers an IN token for it in an implementation-defined
-/// way (typically a zero-length packet or no response), and the next [`IsoEndpointIn::ready`] call
-/// counts this interval in [`skipped`](Self::skipped).
+/// A reserved isochronous IN slot in the queue, corresponding to a specific service interval
 pub trait IsoInSlot {
-    /// Service intervals left empty by the writer before this slot, if any.
+    /// Queue one transfer for this slot without waiting.
     ///
-    /// `None` on the first slot and while the writer keeps up. A writer that fell behind gets
-    /// the whole gap here and is offered the next interval that has not started, instead of
-    /// building a packet per missed interval.
+    /// The length of `data` may be zero and must be no larger than the maximum number of
+    /// bytes the endpoint is configured to transfer in a service interval.
+    /// For Full Speed endpoints, this means at most
+    /// [`EndpointInfo::max_packet_size`](crate::EndpointInfo::max_packet_size)
+    /// bytes, but High Speed and Super Speed endpoints can be configured to allow
+    /// more than one packet per service interval.
     ///
-    /// Packets the host did not poll for are dropped by the driver and are not counted here.
-    fn skipped(&self) -> Option<NonZeroU32>;
-
-    /// Queue one packet for this slot without waiting.
+    /// A transfer the host does not poll for in its service interval is
+    /// silently dropped when the interval ends and is never sent in a later interval.
     ///
-    /// `data` is one packet of at most [`EndpointInfo::max_packet_size`](crate::EndpointInfo::max_packet_size)
-    /// bytes, and may be empty. A packet the host does not poll for in its service interval is
-    /// dropped when the interval ends and is never sent in a later interval.
-    ///
-    /// # Errors
-    ///
-    /// * [`IsoWriteError::TooLate`] - The slot had already started. Nothing was queued.
-    /// * [`IsoWriteError::BufferOverflow`] - `data.len()` exceeds `max_packet_size`.
-    /// * [`IsoWriteError::Disabled`] - The endpoint is disabled.
+    /// See [`IsoEndpointIn::ready`] for more details.
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError>;
 }
 
 /// Isochronous IN endpoint trait.
 ///
-/// Drivers implement this only when they can schedule packets by service interval and drop
-/// uncollected packets instead of sending them late.
+/// Drivers implement this only when they can schedule transfers by service interval and drop
+/// uncollected transfers instead of sending them late.
 pub trait IsoEndpointIn: Endpoint {
     /// A reserved slot borrowing this endpoint.
     type Slot<'a>: IsoInSlot
     where
         Self: 'a;
 
-    /// How many packets may be committed ahead of the one the host collects next.
+    /// How many transfers may be committed ahead of the one the host collects next.
     ///
-    /// * `1`: one packet can be committed. [`ready`](Self::ready) waits until the previous packet
+    /// * `1`: one transfer can be committed. [`ready`](Self::ready) waits until the previous transfer
     ///   has been sent or dropped before offering another slot.
-    /// * `n`: [`ready`](Self::ready) may offer a slot while `n` packets are still queued.
+    /// * `n`: [`ready`](Self::ready) may offer a slot while `n` transfers are still queued.
     ///
     /// This is what the driver actually provides. [`EndpointConfig::buffers`](crate::EndpointConfig::buffers)
     /// is only a hint.
     fn queue_depth(&self) -> u8;
 
-    /// Wait until the next packet can be queued, returning a reserved slot for its service interval.
+    /// Wait until the next transfer can be queued, returning
     ///
-    /// While the writer keeps up, each call yields the next service interval. The first call, and
-    /// any call after the writer fell behind, yields the next interval that can still be armed,
-    /// reporting any gap via [`IsoInSlot::skipped`].
+    /// * the number of skipped service intervals (if any)
+    ///   since the service interval of the last [`IsoInSlot`], and
+    ///
+    /// * an [`IsoInSlot`] for the next available service interval.
+    ///
+    /// Service intervals are skipped if a transfer isn't submitted in time.
+    ///
+    /// Skipped service intervals are handled in an implementation defined way:
+    /// the device may either respond to the host's request with an empty transfer,
+    /// or not respond to the host at all.
+    ///
+    /// The first successful call to [`ready`](Self::ready) after the endpoint is enabled
+    /// will report no skipped service intervals.
+    ///
+    /// If [`ready`](Self::ready) is called too late for the next sequential service interval,
+    /// it will return the number of service intervals that were skipped.
+    /// The skipped service interval counter is now reset.
+    ///
+    /// If [`IsoInSlot::write`] is called too late, it will return [`IsoWriteError::TooLate`].
+    /// This means the service interval has been skipped,
+    /// but it will *not* increment the skipped service interval counter.
+    ///
+    /// [`IsoWriteError::BufferOverflow`] also means the service interval will be skipped
+    /// without incrementing the skipped service interval counter.
+    ///
+    /// When the endpoint is disabled, any transfers in the queue will be silently dropped.
+    /// If there is an active [`IsoInSlot`], it's transfer will be dropped even if
+    /// [`IsoInSlot::write`] returns [`Ok`]
     ///
     /// # Cancel safety
     ///
-    /// Dropping the returned future or dropping the returned slot before calling
-    /// [`IsoInSlot::write`] leaves nothing armed, and the endpoint remains usable for future
-    /// calls.
+    /// Dropping this future will not reset the skipped service interval count
+    /// or reserve a service interval.
     ///
-    /// # Errors
+    /// Dropping the slot before calling [`IsoInSlot::write`] means the slot in the queue
+    /// and the corresponding service interval are no longer reserved, and can be re-issued
+    /// by [`ready`](Self::ready) (if it is called again in time).
     ///
-    /// * [`EndpointDisabledError`] - The endpoint is disabled.
-    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError>;
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use embassy_usb_driver::*;
+    /// async fn example(mut ep: impl IsoEndpointIn, mut get_packet: impl FnMut() -> [u8; 8]) {
+    ///     assert!(ep.info().max_packet_size >= 8);
+    ///     ep.wait_enabled().await;
+    ///     loop {
+    ///         let Ok((skipped, slot)) = ep.ready().await else {
+    ///             break;
+    ///         };
+    ///         if let Some(skipped) = skipped {
+    ///             // throw away packets to avoid desynchronization
+    ///             for _ in 0..skipped.get() {
+    ///                 let _ = get_packet();
+    ///             }
+    ///         }
+    ///         match slot.write(&get_packet()) {
+    ///             // In this case, we don't care if we may have sent an
+    ///             // empty packet instead of the real packet
+    ///             Ok(()) | Err(IsoWriteError::TooLate) => {}
+    ///
+    ///             // We already checked that our max transfer size is big enough
+    ///             Err(IsoWriteError::BufferOverflow) => unreachable!(),
+    ///
+    ///             // The error is non-exhaustive, so we need to handle future errors
+    ///             Err(err) => panic!("{}", err),
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError>;
+}
+
+async fn example(mut ep: impl IsoEndpointIn, mut packet_getter: impl FnMut() -> [u8; 8]) {
+    assert!(ep.info().max_packet_size >= 8);
+    ep.wait_enabled().await;
+    loop {
+        let Ok((skipped, slot)) = ep.ready().await else {
+            break;
+        };
+        if let Some(skipped) = skipped {
+            // throw away packets to avoid desynchronization
+            for _ in 0..skipped.get() {
+                let _ = packet_getter();
+            }
+        }
+        match slot.write(&packet_getter()) {
+            Ok(()) | Err(IsoWriteError::TooLate) => {} // in this case, we don't care if we may have sent an empty packet instead of the real packet
+            Err(IsoWriteError::BufferOverflow) => unreachable!(),
+        }
+    }
 }
 
 /// The slot [`IsoSchedule::offer`] picked, including the frame-counter value to arm.
