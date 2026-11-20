@@ -165,9 +165,10 @@ default = ["rt", "swd-swo-as-gpio", "dma-ipd-req", "time-driver-any"]
 time-driver-any = ["rt"]
 ## Explicitly use OSTIMER0 as the Embassy time driver, at 1 MHz.
 time-driver-ostimer = ["rt"]
-## Use LPTMR0 for continuous 1 MHz timekeeping and WAKETIMER0 for one-shot alarms.
-## Reserves both peripherals. Requires the WAKETIMER FRO16K clock domain enabled;
-## alarm resolution is approximately 1 ms, while timestamp resolution remains 1 us.
+## Use LPTMR0 on FRO16K for continuous timekeeping, including Power Down, and
+## WAKETIMER0 for one-shot alarms. Reserves both peripherals. Requires FRO16K
+## enabled in the VSYS domain (and the VBAT domain on MCXA5); alarm resolution is
+## approximately 1 ms, and timestamp resolution is 1/16384 s (about 61 us).
 ## Overrides time-driver-any; incompatible with explicit time-driver-ostimer.
 time-driver-lptmr = ["rt"]
 
