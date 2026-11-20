@@ -1081,7 +1081,6 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
                 PeripheralRccKernelClock::Clock(clock) => {
                     // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock
                     // comes from SYSCLK (or I2S_CKIN). If not, it's standard PCLK.
@@ -1089,9 +1088,8 @@ fn main() {
                     // Below code is implement a runtime check against I2SCFGR.I2SMOD that returns
                     // the SPI clock in SPI mode and the I2S clock in I2S mode.
                     let is_f3_i2s_capable = chip_name.starts_with("stm32f3")
-                        && p.name.starts_with("SPI")
-                            .strip_prefix("SPI")
                         && p.name
+                            .strip_prefix("SPI")
                             .map(|n| peripheral_map.contains_key(format!("I2S{}", n).as_str()))
                             .unwrap_or(false);
 
@@ -1108,9 +1106,9 @@ fn main() {
                                     panic!(
                                         "I2S on {} is configured to use external I2S_CKIN, which is not \
                                          supported by this driver. Clear RCC_CFGR.I2SSRC to use SYSCLK.",
-                                        stringify!(#pname)
+                                        stringify!(#pname))
                                 }
-                                    );
+
                                 unsafe { crate::rcc::get_freqs() }
                                     .sys
                                     .to_hertz()
@@ -1127,6 +1125,7 @@ fn main() {
                         clock_gen.gen_clock(p.name, clock)
                     }
                 }
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(p.name, mux),
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
