@@ -36,7 +36,7 @@ fn main() {
     let singletons = singletons(&mut cfgs);
 
     cfg_aliases! {
-        rt1xxx: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
+        rt1xxx: { any(feature = "mimxrt1011", feature = "mimxrt1062", feature = "mimxrt1064") },
     }
 
     cfg_aliases! {
