@@ -131,7 +131,12 @@ impl TestBus {
     fn allocate(&mut self, addr: EndpointAddress, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let info = {
             let mut info = EndpointInfo::new(addr, config.ep_type, config.max_packet_size, config.interval);
-            info.max_burst = config.max_burst;
+            info.companion = Some(embassy_usb_driver::SuperSpeedEndpointCompanionInfo {
+                max_burst: config.max_burst,
+                max_streams: config.max_streams,
+                mult: config.mult,
+                bytes_per_interval: config.bytes_per_interval,
+            });
             info.additional_transactions = config.additional_transactions;
             info
         };
