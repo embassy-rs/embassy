@@ -1573,11 +1573,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // real error instead of letting the outer timeout fire.
         self.dma_transfer_with_errors(dma_transfer, timeout).await?;
 
-        if !restart {
-            // Wait for the bus to be free. There is no interrupt for the BUSY flag,
-            // so this polls on a ticker and is bounded by `timeout`.
-            try_until_timeout(async || !self.info.regs.isr().read().busy(), timeout).await?;
-        }
+        // The DMA completes when the last byte is read from RXDR, but the peripheral
+        // still has to send NACK + STOP. Wait for STOPF so the next transfer doesn't
+        // rewrite CR2 mid-transfer (#2884), and leave no stale STOPF behind.
+        self.wait_stop_async(timeout).await?;
 
         drop(on_drop);
 
@@ -1667,7 +1666,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.read_chunk_async(chunk, timeout).await?;
         }
 
-        // Unlike the DMA transfer, leave no STOPF set for the next user of the peripheral.
+        // Leave no STOPF set for the next user of the peripheral.
         self.wait_stop_async(timeout).await
     }
     // =========================
