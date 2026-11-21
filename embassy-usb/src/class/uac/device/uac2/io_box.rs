@@ -60,7 +60,6 @@
 //! ```
 
 use core::cell::{Cell, RefCell};
-use core::num::NonZeroU32;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -84,9 +83,7 @@ use crate::class::uac::uac2_codes::{
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{
-    Driver, Endpoint, EndpointDisabledError, EndpointError, EndpointIn, EndpointType, IsoEndpointIn, IsoWriteError,
-};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, UsbDeviceSpeed};
 
@@ -295,11 +292,13 @@ impl<'d, const N: usize> State<'d, N> {
 /// USB Audio Class 2.0 I/O box: line out + line in with explicit feedback.
 pub struct IoBox<'d, D: Driver<'d>, const N: usize> {
     /// Line out stream (host to device).
-    pub line_out: LineOutStream<'d, D>,
+    pub line_out: D::EndpointOut,
     /// Line in stream (device to host).
-    pub line_in: LineInStream<'d, D>,
+    pub line_in: D::EndpointIn,
     /// Line out's explicit feedback endpoint.
-    pub feedback: Feedback<'d, D>,
+    pub feedback: D::EndpointIn,
+    /// A helper to create feedback packets.
+    pub feedback_packet_helper: FeedbackPacketHelper,
     /// The AudioControl interrupt endpoint, if [`Config::interrupt_endpoint`] is set.
     pub interrupt: Option<Interrupt<'d, D, N>>,
     /// Control monitor.
@@ -580,12 +579,10 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         builder.handler(state.control.as_mut().unwrap());
 
         Self {
-            line_out: LineOutStream { ep: out_ep },
-            line_in: LineInStream { ep: in_ep },
-            feedback: Feedback {
-                ep: feedback_ep,
-                len: feedback_len(speed),
-            },
+            line_out: out_ep,
+            line_in: in_ep,
+            feedback: feedback_ep,
+            feedback_packet_helper: FeedbackPacketHelper::new(speed),
             interrupt: interrupt_ep.map(|ep| Interrupt {
                 ep,
                 shared: &state.shared,
@@ -705,111 +702,38 @@ fn iso_data_endpoint() -> [u8; 6] {
     [endpoint_descriptor::EP_GENERAL, 0x00, 0x00, 0x02, 0x08, 0x00]
 }
 
-/// Line out stream (host to device, isochronous OUT endpoint).
-pub struct LineOutStream<'d, D: Driver<'d>> {
-    ep: D::EndpointOut,
+/// Contains a small buffer and the speed of the endpoint.
+pub struct FeedbackPacketHelper {
+    high_speed_or_faster: bool,
+    buf: [u8; 4],
 }
 
-impl<'d, D: Driver<'d>> LineOutStream<'d, D> {
-    /// Reads one audio packet from the host. Returns the number of bytes received.
-    pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        crate::class::read_packet(&mut self.ep, data).await
+impl FeedbackPacketHelper {
+    /// Create a new `FeedbackPacketHelper` for the specified speed.
+    pub const fn new(speed: UsbDeviceSpeed) -> Self {
+        use UsbDeviceSpeed::*;
+        Self {
+            high_speed_or_faster: match speed {
+                Full => false,
+                High | Super | SuperPlus => true,
+            },
+            buf: [0; 4],
+        }
     }
 
-    /// Waits for the host to select the streaming alternate setting.
-    pub async fn wait_connection(&mut self) {
-        self.ep.wait_enabled().await;
-    }
-
-    /// The isochronous OUT endpoint's index.
-    pub fn endpoint_index(&self) -> usize {
-        self.ep.info().addr.index()
-    }
-}
-
-/// Line in stream (device to host, isochronous IN endpoint).
-pub struct LineInStream<'d, D: Driver<'d>> {
-    ep: D::EndpointIn,
-}
-
-impl<'d, D: Driver<'d>> LineInStream<'d, D> {
-    /// Wait until the next audio packet can be queued, returning a reserved slot.
+    /// Creates a packet to be sent on the explicit feedback endpoint.
     ///
-    /// [`IsoInSlot::skipped`](crate::driver::IsoInSlot::skipped) reports how many intervals this
-    /// writer left empty, so a late task can advance its stream instead of building a packet per
-    /// missed interval.
-    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        self.ep.ready().await
-    }
-
-    /// Writes one audio packet for the next service interval.
+    /// `value` is the device's sample rate per packet, in 16.16 fixed point format.
     ///
-    /// Returns how many intervals were skipped before this packet, if any. When the samples
-    /// depend on timing or skipped intervals, call [`ready`](Self::ready) first, build them, and
-    /// submit with [`IsoInSlot::write`](crate::driver::IsoInSlot::write). A packet the host does
-    /// not poll for is dropped rather than sent late.
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<Option<NonZeroU32>, IsoWriteError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        crate::class::write_iso_packet(&mut self.ep, data).await
-    }
-
-    /// Waits for the host to select the streaming alternate setting.
-    pub async fn wait_connection(&mut self) {
-        self.ep.wait_enabled().await;
-    }
-
-    /// The isochronous IN endpoint's index.
-    pub fn endpoint_index(&self) -> usize {
-        self.ep.info().addr.index()
-    }
-}
-
-/// Line out's explicit feedback endpoint: the device's sample rate in samples per packet
-/// ([`packet_rate_hz`]).
-///
-/// Write it with [`Self::write_packet`], or from the SOF interrupt through
-/// [`Self::endpoint_index`] if the driver supports that. There the value goes on the wire as
-/// is: 16.16 in 4 bytes at high speed, 10.14 in 3 bytes at full speed.
-pub struct Feedback<'d, D: Driver<'d>> {
-    ep: D::EndpointIn,
-    len: usize,
-}
-
-impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Wait until the next feedback packet can be queued, returning a reserved slot.
-    pub async fn ready(&mut self) -> Result<<D::EndpointIn as IsoEndpointIn>::Slot<'_>, EndpointDisabledError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        self.ep.ready().await
-    }
-
-    /// Writes one feedback value for the next service interval: 16.16 samples per packet, at
-    /// either speed. At full speed it is sent as 10.14.
-    ///
-    /// Returns how many intervals were skipped before this packet, if any. A packet the host
-    /// does not poll for is dropped rather than sent late.
-    pub async fn write_packet(&mut self, value: u32) -> Result<Option<NonZeroU32>, IsoWriteError>
-    where
-        D::EndpointIn: IsoEndpointIn,
-    {
-        let value = if self.len == 3 { value >> 2 } else { value };
-        crate::class::write_iso_packet(&mut self.ep, &value.to_le_bytes()[..self.len]).await
-    }
-
-    /// Waits for the host to select line out's streaming alternate setting.
-    pub async fn wait_connection(&mut self) {
-        self.ep.wait_enabled().await;
-    }
-
-    /// The feedback endpoint's index.
-    pub fn endpoint_index(&self) -> usize {
-        self.ep.info().addr.index()
+    /// For Full Speed endpoints, this value is converted to a 3 byte 10.14 packet.
+    /// For High Speed and above, the 16.16 value is used directly in a 4 byte packet.
+    pub fn packet(&mut self, value: u32) -> &[u8] {
+        let (value, len) = match self.high_speed_or_faster {
+            true => (value, 4),
+            false => (value >> 2, 3),
+        };
+        self.buf = value.to_le_bytes();
+        &self.buf[..len]
     }
 }
 
