@@ -128,7 +128,7 @@ struct Control<'a> {
 
 /// Shared data between Control and CdcAcmClass
 struct ControlShared {
-    line_coding: CriticalSectionMutex<Cell<LineCoding>>,
+    line_coding: CriticalSectionMutex<Cell<Option<LineCoding>>>,
     dtr: AtomicBool,
     rts: AtomicBool,
 
@@ -147,7 +147,7 @@ impl ControlShared {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
-            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding::DEFAULT)),
+            line_coding: CriticalSectionMutex::new(Cell::new(None)),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
@@ -175,7 +175,7 @@ impl<'a> Control<'a> {
 impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         let shared = self.shared();
-        shared.line_coding.lock(|x| x.set(LineCoding::default()));
+        shared.line_coding.lock(|x| x.set(None));
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
 
@@ -199,7 +199,7 @@ impl<'d> Handler for Control<'d> {
             REQ_SET_LINE_CODING if data.len() >= 7 => {
                 let coding = LineCoding::from_bytes(data[0..7].try_into().unwrap());
                 let shared = self.shared();
-                shared.line_coding.lock(|x| x.set(coding));
+                shared.line_coding.lock(|x| x.set(Some(coding)));
                 debug!("Set line coding to: {:?}", coding);
 
                 shared.changed.store(true, Ordering::Relaxed);
@@ -236,7 +236,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(Cell::get);
+                let coding = self.shared().line_coding.lock(Cell::get).unwrap_or_default();
                 assert!(buf.len() >= 7);
                 buf[0..7].copy_from_slice(&coding.to_bytes());
                 Some(InResponse::Accepted(&buf[0..7]))
@@ -327,9 +327,11 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -418,8 +420,10 @@ impl<'d> ControlChanged<'d> {
         self.control.rts.load(Ordering::Relaxed)
     }
 
-    /// Gets the current line coding (baud rate, data bits, parity, stop bits).
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding (baud rate, data bits, parity, stop bits) the host has set.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 }
@@ -440,9 +444,11 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.write_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -522,9 +528,11 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -598,9 +606,11 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
         len
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.receiver.line_coding()
     }
 
@@ -654,5 +664,91 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         }
         self.start = 0;
         Ok(self.read_from_buffer(buf))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::class::cdc_acm::{ParityType, StopBits};
+
+    const COMM_IF: InterfaceNumber = InterfaceNumber(0);
+
+    fn control(shared: &ControlShared) -> Control<'_> {
+        Control {
+            comm_if: COMM_IF,
+            data_if: InterfaceNumber(1),
+            shared,
+        }
+    }
+
+    fn set_line_coding(control: &mut Control<'_>, coding: LineCoding) -> Option<OutResponse> {
+        let req = Request::parse(&[0x21, REQ_SET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_out(req, &coding.to_bytes())
+    }
+
+    fn get_line_coding<'a>(control: &'a mut Control<'_>, buf: &'a mut [u8; 7]) -> Option<InResponse<'a>> {
+        let req = Request::parse(&[0xA1, REQ_GET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_in(req, buf)
+    }
+
+    #[test]
+    fn line_coding_is_none_until_host_sets_it() {
+        let shared = ControlShared::new();
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn line_coding_reports_what_host_set() {
+        let shared = ControlShared::new();
+        let coding = LineCoding::new(115_200, StopBits::One, ParityType::Even, 8);
+
+        assert_eq!(
+            set_line_coding(&mut control(&shared), coding),
+            Some(OutResponse::Accepted)
+        );
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+    }
+
+    #[test]
+    fn reset_clears_line_coding() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared);
+        let coding = LineCoding::new(9600, StopBits::One, ParityType::None, 8);
+        set_line_coding(&mut control, coding);
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+
+        Handler::reset(&mut control);
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn get_line_coding_answers_default_until_host_sets_it() {
+        let shared = ControlShared::new();
+        let mut buf = [0; 7];
+
+        // 8000 baud, 1 stop bit, no parity, 8 data bits.
+        assert_eq!(
+            get_line_coding(&mut control(&shared), &mut buf),
+            Some(InResponse::Accepted(&[0x40, 0x1f, 0x00, 0x00, 0, 0, 8][..]))
+        );
+    }
+
+    #[test]
+    fn get_line_coding_answers_what_host_set() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared);
+        set_line_coding(
+            &mut control,
+            LineCoding::new(115_200, StopBits::Two, ParityType::Odd, 7),
+        );
+        let mut buf = [0; 7];
+
+        assert_eq!(
+            get_line_coding(&mut control, &mut buf),
+            Some(InResponse::Accepted(&[0x00, 0xc2, 0x01, 0x00, 2, 1, 7][..]))
+        );
     }
 }
