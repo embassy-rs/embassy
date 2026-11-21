@@ -681,11 +681,20 @@ mod dual_core {
     /// This should only be called once at startup, otherwise it panics.
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
+    /// The notification sent at the end of this function is a level, not an event:
+    /// a secondary core that starts (or restarts) after this function has completed
+    /// observes it immediately. Any stale notification from a previous run of this
+    /// core is discarded before the hardware is initialized, so a secondary core
+    /// cannot mistake it for this run's notification.
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
         critical_section::with(|cs| crate::hsem::init_hsem(cs, true));
+
+        // Discard any notification left over from a previous run of this core (e.g.
+        // when restarting only this core under a debugger).
+        hsem::get_hsem(1).clear_notification();
 
         #[cfg(stm32h7)]
         {
@@ -713,18 +722,47 @@ mod dual_core {
     /// Try to initialize the `embassy-stm32` HAL based on the init done by the other core using [init_primary].
     ///
     /// This returns the peripheral singletons that can be used for creating drivers if the other core is done with its init.
-    /// If the other core is not done yet, this will return `None`.
+    /// If the other core is not done yet, this will return `None`. It never blocks:
+    /// call it repeatedly (as [init_secondary] does) until it returns `Some`.
     ///
-    /// This should only be called once at startup, otherwise it may panic.
+    /// The notification from the other core is consumed as a level rather than an
+    /// event, so this core can be restarted (e.g. under a debugger) while the other
+    /// core keeps running, and still proceed.
+    ///
+    /// This can only succeed once per boot, otherwise it may panic.
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
+        // The HSEM peripheral must be clocked before its registers can be used.
+        //
+        // On families where each core has its own RCC enable registers this core
+        // can safely enable it. On families where the RCC enable registers are
+        // shared between the cores (STM32H7), doing so here would race with the
+        // other core's clock setup: critical sections are core-local and do not
+        // synchronize across cores, so a concurrent read-modify-write could drop
+        // either side's enable bit and leave the peripheral unclocked. Instead,
+        // wait for `init_primary`, which enables the HSEM peripheral before
+        // anything else, to clock it.
+        #[cfg(stm32wl5x)]
         critical_section::with(|cs| {
             rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
 
-        // Wait for the semaphore to be unlocked by the primary core
-        hsem::get_hsem(1).blocking_listen();
+        #[cfg(not(stm32wl5x))]
+        if !rcc::is_enabled::<peripherals::HSEM>() {
+            return None;
+        }
+
+        // Wait for the primary core to complete its init. The notification is not
+        // consumed here, so a notification sent before this call (or before this
+        // core was restarted) is not lost.
+        if !hsem::get_hsem(1).is_notified() {
+            return None;
+        }
+
+        // Ensure the notification is observed before the shared data written by
+        // the other core is read.
+        cortex_m::asm::dmb();
 
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
@@ -735,6 +773,10 @@ mod dual_core {
     ///
     /// This returns the peripheral singletons that can be used for creating drivers when the other core is done with its init.
     /// If the other core is not done yet, this will spinloop wait on it.
+    ///
+    /// This can be called again if this core is restarted while the other core
+    /// keeps running; the notification from [init_primary] is not consumed, so a
+    /// restart does not miss it.
     ///
     /// This should only be called once at startup, otherwise it may panic.
     ///
