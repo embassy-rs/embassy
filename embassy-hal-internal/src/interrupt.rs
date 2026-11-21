@@ -9,7 +9,7 @@ use critical_section::CriticalSection;
 /// Generate a standard `mod interrupt` for a HAL.
 #[macro_export]
 macro_rules! interrupt_mod {
-    ($($irqs:ident),* $(,)?) => {
+    ($($(#[cfg($cond_irq:meta)])? $irqs:ident),* $(,)?) => {
         #[cfg(feature = "rt")]
         pub use cortex_m_rt::interrupt;
 
@@ -99,11 +99,14 @@ macro_rules! interrupt_mod {
                 }
 
                 $(
+                    $(#[cfg($cond_irq)])?
                     #[allow(non_camel_case_types)]
                     #[doc=stringify!($irqs)]
                     #[doc=" typelevel interrupt."]
                     pub enum $irqs {}
+                    $(#[cfg($cond_irq)])?
                     impl SealedInterrupt for $irqs{}
+                    $(#[cfg($cond_irq)])?
                     impl Interrupt for $irqs {
                         const IRQ: super::Interrupt = super::Interrupt::$irqs;
                     }
