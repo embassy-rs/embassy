@@ -8,6 +8,14 @@ pub trait AtomicModify<T: Sized> {
     /// Atomically mask bits
     ///
     /// Call `set_xxx(true)` inside the closure
+    ///
+    /// The read-modify-write is atomic against the local interrupt handlers (it
+    /// runs in a critical section). It must not be implemented with core atomics:
+    /// `LDREX`/`STREX` on peripheral registers is UNPREDICTABLE on Armv*-M, and
+    /// when the write re-arms an interrupt condition whose handler runs between
+    /// the `LDREX` and the `STREX` (e.g. `HSEM_IER` with the status flag already
+    /// set), the interrupt clears the exclusive monitor and the retry loop never
+    /// terminates.
     fn set_bits(&self, f: impl FnOnce(&mut T));
     /// Atomically unmask bits
     ///
@@ -19,9 +27,6 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
     #[inline]
     fn set_bits(&self, f: impl FnOnce(&mut T)) {
         unsafe {
-            #[cfg(target_has_atomic = "32")]
-            use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
-
             let mut v = u32::MIN;
 
             core::assert_eq!(size_of::<u32>(), size_of::<T>());
@@ -31,29 +36,16 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
 
             let ptr = self.as_ptr() as *mut u32;
 
-            #[cfg(not(target_has_atomic = "32"))]
             critical_section::with(|_| {
                 let val = ptr.read_volatile();
                 ptr.write_volatile(val | v);
             });
-
-            #[cfg(target_has_atomic = "32")]
-            compiler_fence(Ordering::Release);
-
-            #[cfg(target_has_atomic = "32")]
-            AtomicU32::from_ptr(ptr).fetch_or(v, Ordering::Relaxed);
-
-            #[cfg(target_has_atomic = "32")]
-            compiler_fence(Ordering::Release);
         }
     }
 
     #[inline]
     fn clear_bits(&self, f: impl FnOnce(&mut T)) {
         unsafe {
-            #[cfg(target_has_atomic = "32")]
-            use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
-
             let mut v = u32::MAX;
 
             core::assert_eq!(size_of::<u32>(), size_of::<T>());
@@ -63,20 +55,10 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
 
             let ptr = self.as_ptr() as *mut u32;
 
-            #[cfg(not(target_has_atomic = "32"))]
             critical_section::with(|_| {
                 let val = ptr.read_volatile();
                 ptr.write_volatile(val & v);
             });
-
-            #[cfg(target_has_atomic = "32")]
-            compiler_fence(Ordering::Release);
-
-            #[cfg(target_has_atomic = "32")]
-            AtomicU32::from_ptr(ptr).fetch_and(v, Ordering::Relaxed);
-
-            #[cfg(target_has_atomic = "32")]
-            compiler_fence(Ordering::Release);
         }
     }
 }
