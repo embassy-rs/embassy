@@ -19,11 +19,12 @@ PAC:
 
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
+- fix: stm32/atomic: `Reg::set_bits`/`clear_bits` (used by the HSEM, IPCC, I2C and SDMMC drivers) no longer use core atomics for the read-modify-write. `LDREX`/`STREX` on peripheral registers is UNPREDICTABLE on Armv7-M, and when the write re-arms an interrupt whose handler runs between the `LDREX` and the `STREX` the retry loop never terminates. The update is now done in a critical section.
 
 HSEM:
-- fix: stm32/hsem: `blocking_listen` and `listen` no longer drop a notification that was sent before the call. The interrupt flag is now consumed after it has been observed instead of being cleared before waiting for it, which deadlocked `init_secondary` when the other core had already completed `init_primary` (e.g. when starting or restarting the secondary core under a debugger).
-- fix: stm32/hsem: `listen` waits on the unmasked interrupt status instead of the masked one. The interrupt handler disables the interrupt in `HSEM_IER` before waking, so the masked status could read as clear while a notification was still pending and the future would never complete.
-- feat: stm32/hsem: add `HardwareSemaphoreChannel::is_notified` and `HardwareSemaphoreChannel::clear_notification`, which check and clear the notification flag without consuming it.
+- fix: stm32/hsem: `blocking_listen` and `listen` no longer drop a notification that was sent before the call. The notification is consumed after it has been observed instead of being cleared before waiting for it, which deadlocked `init_secondary` when the other core had already completed `init_primary` (e.g. when starting or restarting the secondary core under a debugger).
+- fix: stm32/hsem: `HardwareSemaphoreInterruptHandler` now consumes the notification flags with `HSEM_CnICR` and latches them in software before waking. The latched masked status keeps the interrupt line asserted until the flags are cleared, so masking `HSEM_CnIER` (the old behavior) did not deassert it: arming the interrupt with a notification pending re-entered the handler forever, starving the tasks supposed to consume the notification. The software latch also delivers a notification whose wake happens before the listener registers its waker.
+- feat: stm32/hsem: add `HardwareSemaphoreChannel::is_notified` and `HardwareSemaphoreChannel::clear_notification`, which check and clear the notification without consuming it.
 - fix: stm32: `init_primary` discards a stale HSEM notification from a previous run of the core before initializing the hardware, and `init_secondary`/`try_init_secondary` treat the notification as a level rather than an event. The secondary core can now be started (or restarted under a debugger) in any order relative to the primary core without deadlocking or consuming a stale notification.
 - change: stm32: `try_init_secondary` no longer blocks when the other core is not done with its init (matching its documentation) and, on STM32H7 dual-core parts, no longer writes the shared RCC enable register concurrently with the other core's clock setup.
 

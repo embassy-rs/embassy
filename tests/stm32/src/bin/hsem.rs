@@ -11,6 +11,12 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::hsem::{HardwareSemaphore, HardwareSemaphoreInterruptHandler};
 use embassy_stm32::peripherals::HSEM;
 
+#[cfg(feature = "stm32h755zi")]
+bind_interrupts!(struct Irqs{
+    HSEM1 => HardwareSemaphoreInterruptHandler<HSEM>;
+});
+
+#[cfg(not(feature = "stm32h755zi"))]
 bind_interrupts!(struct Irqs{
     HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
 });
