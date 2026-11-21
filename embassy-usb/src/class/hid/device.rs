@@ -11,7 +11,7 @@ use super::{
 };
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::InterfaceNumber;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, Handler, InterfaceHandler};
 
 const HID_DESC_SPEC_1_10: [u8; 2] = [0x10, 0x01];
@@ -56,6 +56,9 @@ pub struct Config<'d> {
 
     /// The HID boot protocol of this interface
     pub hid_boot_protocol: HidBootProtocol,
+
+    /// Optional interface string description.
+    pub interface_name: Option<&'d str>,
 }
 
 /// Internal state for USB HID.
@@ -94,6 +97,7 @@ fn build<'d, D: Driver<'d>>(
     with_out_endpoint: bool,
 ) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize, InterfaceNumber) {
     let len = config.report_descriptor.len();
+    let iface_string = config.interface_name.map(|_| builder.string());
 
     let mut func = builder.function(USB_CLASS_HID, config.hid_subclass as u8, config.hid_boot_protocol as u8);
     let mut iface = func.interface();
@@ -102,7 +106,7 @@ fn build<'d, D: Driver<'d>>(
         USB_CLASS_HID,
         config.hid_subclass as u8,
         config.hid_boot_protocol as u8,
-        None,
+        iface_string,
     );
 
     // `descriptor` adds bLength and bDescriptorType, so skip those bytes here.
@@ -122,6 +126,8 @@ fn build<'d, D: Driver<'d>>(
         config.report_descriptor,
         config.request_handler,
         &state.out_report_offset,
+        iface_string,
+        config.interface_name,
     ));
     builder.interface_handler(control);
 
@@ -391,6 +397,8 @@ struct Control<'d> {
     request_handler: Option<&'d mut dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
     hid_descriptor: [u8; 9],
+    iface_string: Option<StringIndex>,
+    interface_name: Option<&'d str>,
 }
 
 impl<'d> Control<'d> {
@@ -399,6 +407,8 @@ impl<'d> Control<'d> {
         report_descriptor: &'d [u8],
         request_handler: Option<&'d mut dyn RequestHandler>,
         out_report_offset: &'d AtomicUsize,
+        iface_string: Option<StringIndex>,
+        interface_name: Option<&'d str>,
     ) -> Self {
         Control {
             if_num,
@@ -406,6 +416,8 @@ impl<'d> Control<'d> {
             request_handler,
             out_report_offset,
             hid_descriptor: hid_descriptor(report_descriptor.len()),
+            iface_string,
+            interface_name,
         }
     }
 }
@@ -519,6 +531,14 @@ impl<'d> Handler for Control<'d> {
             _ => None,
         }
     }
+
+    fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
+        if self.iface_string == Some(index) {
+            self.interface_name
+        } else {
+            None
+        }
+    }
 }
 
 impl<'d> InterfaceHandler for Control<'d> {
@@ -564,7 +584,7 @@ mod tests {
         };
 
         {
-            let mut control = Control::new(InterfaceNumber(0), &[], Some(&mut request_handler), &offset);
+            let mut control = Control::new(InterfaceNumber(0), &[], Some(&mut request_handler), &offset, None, None);
             Handler::reset(&mut control);
         }
 
@@ -577,10 +597,34 @@ mod tests {
     #[test]
     fn reset_without_request_handler_clears_report_offset() {
         let offset = AtomicUsize::new(7);
-        let mut control = Control::new(InterfaceNumber(0), &[], None, &offset);
+        let mut control = Control::new(InterfaceNumber(0), &[], None, &offset, None, None);
 
         Handler::reset(&mut control);
 
         assert_eq!(offset.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn get_string_returns_interface_name() {
+        let offset = AtomicUsize::new(0);
+        let mut control = Control::new(
+            InterfaceNumber(0),
+            &[],
+            None,
+            &offset,
+            Some(StringIndex::new(4)),
+            Some("HID Interface"),
+        );
+
+        assert_eq!(control.get_string(StringIndex::new(4), 0x0409), Some("HID Interface"));
+        assert_eq!(control.get_string(StringIndex::new(5), 0x0409), None);
+    }
+
+    #[test]
+    fn get_string_without_interface_name() {
+        let offset = AtomicUsize::new(0);
+        let mut control = Control::new(InterfaceNumber(0), &[], None, &offset, None, None);
+
+        assert_eq!(control.get_string(StringIndex::new(4), 0x0409), None);
     }
 }

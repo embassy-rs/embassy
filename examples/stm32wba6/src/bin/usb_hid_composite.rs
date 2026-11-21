@@ -91,6 +91,7 @@ async fn main(_spawner: Spawner) {
         max_packet_size: 64,
         hid_subclass: HidSubclass::No,
         hid_boot_protocol: HidBootProtocol::None,
+        interface_name: None,
     };
     let hid = HidReaderWriter::<_, 1, 16>::new(&mut builder, &mut state, hid_config);
 
