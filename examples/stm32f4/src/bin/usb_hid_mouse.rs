@@ -102,6 +102,7 @@ async fn main(_spawner: Spawner) {
         max_packet_size: 8,
         hid_subclass: HidSubclass::Boot,
         hid_boot_protocol: HidBootProtocol::Mouse,
+        interface_name: None,
     };
 
     let mut writer = HidWriter::<_, 4>::new(&mut builder, &mut state, config);
