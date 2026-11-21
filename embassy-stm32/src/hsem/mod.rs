@@ -181,32 +181,56 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         self.unlock(0);
     }
 
-    /// Blocking poll for semaphore interrupt flag
+    /// Blocking wait for a notification on this semaphore channel.
+    ///
+    /// A notification sent by [`Self::blocking_notify`] or [`Self::unlock`] on the
+    /// other core is not lost if it was sent before this call: if one is already
+    /// pending it is consumed and this returns immediately. Otherwise this waits
+    /// for the next notification and consumes it.
     pub fn blocking_listen(&mut self) {
         let core = CoreId::current();
 
-        // Clear the interrupt
+        // Wait for the semaphore interrupt flag. It is only cleared once it has
+        // been observed: clearing it before waiting would drop a notification that
+        // was already pending (e.g. when this core starts after the other core has
+        // already notified).
+        while !T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {}
+
+        cortex_m::asm::dmb();
+
+        // Consume the notification.
         T::regs()
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));
-
-        // Wait for the semaphore interrupt flag
-        while !T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {}
     }
 
-    /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
+    /// Asynchronous wait for a notification on this semaphore channel.
+    ///
+    /// A notification sent by [`Self::blocking_notify`] or [`Self::unlock`] on the
+    /// other core is not lost if it was sent before this call: if one is already
+    /// pending it is consumed and this returns immediately. Otherwise this waits
+    /// for the next notification and consumes it.
     pub async fn listen(&mut self) {
         let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core = CoreId::current();
 
-        let _irq = self.clear_and_enable_interupt(core);
-        // Wait for the semaphore interrupt flag
+        // Enable the notification interrupt without clearing a pending
+        // notification first: the notification is consumed below when it is
+        // observed, so one that was already sent is not lost.
+        let _irq = self.enable_interupt(core);
+
         poll_fn(|cx| {
             T::state().waker_for(self.index).register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
-            if T::regs().misr(core.to_index().into()).read().misf(self.index.into()) {
+            // Check the unmasked status flag: the interrupt handler disables the
+            // interrupt in HSEM_IER before waking, so the masked status may read
+            // as clear while a notification is still pending.
+            if T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {
+                cortex_m::asm::dmb();
+
+                // Consume the notification.
                 T::regs()
                     .icr(core.to_index().into())
                     .write(|w| w.set_isc(self.index.into(), true));
@@ -219,6 +243,30 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         .await;
     }
 
+    /// Returns whether a notification is pending on this semaphore channel.
+    ///
+    /// Unlike [`Self::blocking_listen`] and [`Self::listen`], this does not consume
+    /// the notification: it stays pending until [`Self::clear_notification`] is
+    /// called. This makes it usable as a persistent "the other core has notified"
+    /// level, which survives restarting this core.
+    pub fn is_notified(&self) -> bool {
+        let core = CoreId::current();
+
+        T::regs().isr(core.to_index().into()).read().isf(self.index.into())
+    }
+
+    /// Clear a pending notification on this semaphore channel.
+    ///
+    /// A notification is broadcast: unlocking the channel latches the interrupt
+    /// flag in the status register of every core. This clears the flag for all
+    /// cores, discarding a pending notification even if the other core has not
+    /// observed it yet.
+    pub fn clear_notification(&mut self) {
+        for bank in [0, 1] {
+            T::regs().icr(bank).write(|w| w.set_isc(self.index.into(), true));
+        }
+    }
+
     /// Clear interrupts for this semaphore and return an active interrupt
     #[inline]
     fn clear_and_enable_interupt(
@@ -229,6 +277,13 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));
 
+        self.enable_interupt(core)
+    }
+
+    /// Enable interrupts for this semaphore and return an active interrupt,
+    /// without clearing a pending notification
+    #[inline]
+    fn enable_interupt(&self, core: CoreId) -> ActiveInterrupt<Reg<pac::hsem::regs::Ier, RW>, pac::hsem::regs::Ier> {
         T::regs()
             .ier(core.to_index().into())
             .enable_interrupts(|w| w.set_ise(self.index.into(), true))

@@ -20,6 +20,13 @@ PAC:
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
 
+HSEM:
+- fix: stm32/hsem: `blocking_listen` and `listen` no longer drop a notification that was sent before the call. The interrupt flag is now consumed after it has been observed instead of being cleared before waiting for it, which deadlocked `init_secondary` when the other core had already completed `init_primary` (e.g. when starting or restarting the secondary core under a debugger).
+- fix: stm32/hsem: `listen` waits on the unmasked interrupt status instead of the masked one. The interrupt handler disables the interrupt in `HSEM_IER` before waking, so the masked status could read as clear while a notification was still pending and the future would never complete.
+- feat: stm32/hsem: add `HardwareSemaphoreChannel::is_notified` and `HardwareSemaphoreChannel::clear_notification`, which check and clear the notification flag without consuming it.
+- fix: stm32: `init_primary` discards a stale HSEM notification from a previous run of the core before initializing the hardware, and `init_secondary`/`try_init_secondary` treat the notification as a level rather than an event. The secondary core can now be started (or restarted under a debugger) in any order relative to the primary core without deadlocking or consuming a stale notification.
+- change: stm32: `try_init_secondary` no longer blocks when the other core is not done with its init (matching its documentation) and, on STM32H7 dual-core parts, no longer writes the shared RCC enable register concurrently with the other core's clock setup.
+
 SUBGHZ:
 - feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzControl`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
 - feat: stm32/subghz: `SubghzControl::wait_on_busy_timeout` bounds the `RFBUSY` wait, `SubghzControl::wakeup` wakes the radio from sleep, and `SubghzControl::set_wakeup_sources` lets a radio interrupt or `RFBUSY` wake the CPU from Standby.

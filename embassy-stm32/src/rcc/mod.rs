@@ -372,6 +372,16 @@ impl RccInfo {
         self.enable_with_cs_inner(cs, true);
     }
 
+    /// Returns whether the peripheral clock is currently enabled.
+    ///
+    /// This only reads the RCC enable register, so unlike `enable_with_cs` it is
+    /// safe to call concurrently with the other core's own clock setup.
+    #[allow(dead_code)]
+    pub(crate) fn is_enabled(&self) -> bool {
+        // TODO: should this be `unsafe`?
+        unsafe { self.enable_ptr().read_volatile() & 1u32 << self.enable_bit != 0 }
+    }
+
     // TODO: should this be `unsafe`?
     fn enable_with_cs_inner(&self, cs: CriticalSection, no_refcount: bool) {
         // set the xxxEN bit
@@ -645,6 +655,16 @@ pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
 #[allow(dead_code)]
 pub(crate) fn enable_with_cs_no_refcount<T: RccPeripheral>(cs: CriticalSection) {
     T::RCC_INFO.enable_with_cs_no_refcount(cs);
+}
+
+/// Returns whether the peripheral clock of `T` is currently enabled.
+///
+/// Unlike [`enable_with_cs_no_refcount`], this does not write to the (possibly
+/// shared) RCC enable register, so it is safe to use while the other core is
+/// concurrently enabling its own peripherals.
+#[allow(dead_code)]
+pub(crate) fn is_enabled<T: RccPeripheral>() -> bool {
+    T::RCC_INFO.is_enabled()
 }
 
 /// Enables and clears the reset for peripheral `T`.
