@@ -23,7 +23,7 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
-static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Report as u8);
 
 #[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     // You can also add a Microsoft OS descriptor.
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut request_handler = MyRequestHandler {};
+    let mut request_handler = MyRequestHandler;
     let mut device_handler = MyDeviceHandler::new();
 
     let mut state = State::new();
@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::device::Config {
         report_descriptor: MouseReport::DESCRIPTOR,
-        request_handler: None,
+        request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 64,
         hid_subclass: HidSubclass::Boot,
@@ -119,7 +119,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let out_fut = async {
-        reader.run(false, &mut request_handler).await;
+        reader.run(false, &mut MyRequestHandler).await;
     };
 
     // Run everything concurrently.
@@ -127,9 +127,14 @@ async fn main(_spawner: Spawner) {
     join(usb_fut, join(in_fut, out_fut)).await;
 }
 
-struct MyRequestHandler {}
+struct MyRequestHandler;
 
 impl RequestHandler for MyRequestHandler {
+    fn reset(&mut self) {
+        info!("Device reset, reverting to report HID protocol");
+        HID_PROTOCOL_MODE.store(HidProtocolMode::Report as u8, Ordering::Relaxed);
+    }
+
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
