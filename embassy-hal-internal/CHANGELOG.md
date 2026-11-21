@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `interrupt_mod!` accepts an optional `#[cfg(...)]` attribute per interrupt.
 - Removed the unused `ratio` module.
 - Removed the `drop` module (`OnDrop`, `DropBomb`). Use `core::mem::DropGuard` (Rust 1.100) instead.
 

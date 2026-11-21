@@ -894,6 +894,8 @@ embassy_hal_internal::interrupt_mod!(
     VPR00,
     CTRLAP,
     TIMER00,
+    #[cfg(feature = "nrf54lm20b-app-s")]
+    AXONS,
     USBHS,
     SPU10,
     TIMER10,
