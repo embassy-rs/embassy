@@ -31,6 +31,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-ns", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20b-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l15-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l10-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
@@ -38,6 +39,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54l05-app-ns", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
     {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nrf54lm20b-app-s", "time", "time-driver-grtc", "nfc-pins-as-gpio"]},
     {target = "thumbv7em-none-eabi", features = ["nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["nrf52840", "time", "time-driver-rtc1"]},
@@ -262,7 +264,9 @@ nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L05 application core in Non-Secure mode
 nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
 ## nRF54LM20 application core in Secure mode
-nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt", "_cracen"]
+nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt", "_cracen", "nrf-pac/nrf54lm20a-app"]
+## nRF54LM20B application core in Secure mode
+nrf54lm20b-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt", "_cracen", "nrf-pac/nrf54lm20b-app"]
 
 ## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s", "_nrf91", "_cryptocell"]
@@ -290,7 +294,7 @@ _nrf54l10-app = ["_nrf54l10", "nrf-pac/nrf54l10-app"]
 _nrf54l10 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l05-app = ["_nrf54l05", "nrf-pac/nrf54l05-app"]
 _nrf54l05 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
-_nrf54lm20-app = ["_nrf54lm20", "nrf-pac/nrf54lm20a-app"]
+_nrf54lm20-app = ["_nrf54lm20"]
 _nrf54lm20 = ["_nrf54l", "_gpio-p1", "_gpio-p2", "_gpio-p3", "dep:embassy-usb-synopsys-otg"]
 _nrf54l = ["_dppi", "_grtc"]
 
@@ -352,7 +356,7 @@ embedded-io-async = { version = "0.7.0" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 # nrf-pac = "0.4.0"
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "610182af38330770206fc81899d3c89edbfa88fc" }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "1a98ef999ca8dc8bc681090c2ca1248f4f4a6790" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.10.0"
