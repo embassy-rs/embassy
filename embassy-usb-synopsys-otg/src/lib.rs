@@ -23,7 +23,6 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
     EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed,
@@ -31,6 +30,9 @@ use embassy_usb_driver::{
 };
 
 use crate::fmt::Bytes;
+
+mod iso_helpers;
+use iso_helpers::{IsoSchedule, forward};
 
 pub mod otg_v1;
 

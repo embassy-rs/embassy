@@ -19,7 +19,6 @@ use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
     EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
@@ -34,6 +33,9 @@ use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::rcc::RccPeripheral;
 use crate::{Peri, interrupt};
+
+mod iso_helpers;
+use iso_helpers::{IsoSchedule, forward};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

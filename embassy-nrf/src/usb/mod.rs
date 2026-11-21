@@ -17,7 +17,6 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo, EndpointType,
     Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
@@ -28,6 +27,9 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usbd::vals;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac};
+
+mod iso_helpers;
+use iso_helpers::{IsoSchedule, forward};
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_WAKER: AtomicWaker = AtomicWaker::new();

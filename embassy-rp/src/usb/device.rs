@@ -9,7 +9,6 @@ use core::task::Poll;
 use critical_section::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
     EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
@@ -18,6 +17,9 @@ use embassy_usb_driver::{
 use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{Peri, RegExt, interrupt, pac};
+
+mod iso_helpers;
+use iso_helpers::{IsoSchedule, forward};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
