@@ -683,6 +683,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             return Err(TxError::HardReset);
         }
 
+        // The same for a Hard Reset that a dropped `transmit_hardreset` left going out: while it is,
+        // the UCPD ignores TXSEND without setting any flag, so the transmission would never end.
+        if r.cr().read().txhrst()
+            && let Err(TxError::HardReset) = self.wait_hardreset_done().await
+        {
+            return Err(TxError::HardReset);
+        }
+
         // If a Hard Reset was received and not reported yet, report it instead of transmitting.
         if Self::take_hard_reset() {
             return Err(TxError::HardReset);
@@ -793,6 +801,10 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txhrst(true);
         });
 
+        self.wait_hardreset_done().await
+    }
+
+    async fn wait_hardreset_done(&self) -> Result<(), TxError> {
         let _on_drop = DropGuard::new((), |()| self.enable_hardreset_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
