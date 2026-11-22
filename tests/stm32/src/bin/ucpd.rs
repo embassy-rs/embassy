@@ -184,6 +184,15 @@ async fn source(
     // The sink also cancels a transmission while it clears up after a cancelled one.
     expect_message_after_cancelled_transmission(&mut pd_phy).await;
 
+    // The sink cancels a Hard Reset, which is sent anyway, and its next message arrives intact.
+    debug!("source: receiving after a cancelled hard reset");
+    assert!(matches!(
+        pd_phy.receive(snk_to_src_buf.as_mut()).await,
+        Err(RxError::HardReset)
+    ));
+    let n = unwrap!(pd_phy.receive(snk_to_src_buf.as_mut()).await);
+    assert_eq!(&snk_to_src_buf[..n], MESSAGES[2].as_slice());
+
     // Wait for hard-reset
     debug!("source: message sent, waiting for hard-reset");
     assert!(matches!(
@@ -288,6 +297,12 @@ async fn sink(
     let first = critical_section::with(|_| poll_once(pd_phy.transmit(&MESSAGES[1])));
     assert!(first.is_pending());
     let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(&MESSAGES[1])).await;
+    assert!(matches!(sent, Ok(Ok(()))));
+
+    // Cancelling a Hard Reset right after it started doesn't block the next transmission.
+    debug!("sink: cancelling a hard reset");
+    assert!(poll_once(pd_phy.transmit_hardreset()).is_pending());
+    let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(&MESSAGES[2])).await;
     assert!(matches!(sent, Ok(Ok(()))));
 
     // Send hard reset
