@@ -369,6 +369,13 @@ impl EventMask {
         let word = n / u32::BITS;
         let bit = n % u32::BITS;
 
+        // An event code that has no variant in `Event` maps to `Event::Unknown`
+        // (0xFF), whose word index is past the end of the mask. Such an event is
+        // never enabled.
+        if word as usize >= Self::WORD_COUNT {
+            return false;
+        }
+
         self.mask[word as usize] & (1 << bit) > 0
     }
 }
@@ -413,5 +420,29 @@ impl SharedEventMask {
 impl Default for SharedEventMask {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_enabled_with_unlisted_code() {
+        // An event code with no variant maps to `Event::Unknown`, whose word
+        // index lies past the end of the mask. Querying it must report "not
+        // enabled" instead of indexing out of bounds.
+        let mask = SharedEventMask::default();
+        assert!(!mask.is_enabled(Event::from(92)));
+        assert!(!mask.is_enabled(Event::Unknown));
+    }
+
+    #[test]
+    fn is_enabled_tracks_enabled_events() {
+        let mask = SharedEventMask::default();
+        mask.enable(&[Event::SET_SSID, Event::LAST]);
+        assert!(mask.is_enabled(Event::SET_SSID));
+        assert!(mask.is_enabled(Event::LAST));
+        assert!(!mask.is_enabled(Event::AUTH));
     }
 }
