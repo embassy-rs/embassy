@@ -517,10 +517,9 @@ const MAX_MESSAGE_LEN: usize = 264;
 
 /// Size of an RX buffer: one byte more than the largest message.
 ///
-/// An over-long frame fills the buffer and leaves its next byte in RXDR, which the DMA then puts
-/// at the start of the next buffer. Thanks to the spare byte, that byte always shows up in the
-/// byte count of the next message, even for a message of the largest size, which is then dropped
-/// instead of being returned shifted by one byte.
+/// An over-long frame fills the buffer and leaves its next byte in RXDR. Thanks to the spare byte,
+/// that happens only for frames that are longer than any message, which are dropped, and the
+/// byte left over is cleared up before the next message (see `RxState::on_message_end`).
 const RX_BUFFER_LEN: usize = MAX_MESSAGE_LEN + 1;
 
 /// How often `transmit` checks whether the DMA served a request left by an underrun. On the
@@ -1109,6 +1108,12 @@ impl RxState {
                 slot.get_or_insert(error.unwrap_or(RxError::Overrun));
                 self.spare = spare;
                 self.dma.restart();
+                // A frame too long for the buffer leaves a byte in RXDR, which the restarted DMA
+                // takes at once. Restart it again, so that the next message starts at the start of
+                // the buffer.
+                if self.dma.received() != 0 {
+                    self.dma.restart();
+                }
             }
         }
     }
