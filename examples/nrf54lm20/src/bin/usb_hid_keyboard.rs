@@ -19,7 +19,7 @@ use panic_probe as _;
 use static_cell::StaticCell;
 
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
-static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Report as u8);
 static EP_OUT_BUFFER: StaticCell<[u8; 2048]> = StaticCell::new();
 
 bind_interrupts!(pub struct Irqs {
@@ -84,10 +84,10 @@ async fn main(_spawner: Spawner) {
 
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, hid_config);
     let mut usb = builder.build();
-    let (_reader, mut writer) = hid.split();
+    let (reader, mut writer) = hid.split();
 
     let usb_fut = usb.run();
-    let keyboard_fut = async {
+    let in_fut = async {
         loop {
             embassy_time::Timer::after_secs(3).await;
             if !CONFIGURED.load(Ordering::Acquire) {
@@ -135,30 +135,21 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    join(usb_fut, keyboard_fut).await;
+    let out_fut = async {
+        reader.run(false, &mut MyRequestHandler).await;
+    };
+
+    join(usb_fut, join(in_fut, out_fut)).await;
 }
 
 struct MyRequestHandler;
 
-struct MyDeviceHandler;
-
-impl Handler for MyDeviceHandler {
-    fn enabled(&mut self, enabled: bool) {
-        if !enabled {
-            CONFIGURED.store(false, Ordering::Release);
-        }
-    }
-
-    fn reset(&mut self) {
-        CONFIGURED.store(false, Ordering::Release);
-    }
-
-    fn configured(&mut self, configured: bool) {
-        CONFIGURED.store(configured, Ordering::Release);
-    }
-}
-
 impl RequestHandler for MyRequestHandler {
+    fn reset(&mut self) {
+        info!("Device reset, reverting to report HID protocol");
+        HID_PROTOCOL_MODE.store(HidProtocolMode::Report as u8, Ordering::Relaxed);
+    }
+
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
@@ -185,5 +176,23 @@ impl RequestHandler for MyRequestHandler {
     fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
+    }
+}
+
+struct MyDeviceHandler;
+
+impl Handler for MyDeviceHandler {
+    fn enabled(&mut self, enabled: bool) {
+        if !enabled {
+            CONFIGURED.store(false, Ordering::Release);
+        }
+    }
+
+    fn reset(&mut self) {
+        CONFIGURED.store(false, Ordering::Release);
+    }
+
+    fn configured(&mut self, configured: bool) {
+        CONFIGURED.store(configured, Ordering::Release);
     }
 }
