@@ -114,9 +114,11 @@ async fn main(_spawner: Spawner) {
             loop {
                 match select(usb_control.control_changed(), usb_rx.read_packet(&mut usb_buf)).await {
                     Either::First(_) => {
-                        let config = uart_config_from_line_coding(usb_rx.line_coding());
-                        info!("Setting line coding: {}", &config);
-                        uart_tx.set_config(config);
+                        if let Some(line_coding) = usb_rx.line_coding() {
+                            let config = uart_config_from_line_coding(line_coding);
+                            info!("Setting line coding: {}", &config);
+                            uart_tx.set_config(config);
+                        }
                     }
                     Either::Second(Err(err)) => {
                         error!("Usb read error: {:?}. Assume disconnection", Debug2Format(&err));

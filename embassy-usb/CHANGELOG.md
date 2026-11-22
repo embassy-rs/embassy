@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `HID`: `Config` has a new `interface_name` field. When set, the interface gets a string descriptor with this name, like the vendor class. `None` keeps the previous descriptors.
 - **Breaking:** `UAC`: isochronous IN endpoints (`Stream`, `Feedback`, `LineInStream`) now require `D::EndpointIn: IsoEndpointIn`. Added `ready()` returning a borrowing `IsoInSlot`, and `write_packet()` now returns `Result<Option<NonZeroU32>, IsoWriteError>` (reporting skipped service intervals without conflating `TooLate` with `Disabled`). Uncollected packets are dropped rather than sent late.
+- **Breaking:** `CDC-ACM`: `line_coding()` on `CdcAcmClass`, `Sender`, `Receiver`, `BufferedReceiver` and `ControlChanged` returns `Option<LineCoding>`. It is `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
 
 - Fixed: a control request without a data stage, such as `SET_ADDRESS`, no longer calls the driver's `control_data_out()`. Drivers wait there for a packet the host never sends, so enumeration did not complete.
 - Device: `UsbDevice` handles a control request when the driver's `Bus::poll()` returns `Event::Setup`, instead of selecting between `Bus::poll()` and `ControlPipe::setup()`.
