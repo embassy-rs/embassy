@@ -509,6 +509,10 @@ pub enum TxError {
 
     /// Hard Reset received before or during transmission.
     HardReset,
+
+    /// The message is shorter than a message header (2 bytes) or longer than the largest PD
+    /// message (264 bytes).
+    InvalidLength,
 }
 
 /// Size of the largest message: header, extended header and 260 data bytes of an unchunked
@@ -672,6 +676,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     /// Transmits a PD message with a given SOP.
     pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
+
+        // No PD message is shorter than its header or longer than `MAX_MESSAGE_LEN`.
+        if !(2..=MAX_MESSAGE_LEN).contains(&buf.len()) {
+            return Err(TxError::InvalidLength);
+        }
 
         // When a previous transmission was dropped before it had finished it
         // might still be running because there is no way to abort an ongoing

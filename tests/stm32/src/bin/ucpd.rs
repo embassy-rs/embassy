@@ -11,7 +11,9 @@ use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::{poll_once, yield_now};
-use embassy_stm32::ucpd::{self, ActivePdPhy, CcPhy, CcPull, CcSel, CcVState, PdPhy, RxBuffers, RxError, Ucpd};
+use embassy_stm32::ucpd::{
+    self, ActivePdPhy, CcPhy, CcPull, CcSel, CcVState, PdPhy, RxBuffers, RxError, TxError, Ucpd,
+};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer, block_for, with_timeout};
 
@@ -329,6 +331,13 @@ async fn sink(
     for message in &MESSAGES[..2] {
         let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(message)).await;
         assert!(matches!(sent, Ok(Ok(()))));
+    }
+
+    // Messages shorter than a header or longer than the largest PD message are rejected.
+    let too_long = [0_u8; LONG_MESSAGE.len() + 1];
+    for len in [0, 1, too_long.len()] {
+        let sent = pd_phy.transmit(&too_long[..len]).await;
+        assert!(matches!(sent, Err(TxError::InvalidLength)));
     }
 
     // Send hard reset
