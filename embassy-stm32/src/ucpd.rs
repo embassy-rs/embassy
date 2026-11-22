@@ -719,10 +719,13 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             }
         }
 
-        // Clear the TX interrupt flags.
+        // Clear the TX interrupt flags. While TXMSGABT is set, which a Hard Reset that aborted a
+        // message leaves, the UCPD ignores TXSEND. If the aborted message had run out of data, the
+        // next message still goes out with a CRC of 0 on the STM32G071, so the partner drops it.
         T::REGS.icr().write(|w| {
             w.set_txmsgdisccf(true);
             w.set_txmsgsentcf(true);
+            w.set_txmsgabtcf(true);
             w.set_txundcf(true);
         });
 

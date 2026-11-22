@@ -193,6 +193,23 @@ async fn source(
     let n = unwrap!(pd_phy.receive(snk_to_src_buf.as_mut()).await);
     assert_eq!(&snk_to_src_buf[..n], MESSAGES[2].as_slice());
 
+    // The sink's Hard Reset aborts a cancelled long message, and its next messages arrive. The
+    // first may go out with a bad CRC (see `transmit_with_sop`), the second must arrive intact.
+    debug!("source: receiving after a hard reset that aborted a message");
+    loop {
+        match pd_phy.receive(snk_to_src_buf.as_mut()).await {
+            Err(RxError::HardReset) => break,
+            r => assert!(matches!(r, Err(RxError::Crc)), "expected the cut long message"),
+        }
+    }
+    loop {
+        match pd_phy.receive(snk_to_src_buf.as_mut()).await {
+            Ok(n) if snk_to_src_buf[..n] == MESSAGES[1] => break,
+            Ok(n) => assert_eq!(&snk_to_src_buf[..n], MESSAGES[0].as_slice()),
+            r => assert!(matches!(r, Err(RxError::Crc))),
+        }
+    }
+
     // Wait for hard-reset
     debug!("source: message sent, waiting for hard-reset");
     assert!(matches!(
@@ -304,6 +321,15 @@ async fn sink(
     assert!(poll_once(pd_phy.transmit_hardreset()).is_pending());
     let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(&MESSAGES[2])).await;
     assert!(matches!(sent, Ok(Ok(()))));
+
+    // A Hard Reset that aborts a message doesn't block the next transmissions.
+    debug!("sink: aborting a cancelled transmission with a hard reset");
+    let _ = with_timeout(Duration::from_millis(2), pd_phy.transmit(&LONG_MESSAGE)).await;
+    unwrap!(pd_phy.transmit_hardreset().await);
+    for message in &MESSAGES[..2] {
+        let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(message)).await;
+        assert!(matches!(sent, Ok(Ok(()))));
+    }
 
     // Send hard reset
     debug!("sink: message received, sending hard-reset");
