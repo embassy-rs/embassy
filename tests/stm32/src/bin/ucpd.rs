@@ -139,7 +139,7 @@ async fn source(
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
     let mut rx_buffers = RxBuffers::new();
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
+    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
 
     // Listen for an incoming message
     debug!("source: wait for message from sink");
@@ -233,13 +233,11 @@ async fn sink(
     wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Wait higher current pull-up.
-    //debug!("sink: source default vstate detected, waiting for 3.0A vstate");
-    //wait_for_vstate(ucpd.cc_phy(), CcVState::HIGHEST).await;
-    //debug!("sink: source 3.0A vstate detected");
-    // TODO: not working yet, why? no idea, replace with timer for now
-    Timer::after_millis(100).await;
+    debug!("sink: source default vstate detected, waiting for 3.0A vstate");
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Highest).await;
+    debug!("sink: source 3.0A vstate detected");
 
-    let (_, mut idle_pd_phy) = ucpd.split_idle_pd_phy(rx_dma, tx_dma, Irqs);
+    let (_cc_phy, mut idle_pd_phy) = ucpd.split_idle_pd_phy(rx_dma, tx_dma, Irqs);
     let mut rx_buffers = RxBuffers::new();
     let mut pd_phy = idle_pd_phy.activate(CcSel::Cc1, &mut rx_buffers);
 
