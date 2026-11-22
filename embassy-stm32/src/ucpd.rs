@@ -523,6 +523,10 @@ const MAX_MESSAGE_LEN: usize = 264;
 /// instead of being returned shifted by one byte.
 const RX_BUFFER_LEN: usize = MAX_MESSAGE_LEN + 1;
 
+/// How often `transmit` checks whether the DMA served a request left by an underrun. On the
+/// STM32G071, it was always done before the first check, unless the DMA interrupt couldn't run.
+const STALE_TX_REQUEST_POLLS: u32 = 100;
+
 /// Buffers for received PD messages, given to [`Ucpd::split_pd_phy`] or
 /// [`IdlePdPhy::activate`].
 ///
@@ -684,10 +688,34 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             return Err(TxError::HardReset);
         }
 
+        // A message that ran out of data, because its transmission was cancelled, leaves the DMA
+        // request for its next byte pending, and only a DMA write into TXDR clears it. Serve it with
+        // a dummy byte, which the UCPD discards between messages: otherwise, the DMA started below
+        // would write the first byte of this message right away, and it would be lost.
+        //
+        // TXUND doesn't prove that a request is pending: an underrun because the DMA was late may
+        // leave none, and so does a dummy byte that was served by a `transmit` dropped before it
+        // cleared TXUND. Waiting for the dummy byte would then never end, as the UCPD makes no
+        // request between messages. So instead of being awaited, the transfer is only polled
+        // briefly and then dropped. This is a best effort: a pending request is expected to be
+        // served at once, but one served later than that would still cost the next message.
+        if r.sr().read().txund() {
+            let mut dummy = unsafe {
+                self.tx_dma
+                    .write(&[0_u8], r.txdr().as_ptr() as *mut u8, TransferOptions::default())
+            };
+            for _ in 0..STALE_TX_REQUEST_POLLS {
+                if !dummy.is_running() {
+                    break;
+                }
+            }
+        }
+
         // Clear the TX interrupt flags.
         T::REGS.icr().write(|w| {
             w.set_txmsgdisccf(true);
             w.set_txmsgsentcf(true);
+            w.set_txundcf(true);
         });
 
         r.tx_ordsetr().write(|w| w.set_txordset(sop.value()));
