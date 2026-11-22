@@ -92,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - USB host: debounce hub port connections and cleanup addresses after hub removal
 - USB host: call `UsbHostAllocator::device_removed` for each address freed on device removal
 - Generate `config.rs` in a deterministic order, so builds of the same source produce the same crate
+- `CDC-ACM`: Add support for `SEND_BREAK`
 
 ## 0.6.0 - 2026-03-10
 

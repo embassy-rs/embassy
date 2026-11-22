@@ -22,3 +22,5 @@ pub(crate) const REQ_SET_LINE_CODING: u8 = 0x20;
 #[allow(dead_code)] // Used by the device role only.
 pub(crate) const REQ_GET_LINE_CODING: u8 = 0x21;
 pub(crate) const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
+#[allow(dead_code)] // Used by the device role only.
+pub(crate) const REQ_SEND_BREAK: u8 = 0x23;
