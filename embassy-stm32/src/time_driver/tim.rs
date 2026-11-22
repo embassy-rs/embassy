@@ -332,12 +332,21 @@ impl super::LPTimeDriver for RtcDriver {
     }
 
     fn resume_time(&self, cs: CriticalSection) {
-        assert!(!regs_gp16().cr1().read().cen());
+        let r = regs_gp16();
+        assert!(!r.cr1().read().cen());
 
         let now = crate::rtc::stop_wakeup_alarm(cs);
         self.set_time(now.map_or(self.now(), |now| now.as_ticks()), cs);
 
-        regs_gp16().cr1().modify(|w| w.set_cen(true));
+        // The restored period and counter already account for any pending rollover.
+        // Clear its flags while the timer is stopped, preserving the alarm flag.
+        r.sr().write(|w| {
+            w.0 = 0xFFFF_FFFF; // Status flags are write-zero-to-clear.
+            w.set_uif(false);
+            w.set_ccif(0, false);
+        });
+
+        r.cr1().modify(|w| w.set_cen(true));
     }
 }
 
