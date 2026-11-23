@@ -860,7 +860,7 @@ pub trait Instance: SealedInstance + PeripheralType {
 #[macro_export]
 macro_rules! impl_adc_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::adc::SealedInstance for $crate::peripherals::[<ADC $n>] {
                 fn info() -> &'static $crate::adc::Info {
                     static INFO: $crate::adc::Info =

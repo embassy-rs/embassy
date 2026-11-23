@@ -292,7 +292,7 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_wwdt_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::wwdt::SealedInstance for $crate::peripherals::[<WWDT $n>] {
                 const CLOCK_INSTANCE: $crate::clocks::periph_helpers::WwdtInstance =
                     $crate::clocks::periph_helpers::WwdtInstance::[<Wwdt $n>];

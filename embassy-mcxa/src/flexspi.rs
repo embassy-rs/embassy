@@ -334,7 +334,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 #[macro_export]
 macro_rules! impl_flexspi_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::flexspi::sealed::Instance for $crate::peripherals::[<FLEXSPI $n>] {
                 fn info() -> &'static $crate::flexspi::Info {
                     static INFO: $crate::flexspi::Info = $crate::flexspi::Info {
@@ -403,7 +403,7 @@ pub trait SsPin<T: Instance, P: Port>: Pin<T, P> {
 #[macro_export]
 macro_rules! impl_flexspi_pin {
     ($pin:ident, $peri:ident, $port:ident, $signal: ident) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::flexspi::sealed::Sealed<$crate::flexspi::$port> for $crate::peripherals::$pin {}
             impl $crate::flexspi::Pin<$crate::peripherals::$peri, $crate::flexspi::$port> for $crate::peripherals::$pin {}
             impl $crate::flexspi::[<$signal Pin>]<$crate::peripherals::$peri, $crate::flexspi::$port> for $crate::peripherals::$pin {}

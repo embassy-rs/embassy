@@ -152,7 +152,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 #[macro_export]
 macro_rules! impl_ctimer_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::ctimer::SealedInstance for $crate::peripherals::[<CTIMER $n>] {
                 #[cfg(mcxa_aoi)]
                 const NUMBER: usize = $n;

@@ -155,7 +155,7 @@ impl Drop for Dac {
 #[macro_export]
 macro_rules! impl_dac_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl crate::dac::sealed::SealedInstance for crate::peripherals::[<DAC $n>] {
                 const SOC_CNTRL_BIT: u8 = 4 + $n;
                 const INSTANCE: crate::clocks::periph_helpers::DacInstance = crate::clocks::periph_helpers::DacInstance::[<Dac $n>];

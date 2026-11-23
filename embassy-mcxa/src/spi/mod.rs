@@ -57,7 +57,7 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_lpspi_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::spi::SealedInstance for $crate::peripherals::[<LPSPI $n>] {
                 fn info() -> &'static $crate::spi::Info {
                     static INFO: $crate::spi::Info = $crate::spi::Info {

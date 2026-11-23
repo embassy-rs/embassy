@@ -147,7 +147,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
 nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "bc8d8f3ec87ca263986c7bfd05356109521375bc", features = ["rt"] }
-paste = "1.0.15"
+pastey = "0.2.3"
 
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
