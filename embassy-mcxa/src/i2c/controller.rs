@@ -1576,8 +1576,10 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         // return would invoke remediation a second time and corrupt
         // the controller state for the next transaction.
         let on_drop = DropGuard::new((), |()| {
-            self.remediation();
             self.info.regs().mder().modify(|w| w.set_rdde(false));
+            let _ = self.info.regs().mder().read();
+            self.mode.rx_dma.stop();
+            self.remediation();
         });
 
         // Drain the *entire* read with a single continuous DMA transfer
@@ -1632,21 +1634,15 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 w.set_tdie(to_request > 0);
             });
 
-            if self.mode.rx_dma.is_done() {
-                core::task::Poll::Ready(Ok(()))
-            } else {
-                core::task::Poll::Pending
-            }
+            self.mode.rx_dma.poll_complete(cx).map_err(|_| IOError::Other)
         })
         .await;
 
         cortex_m::asm::dsb();
 
         self.info.regs().mder().modify(|w| w.set_rdde(false));
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
-        }
+        let _ = self.info.regs().mder().read();
+        self.mode.rx_dma.stop();
 
         result?;
 
@@ -1686,6 +1682,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         // command FIFO after the FIFO reset.
         let on_drop = DropGuard::new((), |()| {
             self.info.regs().mder().modify(|w| w.set_tdde(false));
+            let _ = self.info.regs().mder().read();
             self.mode.tx_dma.stop();
             self.remediation();
         });
@@ -1737,11 +1734,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                     w.set_pltie(true);
                 });
 
-                if self.mode.tx_dma.is_done() {
-                    core::task::Poll::Ready(Ok(()))
-                } else {
-                    core::task::Poll::Pending
-                }
+                self.mode.tx_dma.poll_complete(cx).map_err(|_| IOError::Other)
             })
             .await;
 
@@ -1749,6 +1742,7 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             cortex_m::asm::dsb();
             // Cleanup
             self.info.regs().mder().modify(|w| w.set_tdde(false));
+            let _ = self.info.regs().mder().read();
             self.mode.tx_dma.stop();
 
             if let Err(error) = result {

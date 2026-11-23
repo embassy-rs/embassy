@@ -1109,11 +1109,13 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
 
         // perform corrective action if the future is dropped
         let on_drop = DropGuard::new((), |()| {
-            self.blocking_remediation(bus_type);
             self.info
                 .regs()
                 .mdmactrl()
                 .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
+            let _ = self.info.regs().mdmactrl().read();
+            self.mode.rx_dma.stop();
+            self.blocking_remediation(bus_type);
         });
 
         let mut bytes_received: usize = 0;
@@ -1178,7 +1180,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 });
 
                 let st = self.info.regs().mstatus().read();
-                if self.mode.rx_dma.is_done() || st.complete() || st.errwarn() {
+                if self.mode.rx_dma.poll_complete(cx).is_ready() || st.complete() || st.errwarn() {
                     core::task::Poll::Ready(())
                 } else {
                     core::task::Poll::Pending
@@ -1189,25 +1191,22 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             // Ensure DMA writes are visible to CPU
             cortex_m::asm::dsb();
 
-            // How many bytes did DMA actually move into this chunk?
-            let chunk_done = if self.mode.rx_dma.is_done() {
-                chunk.len()
-            } else {
-                // DMA didn't finish, but I3C COMPLETE or errwarn fired.
-                // The target may have T-bit'd early. Check how many bytes
-                // actually made it into the buffer.
-                self.mode.rx_dma.transferred_bytes().min(chunk.len())
-            };
-
             // Cleanup
             self.info
                 .regs()
                 .mdmactrl()
                 .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
-            unsafe {
-                self.mode.rx_dma.disable_request();
-                self.mode.rx_dma.clear_done();
+            let _ = self.info.regs().mdmactrl().read();
+            self.mode.rx_dma.stop();
+            if self.mode.rx_dma.errors().is_some() {
+                result = Err(IOError::Other);
+                break 'outer;
             }
+            // DADDR is stable after retirement and, unlike CITER, does not
+            // reload to BITER when a full chunk completes during shutdown.
+            let chunk_done = (self.mode.rx_dma.daddr() as usize)
+                .wrapping_sub(chunk.as_ptr() as usize)
+                .min(chunk.len());
 
             let st_after = self.info.regs().mstatus().read();
             bytes_received += chunk_done;
@@ -1272,11 +1271,13 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
         let on_drop = DropGuard::new((), |()| {
-            self.blocking_remediation(bus_type);
             self.info
                 .regs()
                 .mdmactrl()
                 .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
+            let _ = self.info.regs().mdmactrl().read();
+            self.mode.tx_dma.stop();
+            self.blocking_remediation(bus_type);
         });
 
         self.async_start(address, bus_type, Dir::Write, 0).await?;
@@ -1335,15 +1336,9 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             }
 
             // Wait for completion asynchronously
-            core::future::poll_fn(|cx| {
-                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-                if self.mode.tx_dma.is_done() {
-                    core::task::Poll::Ready(())
-                } else {
-                    core::task::Poll::Pending
-                }
-            })
-            .await;
+            core::future::poll_fn(|cx| self.mode.tx_dma.poll_complete(cx))
+                .await
+                .map_err(|_| IOError::Other)?;
 
             // Ensure DMA writes are visible to CPU
             cortex_m::asm::dsb();
@@ -1352,10 +1347,8 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
                 .regs()
                 .mdmactrl()
                 .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
-            unsafe {
-                self.mode.tx_dma.disable_request();
-                self.mode.tx_dma.clear_done();
-            }
+            let _ = self.info.regs().mdmactrl().read();
+            self.mode.tx_dma.stop();
         }
 
         // Wait until we have space in the TX FIFO.

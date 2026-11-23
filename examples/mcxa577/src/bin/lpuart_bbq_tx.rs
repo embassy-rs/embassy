@@ -124,7 +124,7 @@ async fn main(_spawner: Spawner) {
             window = later;
         }
         defmt::info!("Knocked, flushing...");
-        lpuart.flush().await;
+        lpuart.flush().await.unwrap();
         // Wait a small amount of time AFTER knocking to allow the device to wake up
         Timer::after_millis(1).await;
 
@@ -136,7 +136,7 @@ async fn main(_spawner: Spawner) {
             window = later;
         }
         defmt::info!("Sent, flushing...");
-        lpuart.flush().await;
+        lpuart.flush().await.unwrap();
 
         defmt::info!("Flushed.");
 

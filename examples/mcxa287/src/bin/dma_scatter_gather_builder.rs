@@ -83,11 +83,14 @@ async fn main(_spawner: Spawner) {
     // Build and execute the scatter-gather chain
     // The build() method:
     // - Links all TCDs together with ESG bit
-    // - Sets INTMAJOR on all TCDs
+    // - Sets INTMAJOR only on the final TCD
     // - Loads the first TCD into hardware
     // - Returns a Transfer future
-    let transfer = builder.build(dma_ch0).expect("Failed to build scatter-gather");
-    transfer.blocking_wait();
+    // SAFETY: aligned DMA-accessible SRAM; builder remains live and unmoved,
+    // sources immutable and destinations exclusive until the whole chain
+    // retires. This example does not forget the retirement owner.
+    let transfer = unsafe { builder.build(dma_ch0) }.expect("Failed to build scatter-gather");
+    transfer.blocking_wait().unwrap();
 
     defmt::info!("Scatter-gather transfer complete!");
 

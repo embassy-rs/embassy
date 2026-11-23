@@ -1344,9 +1344,16 @@ impl<'d> InnerFlexSpi<'d, Async> {
                 unsafe { core::slice::from_raw_parts_mut(regs.tfdr(0).as_ptr() as *mut u32, chunk_words) };
             {
                 let dma = self.dma.as_mut().ok_or(IoError::InvalidTransferLength)?;
-                let transfer =
+                // SAFETY: data is borrowed across await;
+                // aligned TFDR window is exclusively owned by this controller
+                // and chunk_words is bounded by the configured FIFO watermark.
+                // Transfer Drop drains pending START and ACTIVE before the data
+                // borrow is released; this software-started copy needs no
+                // peripheral request-source shutdown.
+                let transfer = unsafe {
                     dma.tx_dma
-                        .mem_to_mem(&data[offset..offset + chunk_words], fifo_window, DMA_TRANSFER_OPTIONS)?;
+                        .mem_to_mem(&data[offset..offset + chunk_words], fifo_window, DMA_TRANSFER_OPTIONS)
+                }?;
                 transfer.await?;
             }
 
@@ -1387,9 +1394,15 @@ impl<'d> InnerFlexSpi<'d, Async> {
         let fifo_window = unsafe { core::slice::from_raw_parts(regs.rfdr(0).as_ptr() as *const u32, fifo_words) };
         {
             let dma = self.dma.as_mut().ok_or(IoError::InvalidTransferLength)?;
-            let transfer = dma
-                .rx_dma
-                .mem_to_mem(fifo_window, &mut buffer[..fifo_words], DMA_TRANSFER_OPTIONS)?;
+            // SAFETY: command complete, RFDR is readable
+            // FIFO window owned by this controller. buffer is held exclusively
+            // across the await, and fifo_words is bounded by the FIFO capacity.
+            // Transfer Drop drains pending START and ACTIVE before releasing
+            // buffer; the software-started copy has no peripheral request owner.
+            let transfer = unsafe {
+                dma.rx_dma
+                    .mem_to_mem(fifo_window, &mut buffer[..fifo_words], DMA_TRANSFER_OPTIONS)
+            }?;
             transfer.await?;
         }
 
