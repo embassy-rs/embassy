@@ -1033,6 +1033,73 @@ fn test_cdc_ecm_device_descriptors() {
     assert_eq!(eth_desc[9], 0x05);
 }
 
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_send_break_is_advertised_and_reported_when_enabled() {
+    use crate::class::cdc_acm::device::{Break, CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut acm_config = AcmConfig::new();
+    acm_config.send_break = true;
+    let class = CdcAcmClass::new(&mut builder, &mut state, acm_config);
+    let mut usb = builder.build();
+
+    // `configure()` resets the bus, so the class reports a `Stop` first.
+    configure(&mut usb);
+    assert_eq!(class.take_break(), Some(Break::Stop));
+    // Start a break that lasts until the host stops it.
+    assert_eq!(request(&mut usb, 0x21, 0x23, 0xFFFF, 0, 0), Response::Accepted);
+    assert_eq!(class.take_break(), Some(Break::UntilStopped));
+    block_on(usb.inner.handle_bus_event(&mut usb.bus, Event::PowerRemoved));
+    assert_eq!(class.take_break(), Some(Break::Stop));
+
+    drop(class);
+    drop(usb);
+    // D1 and D2 set: line coding and SEND_BREAK.
+    assert!(config_descriptor.windows(4).any(|w| w == [4, 0x24, 0x02, 0x06]));
+}
+
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_send_break_is_rejected_by_default() {
+    use crate::class::cdc_acm::device::{CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let class = CdcAcmClass::new(&mut builder, &mut state, AcmConfig::new());
+    let mut usb = builder.build();
+
+    configure(&mut usb);
+    assert_eq!(request(&mut usb, 0x21, 0x23, 0xFFFF, 0, 0), Response::Rejected);
+    assert_eq!(class.take_break(), None);
+
+    drop(class);
+    drop(usb);
+    // Only D1 set: no SEND_BREAK.
+    assert!(config_descriptor.windows(4).any(|w| w == [4, 0x24, 0x02, 0x02]));
+}
+
 #[cfg(feature = "class-printer")]
 #[test]
 fn test_printer_device_descriptors() {
