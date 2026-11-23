@@ -46,7 +46,7 @@ impl Info {
         &self.wait_cell
     }
 
-    fn disable_write_protect(&self) {
+    fn disable_write_protect(&self) -> bool {
         // The Write Enable state machine is STATUS[7:6]. Only run the unlock
         // sequence when locked: replaying it while unlocked re-arms protection.
         // Re-run it until it takes (RM 38.3.7 Note 1): after Stop exit, STATUS
@@ -59,6 +59,7 @@ impl Info {
             self.regs().status8().write_value(0x80);
             tries -= 1;
         }
+        !self.regs().status().read().write_prot_en()
     }
 
     fn enable_write_protect(&self) {
@@ -638,8 +639,8 @@ impl<'a> Rtc<'a> {
         Ok(())
     }
 
-    fn disable_write_protect(&mut self) {
-        self.info.disable_write_protect();
+    fn disable_write_protect(&mut self) -> bool {
+        self.info.disable_write_protect()
     }
 
     fn enable_write_protect(&mut self) {
@@ -728,7 +729,9 @@ impl<'a> Rtc<'a> {
                 return Err(RtcError::Other);
             }
 
-            self.disable_write_protect();
+            if !self.disable_write_protect() {
+                return Err(RtcError::Other);
+            }
 
             self.info.regs().yearmon().write(|w| {
                 w.set_yrofst(year);
@@ -790,7 +793,9 @@ impl<'a> Rtc<'a> {
         self.is_valid_dst_year(end)?;
 
         critical_section::with(|_| {
-            self.disable_write_protect();
+            if !self.disable_write_protect() {
+                return Err(RtcError::Other);
+            }
 
             self.info.regs().dst_hour().write(|w| {
                 w.set_dst_start_hour(start.hour - 1);
@@ -808,9 +813,8 @@ impl<'a> Rtc<'a> {
             });
 
             self.enable_write_protect();
-        });
-
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Set alarm to `t` and wait for the RTC alarm interrupt to trigger.
@@ -829,10 +833,11 @@ impl<'a> Rtc<'a> {
         let info = self.info;
         let _cleanup = DropGuard::new(info, |info| {
             critical_section::with(|_| {
-                info.disable_write_protect();
-                info.regs().ier().modify(|w| w.set_alm_ie(false));
-                info.regs().isr().write(|w| w.set_alm_is(true));
-                info.enable_write_protect();
+                if info.disable_write_protect() {
+                    info.regs().ier().modify(|w| w.set_alm_ie(false));
+                    info.regs().isr().write(|w| w.set_alm_is(true));
+                    info.enable_write_protect();
+                }
             });
         });
 
@@ -844,7 +849,9 @@ impl<'a> Rtc<'a> {
         let second = t.second;
 
         critical_section::with(|_| {
-            self.disable_write_protect();
+            if !self.disable_write_protect() {
+                return Err(RtcError::Other);
+            }
             self.info.regs().ier().modify(|w| w.set_alm_ie(false));
 
             self.info.regs().alm_yearmon().write(|w| {
@@ -867,7 +874,8 @@ impl<'a> Rtc<'a> {
             self.info.regs().isr().write(|w| w.set_alm_is(true));
             self.info.regs().ier().modify(|w| w.set_alm_ie(true));
             self.enable_write_protect();
-        });
+            Ok(())
+        })?;
 
         info.wait_cell()
             .wait_for(|| {
@@ -979,9 +987,10 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             if status.0 != DESYNCED && status.alm_is() {
                 // Protection can re-engage during a wait. Only replay the unlock
                 // sequence when locked; replaying it while unlocked re-locks.
-                info.disable_write_protect();
-                regs.ier().modify(|w| w.set_alm_ie(false));
-                info.enable_write_protect();
+                if info.disable_write_protect() {
+                    regs.ier().modify(|w| w.set_alm_ie(false));
+                    info.enable_write_protect();
+                }
                 true
             } else {
                 false
