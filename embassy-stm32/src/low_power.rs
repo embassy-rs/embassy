@@ -418,10 +418,11 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 
 /// `WFI` and `ISB`, executed from RAM.
 ///
-/// U0: with DBG_STOP set (`enable_debug_during_sleep`), the first instruction fetches from flash
-/// after a wake-up from Stop with interrupts masked can fault. ST reproduced it on a NUCLEO-U083;
-/// there's no erratum yet. Fetching the instructions right after the wake-up from RAM avoids it.
-#[cfg(stm32u0)]
+/// U0 and G0: with DBG_STOP set (`enable_debug_during_sleep`), the first instruction fetches from
+/// flash after a wake-up from Stop with interrupts masked can fault. ST reproduced it on a
+/// NUCLEO-U083; there's no erratum yet. It happens on a NUCLEO-G071RB too, also with no debugger
+/// attached. Fetching the instructions right after the wake-up from RAM avoids it.
+#[cfg(any(stm32u0, stm32g0))]
 #[unsafe(link_section = ".data.embassy_stm32_wfi_from_ram")]
 #[inline(never)]
 fn wfi_from_ram() {
@@ -450,9 +451,9 @@ pub unsafe fn sleep(cs: CriticalSection) {
     }
 
     cortex_m::asm::dsb();
-    #[cfg(not(stm32u0))]
+    #[cfg(not(any(stm32u0, stm32g0)))]
     cortex_m::asm::wfi();
-    #[cfg(stm32u0)]
+    #[cfg(any(stm32u0, stm32g0))]
     wfi_from_ram();
 
     cortex_m::asm::isb();

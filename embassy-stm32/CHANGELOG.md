@@ -150,6 +150,7 @@ Low power:
 - change: stm32/low-power: after Stop, turn back on only the oscillators, PLLs and voltage settings that Stop turned off, instead of re-running the RCC init (U3, U5, WL, WBA, F4, G4).
 - fix: stm32/low-power l0: only put the regulator in low-power mode for Stop, not for the `WFI` sleeps after it.
 - fix: stm32/low-power u0: execute the `WFI` from RAM. With `enable_debug_during_sleep`, the chip HardFaulted on wake-up from Stop.
+- fix: stm32/low-power g0: execute the `WFI` from RAM, like on U0. With `enable_debug_during_sleep`, the chip HardFaulted on wake-up from Stop, also with no debugger attached.
 - fix: stm32/rcc l5: don't reset the backup domain when configuring LSE/LSI, which also erased SRAM2.
 - change: stm32/rcc l5: `LsConfig::new()` and `LsConfig::default()` use LSI for the RTC, like the other families, instead of turning it off.
 - change: stm32/low-power: remove the `low-power-debug-with-sleep` feature.
