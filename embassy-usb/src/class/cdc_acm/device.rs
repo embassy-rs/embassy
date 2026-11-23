@@ -29,6 +29,7 @@ const REQ_GET_ENCAPSULATED_COMMAND: u8 = 0x01;
 
 /// CDC ACM error.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CdcAcmError {
     /// USB is not connected.
     NotConnected,
