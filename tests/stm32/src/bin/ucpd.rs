@@ -135,6 +135,7 @@ async fn source(
     wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Advertise a higher current by changing the pull-up resistor.
+    SINK_READY.wait().await;
     debug!("source: sink detected, setting 3.0A current pull-up");
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
@@ -231,6 +232,7 @@ async fn sink(
     // Wait for default source.
     debug!("sink: waiting for default vstate");
     wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
+    SINK_READY.set();
 
     // Wait higher current pull-up.
     debug!("sink: source default vstate detected, waiting for 3.0A vstate");
