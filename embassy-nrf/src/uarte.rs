@@ -178,6 +178,7 @@ pub struct UarteTx<'d, M: Mode> {
 pub struct UarteRx<'d, M: Mode> {
     r: pac::uarte::Uarte,
     state: &'static State,
+    clk: u32,
     _p: PhantomData<(&'d (), M)>,
 }
 
@@ -279,13 +280,14 @@ impl<'d, M: Mode> Uarte<'d, M> {
         config: Config,
     ) -> Self {
         let r = T::regs();
+        let clk = T::clk();
 
         let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
             (false, false) => false,
             (true, true) => true,
             _ => panic!("RTS and CTS pins must be either both set or none set."),
         };
-        configure(r, config, hardware_flow_control);
+        configure(r, config, hardware_flow_control, clk);
         configure_rx_pins(r, rxd, rts);
         configure_tx_pins(r, txd, cts);
 
@@ -304,6 +306,7 @@ impl<'d, M: Mode> Uarte<'d, M> {
             rx: UarteRx {
                 r: T::regs(),
                 state: T::state(),
+                clk,
                 _p: PhantomData,
             },
         }
@@ -410,42 +413,44 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, mut rxd: Flex<'_>, mut rts
     }
 }
 
-pub(crate) fn set_baudrate(r: pac::uarte::Uarte, baudrate: Baudrate) {
-    let value = baudrate_register_value(baudrate, clock_ratio(r));
+/// The UARTE clock that the [`Baudrate`] values are for.
+const BAUDRATE_CLK: u32 = 16_000_000;
+
+pub(crate) fn set_baudrate(r: pac::uarte::Uarte, baudrate: Baudrate, clk: u32) {
+    let value = baudrate_register_value(baudrate, clk);
     r.baudrate().write(|w| w.set_baudrate(Baudrate::from_bits(value)));
 }
 
-/// The UARTE clock as a multiple of 16 MHz.
-///
-/// The [`Baudrate`] values are for a 16 MHz clock. On nRF54L, UARTE00 runs at the MCU clock
-/// instead, which is 64 or 128 MHz depending on `PLL.FREQ`.
-fn clock_ratio(_r: pac::uarte::Uarte) -> u32 {
-    #[cfg(feature = "_nrf54l")]
-    if _r == pac::UARTE00 {
-        return match pac::OSCILLATORS.pll().currentfreq().read().currentfreq() {
-            pac::oscillators::vals::Currentfreq::Ck128m => 8,
-            pac::oscillators::vals::Currentfreq::Ck64m => 4,
-            _ => panic!("PLL.CURRENTFREQ is not readable"),
-        };
-    }
-    1
+/// The MCU clock in Hz, which `PLL.FREQ` sets. UARTE00 runs at this clock.
+#[cfg(feature = "_nrf54l")]
+pub(crate) fn mcu_clk() -> u32 {
+    clk_from_pll(pac::OSCILLATORS.pll().currentfreq().read().currentfreq())
 }
 
-/// The BAUDRATE register value for `baudrate` on a UARTE clocked at `clock_ratio` times 16 MHz.
-fn baudrate_register_value(baudrate: Baudrate, clock_ratio: u32) -> u32 {
-    baudrate.to_bits() / clock_ratio
+#[cfg(feature = "_nrf54l")]
+fn clk_from_pll(currentfreq: pac::oscillators::vals::Currentfreq) -> u32 {
+    match currentfreq {
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
+        _ => panic!("PLL.CURRENTFREQ is not readable"),
+    }
+}
+
+/// The BAUDRATE register value for `baudrate` on a UARTE clocked at `clk` Hz.
+fn baudrate_register_value(baudrate: Baudrate, clk: u32) -> u32 {
+    baudrate.to_bits() / (clk / BAUDRATE_CLK)
 }
 
 /// The number of 16 MHz ticks in 20 bits, two bytes with 1 start bit, 8 data bits and 1 stop
-/// bit each.
+/// bit each. `register_value` is the BAUDRATE register value of a UARTE clocked at `clk` Hz.
 ///
 /// At 16 MHz, BAUDRATE register values are `baudrate * 2^32 / 16000000`, see
 /// <https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values>.
-fn idle_timeout(register_value: u32, clock_ratio: u32) -> u32 {
-    0x8000_0000 / (register_value.saturating_mul(clock_ratio) / 40)
+fn idle_timeout(register_value: u32, clk: u32) -> u32 {
+    0x8000_0000 / (register_value.saturating_mul(clk / BAUDRATE_CLK) / 40)
 }
 
-pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_control: bool) {
+pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_control: bool, clk: u32) {
     r.config().write(|w| {
         w.set_hwfc(hardware_flow_control);
         w.set_parity(config.parity);
@@ -454,7 +459,7 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
         #[cfg(feature = "_nrf54l")]
         w.set_frametimeout(true);
     });
-    set_baudrate(r, config.baudrate);
+    set_baudrate(r, config.baudrate, clk);
 
     // Disable all interrupts
     r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -591,7 +596,7 @@ impl<'d, M: Mode> UarteTx<'d, M> {
     fn new_inner<T: Instance>(_uarte: Peri<'d, T>, txd: Flex<'d>, cts: Option<Flex<'d>>, config: Config) -> Self {
         let r = T::regs();
 
-        configure(r, config, cts.is_some());
+        configure(r, config, cts.is_some(), T::clk());
         configure_tx_pins(r, txd, cts);
 
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
@@ -919,8 +924,9 @@ impl<'d, M: Mode> UarteRx<'d, M> {
 
     fn new_inner<T: Instance>(_uarte: Peri<'d, T>, rxd: Flex<'d>, rts: Option<Flex<'d>>, config: Config) -> Self {
         let r = T::regs();
+        let clk = T::clk();
 
-        configure(r, config, rts.is_some());
+        configure(r, config, rts.is_some(), clk);
         configure_rx_pins(r, rxd, rts);
 
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
@@ -932,6 +938,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         Self {
             r: T::regs(),
             state: T::state(),
+            clk,
             _p: PhantomData,
         }
     }
@@ -942,6 +949,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         UarteRx {
             r: self.r,
             state: self.state,
+            clk: self.clk,
             _p: PhantomData,
         }
     }
@@ -958,7 +966,7 @@ impl<'d, M: Mode> UarteRx<'d, M> {
         let r = self.r;
 
         // We want to stop RX if line is idle for 2 bytes worth of time
-        let timeout = idle_timeout(r.baudrate().read().baudrate().to_bits(), clock_ratio(r));
+        let timeout = idle_timeout(r.baudrate().read().baudrate().to_bits(), self.clk);
 
         timer.set_frequency(Frequency::F16MHz);
         timer.cc(0).write(timeout);
@@ -1386,6 +1394,8 @@ pub(crate) trait SealedInstance {
     fn regs() -> pac::uarte::Uarte;
     fn state() -> &'static State;
     fn buffered_state() -> &'static crate::buffered_uarte::State;
+    /// The UARTE clock in Hz.
+    fn clk() -> u32;
 }
 
 /// UARTE peripheral instance.
@@ -1420,7 +1430,7 @@ pin_trait!(
 );
 
 macro_rules! impl_uarte {
-    ($type:ident, $pac_type:ident, $irq:ident) => {
+    ($type:ident, $pac_type:ident, $irq:ident, $clk:expr) => {
         impl crate::uarte::SealedInstance for peripherals::$type {
             fn regs() -> pac::uarte::Uarte {
                 pac::$pac_type
@@ -1433,10 +1443,17 @@ macro_rules! impl_uarte {
                 static STATE: crate::buffered_uarte::State = crate::buffered_uarte::State::new();
                 &STATE
             }
+            fn clk() -> u32 {
+                $clk
+            }
         }
         impl crate::uarte::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
+    };
+
+    ($type:ident, $pac_type:ident, $irq:ident) => {
+        impl_uarte!($type, $pac_type, $irq, 16_000_000);
     };
 }
 
@@ -1541,35 +1558,44 @@ mod tests {
 
     #[test]
     fn baudrate_is_unchanged_at_16mhz() {
-        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 1), 0x01d6_0000);
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 16_000_000), 0x01d6_0000);
     }
 
     #[test]
     fn baudrate_is_scaled_at_64mhz() {
-        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 4), 0x0075_8000);
-        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 4), 0x0001_3c00);
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 64_000_000), 0x0075_8000);
+        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 64_000_000), 0x0001_3c00);
     }
 
     #[test]
     fn baudrate_is_scaled_at_128mhz() {
-        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 8), 0x003a_c000);
-        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 8), 0x0000_9e00);
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 128_000_000), 0x003a_c000);
+        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 128_000_000), 0x0000_9e00);
     }
 
     #[test]
     fn idle_timeout_is_20_bits_in_16mhz_ticks() {
         // 20 bits at 114746 baud, the actual rate of `Baud115200`, last 2788 ticks at 16 MHz.
-        assert_eq!(idle_timeout(0x01d6_0000, 1), 2788);
+        assert_eq!(idle_timeout(0x01d6_0000, 16_000_000), 2788);
     }
 
     #[test]
     fn idle_timeout_does_not_depend_on_the_clock() {
         for baudrate in [Baudrate::Baud1200, Baudrate::Baud115200, Baudrate::Baud1m] {
-            let at_16mhz = idle_timeout(baudrate_register_value(baudrate, 1), 1);
-            for clock_ratio in [4, 8] {
-                let value = baudrate_register_value(baudrate, clock_ratio);
-                assert_eq!(idle_timeout(value, clock_ratio), at_16mhz);
+            let at_16mhz = idle_timeout(baudrate_register_value(baudrate, 16_000_000), 16_000_000);
+            for clk in [64_000_000, 128_000_000] {
+                let value = baudrate_register_value(baudrate, clk);
+                assert_eq!(idle_timeout(value, clk), at_16mhz);
             }
         }
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    #[test]
+    fn mcu_clk_follows_the_pll() {
+        use pac::oscillators::vals::Currentfreq;
+
+        assert_eq!(clk_from_pll(Currentfreq::Ck64m), 64_000_000);
+        assert_eq!(clk_from_pll(Currentfreq::Ck128m), 128_000_000);
     }
 }

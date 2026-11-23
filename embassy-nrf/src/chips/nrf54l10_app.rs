@@ -734,7 +734,7 @@ impl_spis!(SERIAL21, SPIS21, SERIAL21);
 impl_spis!(SERIAL22, SPIS22, SERIAL22);
 impl_spis!(SERIAL30, SPIS30, SERIAL30);
 
-impl_uarte!(SERIAL00, UARTE00, SERIAL00);
+impl_uarte!(SERIAL00, UARTE00, SERIAL00, crate::uarte::mcu_clk());
 impl_uarte!(SERIAL20, UARTE20, SERIAL20);
 impl_uarte!(SERIAL21, UARTE21, SERIAL21);
 impl_uarte!(SERIAL22, UARTE22, SERIAL22);
