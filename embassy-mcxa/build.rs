@@ -88,10 +88,14 @@ fn main() {
         let device_type = 0x1000u16 | u16::from_str_radix(digits, 16).expect("MCXN part digits");
         generated.push(quote! { pub(crate) const MCXN_DEVICE_TYPE: u16 = #device_type; });
     }
+    generated.push(generate_instance_calls());
+    if is_mcxn() {
+        generated.push(generate_mcxn_pcr_dispatch());
+        generated.push(generate_mcxn_gpio_clock_enable());
+    }
     if !is_mcxn() {
         generated.extend([
             generate_dma_requests_enum(),
-            generate_instance_calls(),
             generate_adc_pin_impls(),
             generate_cmp_pin_impls(),
             generate_clkout_impls(),
@@ -230,7 +234,11 @@ fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
     for peripheral in METADATA.peripherals {
-        if is_mcxn() && !matches!(peripheral.name, "GPIO0" | "GPIO1" | "PORT0" | "PORT1" | "OSTIMER0") {
+        if is_mcxn()
+            && !(is_numbered(peripheral.name, "GPIO")
+                || is_numbered(peripheral.name, "PORT")
+                || peripheral.name == "OSTIMER0")
+        {
             continue;
         }
         let Some(gate) = peripheral.gate.as_ref() else {
@@ -294,6 +302,12 @@ fn generate_instance_calls() -> TokenStream {
         "adc", "cmp", "crc", "dac", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
         "can",
     ];
+    const MCXN_REQUIRES_INSTANCE: &[&str] = &["gpio"];
+    let requires_instance = if is_mcxn() {
+        MCXN_REQUIRES_INSTANCE
+    } else {
+        REQUIRES_INSTANCE
+    };
 
     for peripheral in METADATA.peripherals {
         if peripheral.driver_name.is_empty() {
@@ -309,7 +323,7 @@ fn generate_instance_calls() -> TokenStream {
         let peripheral_name = name.to_lowercase();
         let peripheral_number = leading_num(&peripheral.name[name.len()..]);
 
-        if REQUIRES_INSTANCE.contains(&peripheral_name.as_str()) {
+        if requires_instance.contains(&peripheral_name.as_str()) {
             let arg = if let Some(peripheral_number) = peripheral_number {
                 proc_macro2::Literal::u32_unsuffixed(peripheral_number).into_token_stream()
             } else {
@@ -340,14 +354,6 @@ fn generate_gpio_pin_impls() -> TokenStream {
 
         for s in gpio_peripheral.signals {
             assert_eq!(s.pins.len(), 1, "Each gpio signal should only have 1 pin: {s:?}");
-            // Native N PCRs have per-pad types. Start with the three RGB pads;
-            // do not advertise unimplemented pads or interrupt capabilities.
-            if is_mcxn() && !matches!(s.pins[0].pin, "P0_10" | "P0_27" | "P1_2") {
-                continue;
-            }
-            if env::var_os("CARGO_FEATURE__MCXN23X").is_some() && s.pins[0].pin == "P0_10" {
-                continue;
-            }
             let pin = format_ident!("{}", s.pins[0].pin);
             let pin_num = proc_macro2::Literal::u32_unsuffixed(s.name.parse().unwrap());
             let feature_gate = pin_feature_gate(s.pins[0].pin);
@@ -360,6 +366,86 @@ fn generate_gpio_pin_impls() -> TokenStream {
     }
 
     generated
+}
+
+/// Every MCXN GPIO pad as `(port, pin)`, from the GPIOn peripherals' signals.
+fn mcxn_gpio_pads() -> Vec<(u32, u32)> {
+    let mut pads = Vec::new();
+    for (port, gpio) in METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| prefix_num(p.name, "GPIO").map(|port| (port, p)))
+    {
+        for s in gpio.signals {
+            pads.push((port, s.name.parse().unwrap()));
+        }
+    }
+    pads
+}
+
+/// MCXN PCRs have a separate PAC type per pad, so pin control dispatches on
+/// `(port, pin)` to the typed `PORTn.pcrN()` accessor.
+///
+/// `mcxn_pcr_modify!` covers every pad. `mcxn_pcr_modify_drive!` is for
+/// `DSE`/`SRE` and leaves out PORT5, whose VBAT-domain pads have neither
+/// field; on those pads it does nothing.
+fn generate_mcxn_pcr_dispatch() -> TokenStream {
+    const NO_DRIVE_CONTROLS_PORT: u32 = 5;
+
+    let arm = |&(port, pin): &(u32, u32)| {
+        let port_reg = format_ident!("PORT{port}");
+        let pcr = format_ident!("pcr{pin}");
+        let port = proc_macro2::Literal::u8_unsuffixed(port as u8);
+        let pin = proc_macro2::Literal::u8_unsuffixed(pin as u8);
+        quote! { (#port, #pin) => crate::pac::#port_reg.#pcr().modify(|$w| $body), }
+    };
+
+    let pads = mcxn_gpio_pads();
+    let all: TokenStream = pads.iter().map(arm).collect();
+    let drive: TokenStream = pads
+        .iter()
+        .filter(|(port, _)| *port != NO_DRIVE_CONTROLS_PORT)
+        .map(arm)
+        .collect();
+
+    quote! {
+        macro_rules! mcxn_pcr_modify {
+            ($port:expr, $pin:expr, |$w:ident| $body:block) => {
+                match ($port, $pin) {
+                    #all
+                    _ => unreachable!("not an MCXN GPIO pad"),
+                }
+            };
+        }
+        pub(crate) use mcxn_pcr_modify;
+
+        macro_rules! mcxn_pcr_modify_drive {
+            ($port:expr, $pin:expr, |$w:ident| $body:block) => {
+                match ($port, $pin) {
+                    #drive
+                    _ => {}
+                }
+            };
+        }
+        pub(crate) use mcxn_pcr_modify_drive;
+    }
+}
+
+/// Enable the register clock of every gated PORTn and GPIOn bank.
+fn generate_mcxn_gpio_clock_enable() -> TokenStream {
+    let gated: Vec<_> = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| (is_numbered(p.name, "PORT") || is_numbered(p.name, "GPIO")) && p.gate.is_some())
+        .map(|p| format_ident!("{}", p.name))
+        .collect();
+
+    quote! {
+        pub(crate) fn enable_gpio_clocks() -> Result<(), crate::clocks::ClockError> {
+            #( <crate::peripherals::#gated as crate::clocks::Gate>::enable()?; )*
+            Ok(())
+        }
+    }
 }
 
 fn generate_adc_pin_impls() -> TokenStream {

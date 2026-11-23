@@ -1,12 +1,15 @@
-//! MCXN native PCR and blocking GPIO capabilities.
+//! MCXN native PCR control and type erasure.
 
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use super::{DriveStrength, Flex, Inverter, Mode, OpenDrain, Pull, SlewRate};
-// N has native per-pad PCR types, not A's uniform PORT/PCR model. Keep the
-// dispatch local to pin control; the GPIO registers and public driver are shared.
+use crate::_generated::{mcxn_pcr_modify, mcxn_pcr_modify_drive};
+
+// N has native per-pad PCR types, not A's uniform PORT/PCR model. `build.rs`
+// generates the `(port, pin)` dispatch to them from the PAC's GPIO pads; the GPIO
+// registers and public driver are shared.
 
 type Dse = DriveStrength;
 
@@ -18,17 +21,19 @@ pub(crate) enum Mux {
 
 macro_rules! modify_mcxn_pcr {
     ($pin:expr, |$w:ident| $body:block) => {
-        match ($pin.port(), $pin.pin()) {
-            #[cfg(not(feature = "_mcxn23x"))]
-            (0, 10) => crate::pac::PORT0.pcr10().modify(|$w| $body),
-            (0, 27) => crate::pac::PORT0.pcr27().modify(|$w| $body),
-            (1, 2) => crate::pac::PORT1.pcr2().modify(|$w| $body),
-            _ => unreachable!("unimplemented MCXN pad"),
-        }
+        mcxn_pcr_modify!($pin.port(), $pin.pin(), |$w| $body)
     };
 }
 
-// N556S PCR encodings. Match the setting explicitly: declaration order of the
+/// Like `modify_mcxn_pcr!`, for `DSE`/`SRE`. Pads without those fields (PORT5)
+/// are left unchanged.
+macro_rules! modify_mcxn_pcr_drive {
+    ($pin:expr, |$w:ident| $body:block) => {
+        mcxn_pcr_modify_drive!($pin.port(), $pin.pin(), |$w| $body)
+    };
+}
+
+// MCXN PCR encodings. Match the setting explicitly: declaration order of the
 // shared public enums is not part of the register-programming contract.
 const fn drive_strength_bits(strength: DriveStrength) -> bool {
     match strength {
@@ -63,12 +68,18 @@ pub struct AnyPin {
     port: u8,
     pin: u8,
     gpio: crate::pac::gpio::Gpio,
+    irq_bound: bool,
 }
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio) -> Self {
-        Self { port, pin, gpio }
+    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio, irq_bound: bool) -> Self {
+        Self {
+            port,
+            pin,
+            gpio,
+            irq_bound,
+        }
     }
 
     #[inline(always)]
@@ -84,6 +95,11 @@ impl AnyPin {
     #[inline(always)]
     pub fn pin_index(&self) -> u8 {
         self.pin
+    }
+
+    #[inline(always)]
+    pub(super) fn irq_bound(&self) -> bool {
+        self.irq_bound
     }
 }
 
@@ -108,11 +124,11 @@ pub(crate) trait SealedPin {
     }
 
     fn set_drive_strength(&self, strength: Dse) {
-        modify_mcxn_pcr!(self, |w| { w.set_dse(drive_strength_bits(strength)) });
+        modify_mcxn_pcr_drive!(self, |w| { w.set_dse(drive_strength_bits(strength)) });
     }
 
     fn set_slew_rate(&self, slew: Sre) {
-        modify_mcxn_pcr!(self, |w| { w.set_sre(slew_rate_bits(slew)) });
+        modify_mcxn_pcr_drive!(self, |w| { w.set_sre(slew_rate_bits(slew)) });
     }
 
     fn set_enable_input_buffer(&self, enabled: bool) {
@@ -141,7 +157,7 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(self.port(), self.pin(), self.gpio())
+        AnyPin::new(self.port(), self.pin(), self.gpio(), false)
     }
 }
 
@@ -189,12 +205,32 @@ macro_rules! impl_gpio_pin {
                 pub fn degrade(&self) -> $crate::gpio::AnyPin {
                     use $crate::gpio::SealedPin;
 
-                    $crate::gpio::AnyPin::new(
-                        self.port(),
-                        self.pin(),
-                        self.gpio(),
+                    $crate::gpio::AnyPin::new(self.port(), self.pin(), self.gpio(), false)
+                }
+            }
 
-                    )
+            impl $crate::gpio::HasGpioInstance for $crate::peripherals::$peri {
+                type Instance = $crate::peripherals::$block;
+                fn degrade_async<'p>(
+                    this: embassy_hal_internal::Peri<'p, Self>,
+                    _irq: impl $crate::interrupt::typelevel::Binding<
+                        <Self::Instance as $crate::gpio::Instance>::Interrupt,
+                        $crate::gpio::InterruptHandler<Self::Instance>,
+                    >,
+                ) -> embassy_hal_internal::Peri<'p, $crate::gpio::AnyPin> {
+                    use $crate::interrupt::typelevel::Interrupt;
+                    use $crate::gpio::SealedPin;
+                    unsafe {
+                        <<Self as $crate::gpio::HasGpioInstance>::Instance as $crate::gpio::Instance>::Interrupt::enable();
+                    }
+                    unsafe {
+                        embassy_hal_internal::Peri::new_unchecked($crate::gpio::AnyPin::new(
+                            this.port(),
+                            this.pin(),
+                            this.gpio(),
+                            true,
+                        ))
+                    }
                 }
             }
 

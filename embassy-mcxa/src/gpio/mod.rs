@@ -1,19 +1,27 @@
-//! MCX GPIO support with shared value types, data operations and driver wrappers.
-//! Family modules own pin control, type erasure and interrupt capabilities.
+//! MCX GPIO support with shared value types, data operations, driver wrappers
+//! and interrupt-driven waits. Family modules own pin control and type erasure.
 
 use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
+mod asynch;
+pub use asynch::{Async, HasGpioInstance, Instance, InterruptHandler, PeriGpioExt};
+pub(crate) use asynch::{Info, SealedInstance};
+
 #[cfg(not(feature = "_mcxn"))]
 mod mcxa;
 #[cfg(not(feature = "_mcxn"))]
-pub use mcxa::{AnyPin, Async, GpioPin, HasGpioInstance, Instance, InterruptHandler, PeriGpioExt};
+use mcxa::Mux as PinMux;
 #[cfg(not(feature = "_mcxn"))]
-pub(crate) use mcxa::{Info, SealedInstance, SealedPin};
+pub(crate) use mcxa::SealedPin;
+#[cfg(not(feature = "_mcxn"))]
+pub use mcxa::{AnyPin, GpioPin};
 #[cfg(feature = "_mcxn")]
 mod mcxn;
+#[cfg(feature = "_mcxn")]
+use mcxn::Mux as PinMux;
 #[cfg(feature = "_mcxn")]
 pub(crate) use mcxn::SealedPin;
 #[cfg(feature = "_mcxn")]

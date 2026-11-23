@@ -18,11 +18,15 @@ capacity, or errata. Use a linker memory layout appropriate for the actual chip
 and pins bonded on the actual package.
 
 The initial profile supports the primary core with FRO12 at 12 MHz, a 3 MHz
-slow bus, the 1 MHz OSTIMER time driver, and GPIO on P0_10, P0_27 and P1_2.
-MCXN23x lacks P0_10, so only P0_27 and P1_2 are implemented there. N2xx is
-single-core; on dual-core N5xx/N9xx, CPU1 must remain held in reset. Other MCXN
-peripherals are not supported yet. Only MCXN556S has been hardware validated;
-no hardware-validation claim is made for other chip selections. Use the ordinary
+slow bus, the 1 MHz OSTIMER time driver, and blocking and async GPIO on every
+pad in the chip's PAC metadata. Async GPIO routes each pin's events to its
+port's first interrupt line, so bind `GPIOn0` (e.g. `GPIO00 =>
+gpio::InterruptHandler<peripherals::GPIO0>`); `GPIOn1` is not used. PORT5 pads (the VBAT domain) have no drive-strength or
+slew-rate control, so `set_drive_strength` and `set_slew_rate` leave them
+unchanged. N2xx is single-core; on dual-core N5xx/N9xx, CPU1 must remain held
+in reset. Other MCXN peripherals are not supported yet. Only MCXN556S and
+MCXN947 have been hardware validated; no hardware-validation claim is made for
+other chip selections. Use the ordinary
 `embassy-executor/platform-cortex-m` executor; the HAL's `executor-platform`
 and `time-driver-lptmr` features are not supported on MCXN.
 
@@ -44,9 +48,9 @@ Initial MCXN support does not implement dedicated-pin reclamation through
 applies to MCXA only. In particular, the default `swd-swo-as-gpio` feature does
 not change the MCXN SWO pin's mode.
 
-These features may affect which pin tokens the PAC metadata exposes, but they
-do not add MCXN GPIO implementations beyond the supported pins listed above.
-MCXN initialization preserves inherited dedicated-pin modes.
+`sosc-as-gpio` does expose the SOSC pads' pin tokens, since the PAC metadata
+gates them on it. MCXN initialization preserves inherited dedicated-pin modes,
+so a reclaimed pad keeps its boot-time function until a driver reconfigures it.
 
 ### Boot policy
 
