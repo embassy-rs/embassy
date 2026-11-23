@@ -19,7 +19,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use heapless::Deque;
 #[cfg(feature = "ptp")]
 use xarxa_driver::TxTimestamp;
-use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, Medium, NotSupported, PacketBuf};
+use xarxa_driver::{Capabilities, Driver, DriverBuf, HardwareAddress, LinkState, Medium, NotSupported, RxWanted};
 
 pub use crate::eth::_version::{InterruptHandler, *};
 pub use crate::eth::generic_phy::*;
@@ -144,8 +144,8 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
     rx_desc: [RDes; RX],
     #[cfg(feature = "ptp")]
     tx_timestamps: Deque<TxTimestamp, TX>,
-    tx_buf: [Option<PacketBuf>; TX],
-    rx_buf: [Option<PacketBuf>; RX],
+    tx_buf: [Option<DriverBuf>; TX],
+    rx_buf: [Option<DriverBuf>; RX],
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
@@ -235,15 +235,15 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         caps
     }
 
-    fn rx_wanted(&mut self) -> usize {
+    fn rx_wanted(&mut self) -> RxWanted {
         self.rx.wanted()
     }
 
-    fn rx_give(&mut self, buf: PacketBuf) {
+    fn rx_give(&mut self, buf: DriverBuf) {
         self.rx.give(buf);
     }
 
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         self.tx.fast_forward();
 
         match self.rx.receive() {
@@ -270,7 +270,7 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         }
     }
 
-    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    fn transmit(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         self.tx.fast_forward();
 
         if !self.tx.can_transmit() {

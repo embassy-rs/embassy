@@ -9,7 +9,7 @@ use std::task::{Context, Waker};
 
 use async_io::Async;
 use log::*;
-use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, NotSupported, PacketBuf};
+use xarxa_driver::{Capabilities, Driver, DriverBuf, HardwareAddress, LinkState, NotSupported, RxWanted};
 
 const ETHERNET_HEADER_LEN: usize = 14;
 
@@ -130,7 +130,7 @@ impl io::Write for TunTap {
 pub struct TunTapDevice {
     device: Async<TunTap>,
     hardware_address: [u8; 6],
-    rx_buf: Option<PacketBuf>,
+    rx_buf: Option<DriverBuf>,
 }
 
 impl TunTapDevice {
@@ -175,15 +175,19 @@ impl Driver for TunTapDevice {
         Ok(())
     }
 
-    fn rx_wanted(&mut self) -> usize {
-        self.rx_buf.is_none() as usize
+    fn rx_wanted(&mut self) -> RxWanted {
+        let starved = self.rx_buf.is_none();
+        RxWanted {
+            count: starved as usize,
+            starved,
+        }
     }
 
-    fn rx_give(&mut self, buf: PacketBuf) {
+    fn rx_give(&mut self, buf: DriverBuf) {
         self.rx_buf = Some(buf);
     }
 
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         let mut buf = self.rx_buf.take()?;
         let mtu = self.device.get_ref().mtu.min(buf.capacity());
         buf.set_len(mtu);
@@ -204,7 +208,7 @@ impl Driver for TunTapDevice {
         true
     }
 
-    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    fn transmit(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         // todo handle WouldBlock with async
         match unsafe { self.device.get_mut() }.write(&buf) {
             Ok(_) => {}

@@ -13,7 +13,7 @@ use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 teleprobe_meta::timeout!(120);
 
@@ -111,8 +111,8 @@ async fn main(spawner: Spawner) {
     #[cfg(not(feature = "stm32f207zg"))]
     const POOL_COUNT: usize = 16;
     // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
-    static POOL: StaticPool<1520, POOL_COUNT, 8> = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool<1520, POOL_COUNT, 8>> = ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the ethernet interface to the stack.
     static ETH: StaticCell<Device> = StaticCell::new();

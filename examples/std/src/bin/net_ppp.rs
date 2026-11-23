@@ -26,7 +26,7 @@ use heapless::Vec;
 use log::*;
 use nix::sys::termios;
 use rand_core::TryRng;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 use crate::serial_port::SerialPort;
 
@@ -83,8 +83,8 @@ async fn main_task(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    static POOL: StaticPool = StaticPool::new();
-    let (stack, net_runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool> = ConstStaticCell::new(StaticPool::new());
+    let (stack, net_runner) = Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the PPP interface to the stack. It gets its addresses from PPP itself,
     // in `ppp_task`.

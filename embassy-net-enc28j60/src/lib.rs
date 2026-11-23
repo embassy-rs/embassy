@@ -22,7 +22,7 @@ use embassy_time::Duration;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::{Operation, SpiDevice};
 use traits::U16Ext;
-use xarxa_driver::{Capabilities, HardwareAddress, LinkState, NotSupported, PacketBuf};
+use xarxa_driver::{Capabilities, DriverBuf, HardwareAddress, LinkState, NotSupported, RxWanted};
 
 // Total buffer size (see section 3.2)
 const BUF_SZ: u16 = 8 * 1024;
@@ -56,7 +56,7 @@ pub struct Enc28j60<S, O> {
     next_packet: u16,
 
     // empty buffer from the stack, to receive the next packet into
-    rx_buf: Option<PacketBuf>,
+    rx_buf: Option<DriverBuf>,
 }
 
 impl<S, O> Enc28j60<S, O>
@@ -660,15 +660,19 @@ where
         Ok(())
     }
 
-    fn rx_wanted(&mut self) -> usize {
-        self.rx_buf.is_none() as usize
+    fn rx_wanted(&mut self) -> RxWanted {
+        let starved = self.rx_buf.is_none();
+        RxWanted {
+            count: starved as usize,
+            starved,
+        }
     }
 
-    fn rx_give(&mut self, buf: PacketBuf) {
+    fn rx_give(&mut self, buf: DriverBuf) {
         self.rx_buf = Some(buf);
     }
 
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         let mut buf = self.rx_buf.take()?;
         buf.set_len(MTU.min(buf.capacity()));
         match self.receive(&mut buf) {
@@ -687,7 +691,7 @@ where
         true
     }
 
-    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    fn transmit(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         Enc28j60::transmit(self, &buf);
         Ok(())
     }

@@ -17,7 +17,7 @@ use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 bind_interrupts!(struct Irqs {
     ETH1 => eth::InterruptHandler<ETH1>;
@@ -75,8 +75,8 @@ async fn main(spawner: Spawner) -> ! {
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
-    static POOL: StaticPool<1520, 16, 8> = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool<1520, 16, 8>> = ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
