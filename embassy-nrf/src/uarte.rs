@@ -410,6 +410,41 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, mut rxd: Flex<'_>, mut rts
     }
 }
 
+pub(crate) fn set_baudrate(r: pac::uarte::Uarte, baudrate: Baudrate) {
+    let value = baudrate_register_value(baudrate, clock_ratio(r));
+    r.baudrate().write(|w| w.set_baudrate(Baudrate::from_bits(value)));
+}
+
+/// The UARTE clock as a multiple of 16 MHz.
+///
+/// The [`Baudrate`] values are for a 16 MHz clock. On nRF54L, UARTE00 runs at the MCU clock
+/// instead, which is 64 or 128 MHz depending on `PLL.FREQ`.
+fn clock_ratio(_r: pac::uarte::Uarte) -> u32 {
+    #[cfg(feature = "_nrf54l")]
+    if _r == pac::UARTE00 {
+        return match pac::OSCILLATORS.pll().currentfreq().read().currentfreq() {
+            pac::oscillators::vals::Currentfreq::Ck128m => 8,
+            pac::oscillators::vals::Currentfreq::Ck64m => 4,
+            _ => panic!("PLL.CURRENTFREQ is not readable"),
+        };
+    }
+    1
+}
+
+/// The BAUDRATE register value for `baudrate` on a UARTE clocked at `clock_ratio` times 16 MHz.
+fn baudrate_register_value(baudrate: Baudrate, clock_ratio: u32) -> u32 {
+    baudrate.to_bits() / clock_ratio
+}
+
+/// The number of 16 MHz ticks in 20 bits, two bytes with 1 start bit, 8 data bits and 1 stop
+/// bit each.
+///
+/// At 16 MHz, BAUDRATE register values are `baudrate * 2^32 / 16000000`, see
+/// <https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values>.
+fn idle_timeout(register_value: u32, clock_ratio: u32) -> u32 {
+    0x8000_0000 / (register_value.saturating_mul(clock_ratio) / 40)
+}
+
 pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_control: bool) {
     r.config().write(|w| {
         w.set_hwfc(hardware_flow_control);
@@ -419,7 +454,7 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
         #[cfg(feature = "_nrf54l")]
         w.set_frametimeout(true);
     });
-    r.baudrate().write(|w| w.set_baudrate(config.baudrate));
+    set_baudrate(r, config.baudrate);
 
     // Disable all interrupts
     r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -922,14 +957,8 @@ impl<'d, M: Mode> UarteRx<'d, M> {
 
         let r = self.r;
 
-        // BAUDRATE register values are `baudrate * 2^32 / 16000000`
-        // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
-        //
         // We want to stop RX if line is idle for 2 bytes worth of time
-        // That is 20 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
-        // This gives us the amount of 16M ticks for 20 bits.
-        let baudrate = r.baudrate().read().baudrate();
-        let timeout = 0x8000_0000 / (baudrate.to_bits() / 40);
+        let timeout = idle_timeout(r.baudrate().read().baudrate().to_bits(), clock_ratio(r));
 
         timer.set_frequency(Frequency::F16MHz);
         timer.cc(0).write(timeout);
@@ -1502,6 +1531,45 @@ mod _embedded_io {
         }
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn baudrate_is_unchanged_at_16mhz() {
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 1), 0x01d6_0000);
+    }
+
+    #[test]
+    fn baudrate_is_scaled_at_64mhz() {
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 4), 0x0075_8000);
+        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 4), 0x0001_3c00);
+    }
+
+    #[test]
+    fn baudrate_is_scaled_at_128mhz() {
+        assert_eq!(baudrate_register_value(Baudrate::Baud115200, 8), 0x003a_c000);
+        assert_eq!(baudrate_register_value(Baudrate::Baud1200, 8), 0x0000_9e00);
+    }
+
+    #[test]
+    fn idle_timeout_is_20_bits_in_16mhz_ticks() {
+        // 20 bits at 114746 baud, the actual rate of `Baud115200`, last 2788 ticks at 16 MHz.
+        assert_eq!(idle_timeout(0x01d6_0000, 1), 2788);
+    }
+
+    #[test]
+    fn idle_timeout_does_not_depend_on_the_clock() {
+        for baudrate in [Baudrate::Baud1200, Baudrate::Baud115200, Baudrate::Baud1m] {
+            let at_16mhz = idle_timeout(baudrate_register_value(baudrate, 1), 1);
+            for clock_ratio in [4, 8] {
+                let value = baudrate_register_value(baudrate, clock_ratio);
+                assert_eq!(idle_timeout(value, clock_ratio), at_16mhz);
+            }
         }
     }
 }

@@ -34,7 +34,7 @@ use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::uarte::{
     Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
-    configure_tx_pins, drop_tx_rx,
+    configure_tx_pins, drop_tx_rx, set_baudrate,
 };
 use crate::{interrupt, pac};
 
@@ -488,7 +488,7 @@ impl<'d> BufferedUarteTx<'d> {
 
     /// Adjust the baud rate to the provided value.
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {
-        self.r.baudrate().write(|w| w.set_baudrate(baudrate));
+        set_baudrate(self.r, baudrate);
     }
 }
 
