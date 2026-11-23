@@ -15,7 +15,7 @@ use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
 use embassy_time::{Duration, Timer, with_timeout};
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -118,8 +118,9 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }>> =
+        ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();

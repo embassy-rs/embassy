@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Increases perf, decreases code size. See [benchmarks](https://github.com/embassy-rs/xarxa#benchmarks)
   - Fixes many bugs, some inherent to `smoltcp` design.
 - Driver implementations must now implement `xarxa-driver` instead of `embassy-net-driver`.
-- `Stack::new` takes the packet buffer `Pool`, usually a `StaticPool` in a `static`.
+- `Stack::new` takes the packet buffer `Pool` by `&'static mut`, usually a `StaticPool` in a `ConstStaticCell`. Each stack needs its own pool.
 - You can now attach multiple interfaces to the network stack.
 - UDP and raw sockets are now zero-copy.
 - `UdpSocket::bind` now takes a local and a remote address.

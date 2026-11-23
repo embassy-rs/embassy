@@ -13,7 +13,7 @@
 use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
-use xarxa::driver::PacketBuf;
+use xarxa::Buf;
 pub use xarxa::driver::PacketMeta;
 #[cfg(feature = "iface-bind")]
 pub use xarxa::iface::IfaceHandle;
@@ -247,7 +247,7 @@ impl<'d> RawSocket<'d> {
     ///
     /// # Errors
     /// - `InvalidState`: if the socket is not bound.
-    pub async fn recv_packet(&self) -> Result<PacketBuf, RecvError> {
+    pub async fn recv_packet(&self) -> Result<Buf, RecvError> {
         poll_fn(|cx| {
             self.with(|s| match s.recv() {
                 Ok(packet) => (Poll::Ready(Ok(packet)), Wake),
@@ -426,12 +426,12 @@ impl<'d> RawSocket<'d> {
     /// Errors also return the buffer unchanged.
     ///
     /// See [`try_send_packet`](Self::try_send_packet) for errors.
-    pub async fn send_packet(&self, buf: PacketBuf) -> Result<(), (SendError, PacketBuf)> {
+    pub async fn send_packet(&self, buf: Buf) -> Result<(), (SendError, Buf)> {
         // Each pending attempt restores the packet; success transfers it once.
         let mut buf = Some(buf);
         poll_fn(|cx| {
             self.poll_send(cx, |s| {
-                s.send_packet(unwrap!(buf.take())).map_err(|(err, packet)| {
+                s.send_buf(unwrap!(buf.take())).map_err(|(err, packet)| {
                     buf = Some(packet);
                     err
                 })
@@ -447,8 +447,8 @@ impl<'d> RawSocket<'d> {
     /// See [`send_packet`](Self::send_packet) for buffer layout and ownership.
     /// Every error returns the buffer unchanged. `WouldBlock` means transmission
     /// is temporarily blocked; other errors match [`send_with`](Self::send_with).
-    pub fn try_send_packet(&self, buf: PacketBuf) -> Result<(), (TryError<SendError>, PacketBuf)> {
-        self.with(|s| wake_if_ok(s.send_packet(buf).map_err(|(err, buf)| (err.into(), buf))))
+    pub fn try_send_packet(&self, buf: Buf) -> Result<(), (TryError<SendError>, Buf)> {
+        self.with(|s| wake_if_ok(s.send_buf(buf).map_err(|(err, buf)| (err.into(), buf))))
     }
 
     /// Send a packet, copying it from a slice.
@@ -587,9 +587,9 @@ impl<'d> RawSocket<'d> {
     /// Allocate an empty packet buffer with headroom for this socket.
     ///
     /// Allocation works before binding. Returns `None` if every packet buffer
-    /// is in use. Set the payload length with [`PacketBuf::set_len`] before writing.
-    pub fn try_alloc(&self) -> Option<PacketBuf> {
-        self.with(|s| (s.alloc(), NoWake))
+    /// is in use. Set the payload length with [`DriverBuf::set_len`](crate::driver::DriverBuf::set_len) before writing.
+    pub fn try_alloc(&self) -> Option<Buf> {
+        self.with(|s| (s.alloc_buf(), NoWake))
     }
 }
 

@@ -17,7 +17,7 @@ use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
@@ -62,8 +62,8 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // Small pool, the test runs from RAM.
-    static POOL: StaticPool<1514, 8> = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool<1514, 8>> = ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<MyDriver> = StaticCell::new();
