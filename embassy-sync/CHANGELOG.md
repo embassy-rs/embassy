@@ -21,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most recent `Context` should be scheduled to receive a wakeup") and the pattern used by every
   in-tree waker site, so no in-tree caller is affected; out-of-tree callers that worked by
   accident on the previous lock-based implementation may need to adjust.
-- Added `CriticalSectionWaker`, a non-generic convenience wrapper around
-  `GenericAtomicWaker<CriticalSectionRawMutex>` for callers that want the previous
-  critical-section-based semantics without spelling out the mutex parameter.
+- Added `CriticalSectionWaker`, a waker slot protected by a critical section, for callers that want the previous
+  critical-section-based semantics of `AtomicWaker`.
+- **Breaking:** Removed `GenericAtomicWaker`. Use `AtomicWaker` or `CriticalSectionWaker`.
 - Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
   bytes were written.
 - Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.

@@ -1,56 +1,11 @@
-use core::cell::Cell;
 #[cfg(target_has_atomic = "32")]
 use core::cell::UnsafeCell;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::AtomicUsize;
 #[cfg(target_has_atomic = "32")]
 use core::sync::atomic::Ordering::{AcqRel, Acquire, Release};
+#[cfg(target_has_atomic = "32")]
 use core::task::Waker;
-
-use crate::blocking_mutex::Mutex;
-use crate::blocking_mutex::raw::RawMutex;
-
-/// Utility struct to register and wake a waker.
-/// If a waker is registered, registering another waker will replace the previous one without waking it.
-/// Intended to wake a task from an interrupt. Therefore, it is generally not expected,
-/// that multiple tasks register try to register a waker simultaneously.
-///
-/// Most users should prefer [`AtomicWaker`], which uses a small atomic state machine and
-/// does **not** enter a critical section on the wake path. See also
-/// [`CriticalSectionWaker`](super::CriticalSectionWaker), a non-generic convenience wrapper
-/// that hard-codes [`CriticalSectionRawMutex`](crate::blocking_mutex::raw::CriticalSectionRawMutex).
-pub struct GenericAtomicWaker<M: RawMutex> {
-    waker: Mutex<M, Cell<Option<Waker>>>,
-}
-
-impl<M: RawMutex> GenericAtomicWaker<M> {
-    /// Create a new `GenericAtomicWaker`.
-    pub const fn new(mutex: M) -> Self {
-        Self {
-            waker: Mutex::const_new(mutex, Cell::new(None)),
-        }
-    }
-
-    /// Register a waker. Overwrites the previous waker, if any.
-    pub fn register(&self, w: &Waker) {
-        self.waker.lock(|cell| {
-            cell.set(match cell.replace(None) {
-                Some(w2) if (w2.will_wake(w)) => Some(w2),
-                _ => Some(w.clone()),
-            })
-        })
-    }
-
-    /// Wake the registered waker, if any.
-    pub fn wake(&self) {
-        self.waker.lock(|cell| {
-            if let Some(w) = cell.replace(None) {
-                w.wake_by_ref();
-                cell.set(Some(w));
-            }
-        })
-    }
-}
 
 // Lockless single-slot waker, ported from `futures::task::AtomicWaker` and
 // adapted for `no_std`. Coordinates access to a single waker slot via a small
@@ -100,8 +55,7 @@ const WAKING: usize = 0b10;
 /// previous one and wakes it, giving the displaced task a chance to
 /// re-register itself. This matches the semantics of
 /// [`WakerRegistration`](super::WakerRegistration); note that
-/// [`GenericAtomicWaker`] and
-/// [`CriticalSectionWaker`](super::CriticalSectionWaker) instead replace the
+/// [`CriticalSectionWaker`](super::CriticalSectionWaker) instead replaces the
 /// previous waker *without* waking it.
 ///
 /// Intended to wake a single task from an interrupt handler.
