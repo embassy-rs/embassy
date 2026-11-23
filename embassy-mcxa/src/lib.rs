@@ -50,6 +50,8 @@ pub mod dma;
 pub mod eim;
 #[cfg(mcxa_erm)]
 pub mod erm;
+#[cfg(mcxa_espi)]
+pub mod espi;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_can)]

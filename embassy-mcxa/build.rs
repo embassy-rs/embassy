@@ -98,6 +98,7 @@ fn main() {
             generate_lpi2c_pin_impls(),
             generate_i3c_pin_impls(),
             generate_spi_pin_impls(),
+            generate_espi_pin_impls(),
             generate_ctimer_pin_impls(),
             generate_lpuart_pin_impls(),
             generate_flexspi_pin_impls(),
@@ -246,6 +247,8 @@ fn generate_cc_gates() -> TokenStream {
                 format_ident!("CmpConfig")
             } else if peripheral.driver_name == "mcxa/FREQME" {
                 format_ident!("FreqmeConfig")
+            } else if peripheral.name == "ESPI0" {
+                format_ident!("EspiConfig")
             } else {
                 format_ident!("NoConfig")
             }
@@ -520,6 +523,36 @@ fn generate_spi_pin_impls() -> TokenStream {
         }
     }
 
+    generated
+}
+
+fn generate_espi_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+    for espi in METADATA.peripherals.iter().filter(|p| is_numbered(p.name, "ESPI")) {
+        for signal in espi.signals {
+            let role = match signal.name {
+                "CLK" => "ClkPin",
+                "CSn" => "CsPin",
+                "DATA0" => "Data0Pin",
+                "DATA1" => "Data1Pin",
+                "DATA2" => "Data2Pin",
+                "DATA3" => "Data3Pin",
+                "RST" => "RstPin",
+                "NOTIFY" => "NotifyPin",
+                name => panic!("Unknown eSPI signal {name}"),
+            };
+            let role = format_ident!("{role}");
+            for pin in signal.pins {
+                let name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("Mux{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+                generated.extend(quote! {
+                    #feature_gate
+                    crate::impl_espi_pin!(#name, #mux, #role);
+                });
+            }
+        }
+    }
     generated
 }
 
