@@ -49,11 +49,15 @@ impl Info {
     fn disable_write_protect(&self) {
         // The Write Enable state machine is STATUS[7:6]. Only run the unlock
         // sequence when locked: replaying it while unlocked re-arms protection.
-        if self.regs().status().read().write_prot_en() {
+        // Re-run it until it takes (RM 38.3.7 Note 1): after Stop exit, STATUS
+        // reads FFFEh and writes are ignored until resync (RM 38.3.1.2).
+        let mut tries = 1_000_000u32;
+        while self.regs().status().read().write_prot_en() && tries > 0 {
             self.regs().status8().write_value(0x00);
             self.regs().status8().write_value(0x40);
             self.regs().status8().write_value(0xC0);
             self.regs().status8().write_value(0x80);
+            tries -= 1;
         }
     }
 
@@ -706,10 +710,7 @@ impl<'a> Rtc<'a> {
         let mut spins = 1_000_000u32;
         loop {
             let status = self.info.regs().status().read();
-            if status.0 == DESYNCED {
-                return Err(RtcError::Other);
-            }
-            if !status.inval_bit() {
+            if status.0 != DESYNCED && !status.inval_bit() {
                 break;
             }
             if spins == 0 {
@@ -902,7 +903,7 @@ fn read_datetime(info: &Info) -> Result<DateTime, RtcError> {
         // Bounded so an RTC with no running clock reports an error instead
         // of hanging the caller.
         let mut spins = 0u32;
-        while info.regs().status().read().inval_bit() {
+        while matches!(info.regs().status().read(), s if s.0 == DESYNCED || s.inval_bit()) {
             spins += 1;
             if spins > 1_000_000 {
                 return Err(RtcError::Other);
