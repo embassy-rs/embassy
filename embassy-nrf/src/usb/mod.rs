@@ -28,8 +28,7 @@ use crate::pac::usbd::vals;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac};
 
-mod iso_helpers;
-use iso_helpers::{IsoSchedule, forward};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_WAKER: AtomicWaker = AtomicWaker::new();

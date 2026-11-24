@@ -31,8 +31,7 @@ use embassy_usb_driver::{
 
 use crate::fmt::Bytes;
 
-mod iso_helpers;
-use iso_helpers::{IsoSchedule, forward};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 pub mod otg_v1;
 

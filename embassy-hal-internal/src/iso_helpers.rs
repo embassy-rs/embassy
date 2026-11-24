@@ -1,19 +1,21 @@
+//! Helpers for implementing isochronous usb transfers
+
 use core::num::NonZeroU32;
 
 /// The slot [`IsoSchedule::offer`] picked, including the frame-counter value to arm.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub(crate) struct IsoOffer {
+pub struct IsoOffer {
     /// Target frame-counter value of the slot, in `0..span`.
-    pub(crate) frame: u32,
+    pub frame: u32,
     /// Service intervals left empty by the writer before this slot, if any.
-    pub(crate) skipped: Option<NonZeroU32>,
+    pub skipped: Option<NonZeroU32>,
 }
 
 impl IsoOffer {
     /// A slot at `frame` on the frame counter, with `skipped` empty intervals before it.
-    pub(crate) const fn new(frame: u32, skipped: Option<NonZeroU32>) -> Self {
+    pub const fn new(frame: u32, skipped: Option<NonZeroU32>) -> Self {
         Self { frame, skipped }
     }
 }
@@ -32,7 +34,7 @@ impl IsoOffer {
 ///
 /// A gap of more than one revolution of the frame counter is counted as a single wrap.
 #[derive(Clone, Debug)]
-pub(crate) struct IsoSchedule {
+pub struct IsoSchedule {
     last_now: Option<u32>,
     epoch: u32,
     phase: Option<u32>,
@@ -42,7 +44,7 @@ pub(crate) struct IsoSchedule {
 
 impl IsoSchedule {
     /// A schedule that has not offered a slot yet.
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             last_now: None,
             epoch: 0,
@@ -55,7 +57,7 @@ impl IsoSchedule {
     /// Clear all tracking state, including any locked host phase.
     ///
     /// Call when the endpoint is disabled or the bus resets.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.last_now = None;
         self.epoch = 0;
         self.phase = None;
@@ -66,7 +68,7 @@ impl IsoSchedule {
     /// Lock the host polling phase from a completed IN transfer at `frame`.
     ///
     /// Subsequent calls while already locked have no effect until [`reset`](Self::reset).
-    pub(crate) fn lock_phase(&mut self, frame: u32, interval: u32) {
+    pub fn lock_phase(&mut self, frame: u32, interval: u32) {
         if self.phase.is_none() {
             self.phase = Some(frame % interval.max(1));
         }
@@ -76,7 +78,7 @@ impl IsoSchedule {
     ///
     /// `interval` is the service interval in frame-counter ticks, at least 1 and less than
     /// `span`. `span` is the counter modulus. `now` is taken modulo `span`.
-    pub(crate) fn offer(&mut self, now: u32, interval: u32, span: u32) -> IsoOffer {
+    pub fn offer(&mut self, now: u32, interval: u32, span: u32) -> IsoOffer {
         let interval = u64::from(interval.max(1));
         let span = u64::from(span.max(1));
         let now = u64::from(now) % span;
@@ -108,7 +110,7 @@ impl IsoSchedule {
 
     /// Record a write attempt for the most recently offered slot.
     /// Later offers count skipped intervals after this slot, even if the write failed.
-    pub(crate) fn accept(&mut self) {
+    pub fn accept(&mut self) {
         if self.last_frame.is_some() {
             self.last_written = self.last_frame;
         }
@@ -134,7 +136,7 @@ impl Default for IsoSchedule {
 }
 
 /// Ticks of the frame counter from `from` forward to `to`, in `0..span`.
-pub(crate) const fn forward(from: u32, to: u32, span: u32) -> u32 {
+pub const fn forward(from: u32, to: u32, span: u32) -> u32 {
     let span = if span == 0 { 1 } else { span };
     (to % span + span - from % span) % span
 }

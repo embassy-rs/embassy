@@ -18,8 +18,7 @@ use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{Peri, RegExt, interrupt, pac};
 
-mod iso_helpers;
-use iso_helpers::{IsoSchedule, forward};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;

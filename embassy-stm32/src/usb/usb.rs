@@ -34,8 +34,7 @@ use crate::pac::usb::vals::{EpType, Stat};
 use crate::rcc::RccPeripheral;
 use crate::{Peri, interrupt};
 
-mod iso_helpers;
-use iso_helpers::{IsoSchedule, forward};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
