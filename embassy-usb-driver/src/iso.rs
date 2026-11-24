@@ -65,16 +65,6 @@ pub trait IsoEndpointIn: Endpoint {
     where
         Self: 'a;
 
-    /// How many transfers may be committed ahead of the one the host collects next.
-    ///
-    /// * `1`: one transfer can be committed. [`ready`](Self::ready) waits until the previous transfer
-    ///   has been sent or dropped before offering another slot.
-    /// * `n`: [`ready`](Self::ready) may offer a slot while `n` transfers are still queued.
-    ///
-    /// This is what the driver actually provides. [`EndpointConfig::buffers`](crate::EndpointConfig::buffers)
-    /// is only a hint.
-    fn queue_depth(&self) -> u8;
-
     /// Wait until the next transfer can be queued, returning
     ///
     /// * the number of skipped service intervals (if any)

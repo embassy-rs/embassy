@@ -1311,14 +1311,6 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
     where
         Self: 'a;
 
-    fn queue_depth(&self) -> u8 {
-        if self.info.addr.index() == ISO_EP && self.info.ep_type == EndpointType::Isochronous {
-            1
-        } else {
-            0
-        }
-    }
-
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,

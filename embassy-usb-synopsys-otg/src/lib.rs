@@ -2460,16 +2460,6 @@ where
     where
         Self: 'a;
 
-    fn queue_depth(&self) -> u8 {
-        if self.info.ep_type == EndpointType::Isochronous {
-            // One packet can sit in the endpoint FIFO. `ready` waits until it has been sent or
-            // dropped before offering another slot.
-            1
-        } else {
-            0
-        }
-    }
-
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,
