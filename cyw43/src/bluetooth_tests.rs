@@ -13,7 +13,7 @@ use std::task::Wake;
 use std::vec::Vec;
 
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{Driver, PacketBuf, RawPacketBuf};
+use embassy_net_driver_channel::driver::{Driver, DriverBuf, RawDriverBuf};
 
 use super::*;
 use crate::runner::{BusType, Runner, SealedBus};
@@ -396,18 +396,18 @@ fn full_rx_queue_defers_and_resumes_without_wifi_credit() {
     full_rx_queue_case(0);
 }
 
-fn wifi_packet() -> PacketBuf {
+fn wifi_packet() -> DriverBuf {
     // Match xarxa-driver's heap-backed test pool: the raw descriptor is the
     // first field, and freeing the packet releases its descriptor and storage.
     #[repr(C)]
     struct TestBuf {
-        raw: MaybeUninit<RawPacketBuf>,
+        raw: MaybeUninit<RawDriverBuf>,
         data: [u8; 4],
     }
 
-    unsafe fn free(raw: NonNull<RawPacketBuf>) {
+    unsafe fn free(raw: NonNull<RawDriverBuf>) {
         // SAFETY: this descriptor is the first field of the allocation below,
-        // whose ownership was transferred exclusively to PacketBuf.
+        // whose ownership was transferred exclusively to DriverBuf.
         unsafe { drop(Box::from_raw(raw.cast::<TestBuf>().as_ptr())) };
     }
 
@@ -416,7 +416,7 @@ fn wifi_packet() -> PacketBuf {
         data: [0x55; 4],
     });
     let data = NonNull::from(&mut buf.data).cast();
-    buf.raw.write(RawPacketBuf {
+    buf.raw.write(RawDriverBuf {
         free,
         pool: core::ptr::null(),
         data,
@@ -428,7 +428,7 @@ fn wifi_packet() -> PacketBuf {
     let raw = NonNull::new(Box::into_raw(buf)).unwrap().cast();
     // SAFETY: the fresh allocation and initialized bytes have one owner until
     // free reclaims them; headroom + len equals the storage capacity.
-    unsafe { PacketBuf::from_raw(raw) }
+    unsafe { DriverBuf::from_raw(raw) }
 }
 
 #[test]

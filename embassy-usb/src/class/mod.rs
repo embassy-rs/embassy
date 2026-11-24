@@ -54,6 +54,8 @@ pub mod hub {
 pub mod midi;
 #[cfg(feature = "class-msc")]
 pub mod msc;
+#[cfg(feature = "class-mtp")]
+pub mod mtp;
 #[cfg(feature = "class-printer")]
 pub mod printer;
 #[cfg(feature = "class-uac")]

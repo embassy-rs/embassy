@@ -1,6 +1,6 @@
 //! Input Mux driver.
 
-use paste::paste;
+use pastey::paste;
 
 use crate::clocks::periph_helpers::NoConfig;
 use crate::clocks::{disable, enable, enable_and_reset};

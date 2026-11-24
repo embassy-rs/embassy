@@ -29,17 +29,17 @@ async fn main(_spawner: Spawner) {
     let mst = MEMSET_BUFFER.take();
 
     let mut dma_ch0 = DmaChannel::new(p.DMA0_CH0);
-    let transfer = dma_ch0
-        .mem_to_mem(src, dst, TransferOptions::COMPLETE_INTERRUPT)
-        .unwrap();
+    // SAFETY: aligned, separate static SRAM buffers; no cancellation or other
+    // access until successful single-descriptor completion in this main task.
+    let transfer = unsafe { dma_ch0.mem_to_mem(src, dst, TransferOptions::COMPLETE_INTERRUPT) }.unwrap();
     transfer.await.unwrap();
 
     assert_eq!(src, dst);
 
     let pattern: u32 = 0xDEADBEEF;
-    let transfer = dma_ch0
-        .memset(&pattern, mst, TransferOptions::COMPLETE_INTERRUPT)
-        .unwrap();
+    // SAFETY: pattern lives across await and stays immutable; mst is exclusive
+    // aligned SRAM until normal completion. This test never cancels the future.
+    let transfer = unsafe { dma_ch0.memset(&pattern, mst, TransferOptions::COMPLETE_INTERRUPT) }.unwrap();
     transfer.await.unwrap();
 
     assert!(mst.iter().all(|&v| v == pattern));

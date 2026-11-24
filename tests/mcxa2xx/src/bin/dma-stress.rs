@@ -203,9 +203,15 @@ async fn phase_basic_lengths(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut
             // Sentinel one byte past the end to detect overruns.
             let sentinel = if len < BUF_BYTES { Some(dst[len]) } else { None };
             let opts = TransferOptions::COMPLETE_INTERRUPT;
-            match chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) {
-                Ok(t) => {
-                    if let Err(e) = t.await {
+            // SAFETY: disjoint static SRAM, u8 alignment; no CPU access until
+            // normal completion, and this main task does not cancel the await.
+            let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
+                Ok(t) => Ok(t.await),
+                Err(e) => Err(e),
+            };
+            match transfer {
+                Ok(result) => {
+                    if let Err(e) = result {
                         failures.record("basic_lengths: transfer error");
                         let _ = e;
                     } else if dst[..len] != src[..len] {
@@ -234,9 +240,14 @@ async fn phase_widths(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
         let dst = dst_mut();
         Pattern::Hash.fill(&mut src[..]);
         dst.fill(0);
-        match chan.mem_to_mem::<u8>(&src[..1024], &mut dst[..1024], opts) {
-            Ok(t) => {
-                if t.await.is_err() {
+        // SAFETY: disjoint static byte buffers, held through normal completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..1024], &mut dst[..1024], opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(result) => {
+                if result.is_err() {
                     failures.record("widths: u8 transfer error");
                 } else if dst[..1024] != src[..1024] {
                     failures.record("widths: u8 content mismatch");
@@ -255,9 +266,15 @@ async fn phase_widths(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
         let n_words = 1024;
         let src_w: &[u16] = unsafe { core::slice::from_raw_parts(src.as_ptr().cast::<u16>(), n_words) };
         let dst_w: &mut [u16] = unsafe { core::slice::from_raw_parts_mut(dst.as_mut_ptr().cast::<u16>(), n_words) };
-        match chan.mem_to_mem::<u16>(src_w, dst_w, opts) {
-            Ok(t) => {
-                if t.await.is_err() {
+        // SAFETY: aligned static SRAM casts above cover initialized storage;
+        // source immutable and destination exclusive through normal completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u16>(src_w, dst_w, opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(result) => {
+                if result.is_err() {
                     failures.record("widths: u16 transfer error");
                 } else if dst[..n_words * 2] != src[..n_words * 2] {
                     failures.record("widths: u16 content mismatch");
@@ -276,9 +293,15 @@ async fn phase_widths(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
         let n_words = 1024;
         let src_w: &[u32] = unsafe { core::slice::from_raw_parts(src.as_ptr().cast::<u32>(), n_words) };
         let dst_w: &mut [u32] = unsafe { core::slice::from_raw_parts_mut(dst.as_mut_ptr().cast::<u32>(), n_words) };
-        match chan.mem_to_mem::<u32>(src_w, dst_w, opts) {
-            Ok(t) => {
-                if t.await.is_err() {
+        // SAFETY: aligned static SRAM casts above cover initialized storage;
+        // source immutable and destination exclusive through normal completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u32>(src_w, dst_w, opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(result) => {
+                if result.is_err() {
                     failures.record("widths: u32 transfer error");
                 } else if dst[..n_words * 4] != src[..n_words * 4] {
                     failures.record("widths: u32 content mismatch");
@@ -301,8 +324,13 @@ async fn phase_offsets(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failu
     for &src_off in &[0usize, 1, 2, 3, 5, 7, 13, 64, 100, 255] {
         let len = 257usize.min(BUF_BYTES - src_off);
         dst[..len].fill(0);
-        if let Ok(t) = chan.mem_to_mem::<u8>(&src[src_off..src_off + len], &mut dst[..len], opts) {
-            if t.await.is_err() {
+        // SAFETY: in-bounds static byte slices, disjoint and held until completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[src_off..src_off + len], &mut dst[..len], opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        if let Ok(result) = transfer {
+            if result.is_err() {
                 failures.record("offsets: src_off transfer error");
             } else if dst[..len] != src[src_off..src_off + len] {
                 failures.record("offsets: src_off mismatch");
@@ -317,8 +345,13 @@ async fn phase_offsets(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failu
         let len = 257usize.min(BUF_BYTES - dst_off);
         dst[dst_off..dst_off + len].fill(0);
         let pre = if dst_off > 0 { Some(dst[dst_off - 1]) } else { None };
-        if let Ok(t) = chan.mem_to_mem::<u8>(&src[..len], &mut dst[dst_off..dst_off + len], opts) {
-            if t.await.is_err() {
+        // SAFETY: in-bounds static byte slices, disjoint and held until completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[dst_off..dst_off + len], opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        if let Ok(result) = transfer {
+            if result.is_err() {
                 failures.record("offsets: dst_off transfer error");
             } else if dst[dst_off..dst_off + len] != src[..len] {
                 failures.record("offsets: dst_off mismatch");
@@ -346,9 +379,14 @@ async fn phase_back_to_back(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut 
         let len = 64 + (i as usize % 7) * 17;
         Pattern::Hash.fill(&mut src[..len]);
         dst[..len].fill(0);
-        match chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) {
-            Ok(t) => {
-                if t.await.is_err() {
+        // SAFETY: static byte buffers are reused only after normal completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(result) => {
+                if result.is_err() {
                     failures.record("back_to_back: transfer error");
                     return;
                 }
@@ -381,9 +419,15 @@ async fn phase_alternate_channels(
         Pattern::Ramp.fill(&mut src[..len]);
         dst[..len].fill(0);
         let chan = if i & 1 == 0 { &mut chan_a } else { &mut chan_b };
-        match chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) {
-            Ok(t) => {
-                if t.await.is_err() {
+        // SAFETY: only one channel is active; disjoint static byte buffers are
+        // held immutable/exclusive through normal completion before switching.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
+            Ok(t) => Ok(t.await),
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(result) => {
+                if result.is_err() {
                     failures.record("alternate_channels: transfer error");
                     return;
                 }
@@ -409,9 +453,16 @@ async fn phase_blocking_wait(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut
     for &len in &[1usize, 32, 256, 1024, 4096] {
         Pattern::Alternating.fill(&mut src[..len]);
         dst[..len].fill(0);
-        match chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) {
+        // SAFETY: disjoint static byte buffers held through blocking completion.
+        let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
             Ok(t) => {
-                t.blocking_wait();
+                t.blocking_wait().unwrap();
+                Ok(())
+            }
+            Err(e) => Err(e),
+        };
+        match transfer {
+            Ok(()) => {
                 if dst[..len] != src[..len] {
                     failures.record("blocking_wait: content mismatch");
                 }
@@ -431,7 +482,9 @@ async fn phase_cancel(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
     // transfer to confirm the channel is usable again.
     Pattern::Hash.fill(&mut src[..]);
     {
-        let t = match chan.mem_to_mem::<u8>(&src[..4096], &mut dst[..4096], opts) {
+        // SAFETY: disjoint static SRAM; Drop drains pending START and ACTIVE
+        // before either buffer is reused below.
+        let t = match unsafe { chan.mem_to_mem::<u8>(&src[..4096], &mut dst[..4096], opts) } {
             Ok(t) => t,
             Err(_) => {
                 failures.record("cancel: setup error");
@@ -445,9 +498,14 @@ async fn phase_cancel(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Failur
     let len = 1024;
     Pattern::Ramp.fill(&mut src[..len]);
     dst[..len].fill(0);
-    match chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) {
-        Ok(t) => {
-            if t.await.is_err() {
+    // SAFETY: disjoint static byte buffers, held through normal completion.
+    let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts) } {
+        Ok(t) => Ok(t.await),
+        Err(e) => Err(e),
+    };
+    match transfer {
+        Ok(result) => {
+            if result.is_err() {
                 failures.record("cancel: recovery transfer error");
             } else if dst[..len] != src[..len] {
                 failures.record("cancel: recovery content mismatch");
@@ -466,7 +524,8 @@ fn phase_invalid_parameters(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut 
     // Empty src must be rejected.
     let empty: &[u8] = &[];
     if !matches!(
-        chan.mem_to_mem::<u8>(empty, &mut dst[..16], opts).err(),
+        // SAFETY: empty source is rejected before any hardware access.
+        unsafe { chan.mem_to_mem::<u8>(empty, &mut dst[..16], opts) }.err(),
         Some(InvalidParameters)
     ) {
         failures.record("invalid_parameters: empty src not rejected");
@@ -474,7 +533,8 @@ fn phase_invalid_parameters(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut 
 
     // dst smaller than src must be rejected.
     if !matches!(
-        chan.mem_to_mem::<u8>(&src[..32], &mut dst[..16], opts).err(),
+        // SAFETY: short destination is rejected before any hardware access.
+        unsafe { chan.mem_to_mem::<u8>(&src[..32], &mut dst[..16], opts) }.err(),
         Some(InvalidParameters)
     ) {
         failures.record("invalid_parameters: short dst not rejected");
@@ -485,8 +545,15 @@ fn phase_invalid_parameters(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut 
     let len = 64;
     Pattern::Ramp.fill(&mut src[..len]);
     dst[..len].fill(0);
-    if let Ok(t) = chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts2) {
-        t.blocking_wait();
+    // SAFETY: disjoint static byte buffers held through blocking completion.
+    let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..len], &mut dst[..len], opts2) } {
+        Ok(t) => {
+            t.blocking_wait().unwrap();
+            Ok(())
+        }
+        Err(e) => Err(e),
+    };
+    if let Ok(()) = transfer {
         if dst[..len] != src[..len] {
             failures.record("invalid_parameters: recovery mismatch");
         }
@@ -507,9 +574,14 @@ async fn phase_max_size(ch: Peri<'_, peripherals::DMA0_CH0>, failures: &mut Fail
 
     Pattern::Hash.fill(&mut src[..]);
     dst.fill(0);
-    match chan.mem_to_mem::<u8>(&src[..], &mut dst[..], opts) {
-        Ok(t) => {
-            if t.await.is_err() {
+    // SAFETY: entire disjoint static byte buffers held through normal completion.
+    let transfer = match unsafe { chan.mem_to_mem::<u8>(&src[..], &mut dst[..], opts) } {
+        Ok(t) => Ok(t.await),
+        Err(e) => Err(e),
+    };
+    match transfer {
+        Ok(result) => {
+            if result.is_err() {
                 failures.record("max_size: transfer error");
             } else if dst[..] != src[..] {
                 failures.record("max_size: content mismatch");

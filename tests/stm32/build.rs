@@ -5,6 +5,7 @@ use std::{env, fs};
 fn main() -> Result<(), Box<dyn Error>> {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     fs::write(out.join("link_ram.x"), include_bytes!("../link_ram_cortex_m.x")).unwrap();
+    fs::write(out.join("link_cm4_image.x"), include_bytes!("../link_cm4_image.x")).unwrap();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rustc-link-arg-bins=--nmagic");
 
@@ -66,6 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("cargo:rerun-if-changed=../link_ram_cortex_m.x");
+    println!("cargo:rerun-if-changed=../link_cm4_image.x");
     println!("cargo:rerun-if-changed=src/bin");
     for entry in fs::read_dir("src/bin")? {
         let path = entry?.path();
@@ -81,12 +83,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             || (ecc_reset && name == "flash" && !cfg!(feature = "stm32u083rc"))
             // Stop is checked on every low-power board when running from flash, like an application.
             || name == "stop"
+            // The secondary-core (CM4) image embedded in this test must be in flash, and
+            // the post-flash reset is what boots the CM4 core (see the test's docs).
+            || name == "hsem_secondary"
         {
             "link.x"
         } else {
             "link_ram.x"
         };
         println!("cargo:rustc-link-arg-bin={name}=-T{script}");
+        if name == "hsem_secondary" {
+            println!("cargo:rustc-link-arg-bin={name}=-Tlink_cm4_image.x");
+        }
     }
 
     if cfg!(feature = "stm32wb55rg") {

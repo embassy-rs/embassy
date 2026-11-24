@@ -26,7 +26,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "b13f21360587d4e021c9798a49e7a0d36468f693", features = ["async"] }
 
 [features]
 defmt = ["dep:defmt", "xarxa-driver/defmt"]

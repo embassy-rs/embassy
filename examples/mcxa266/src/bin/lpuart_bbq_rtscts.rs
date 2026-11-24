@@ -93,7 +93,7 @@ async fn main(_spawner: Spawner) {
                 sent += n;
             }
         }
-        tx.flush().await;
+        tx.flush().await.unwrap();
         defmt::info!("TX flood complete: {} bytes sent", sent);
     };
 

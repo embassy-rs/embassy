@@ -811,6 +811,11 @@ impl<'d> I2c<'d, Dma<'d>> {
 
         self.clear_status();
 
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().sder().modify(|w| w.set_rdde(false));
+            let _ = self.info.regs().sder().read();
+            self.mode.rx_dma.stop();
+        });
         unsafe {
             // Clean up channel state
             self.mode.rx_dma.disable_request();
@@ -851,7 +856,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             });
 
             let ssr = self.info.regs().ssr().read();
-            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.rx_dma.is_done() {
+            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.rx_dma.poll_complete(cx).is_ready() {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -861,9 +866,10 @@ impl<'d> I2c<'d, Dma<'d>> {
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_rdde(false));
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
+        let _ = self.info.regs().sder().read();
+        self.mode.rx_dma.stop();
+        if self.mode.rx_dma.errors().is_some() {
+            return Err(IOError::Other);
         }
 
         // Ensure all writes by DMA are visible to the CPU
@@ -906,6 +912,11 @@ impl<'d> I2c<'d, Dma<'d>> {
             }
         }
 
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().sder().modify(|w| w.set_tdde(false));
+            let _ = self.info.regs().sder().read();
+            self.mode.tx_dma.stop();
+        });
         unsafe {
             // Clean up channel state
             self.mode.tx_dma.disable_request();
@@ -945,16 +956,17 @@ impl<'d> I2c<'d, Dma<'d>> {
             ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
         });
         // DMA to load the entire chunk into the peripheral.
-        let dma_is_done = self.mode.tx_dma.wait_cell().wait_for(|| self.mode.tx_dma.is_done());
+        let dma_is_done = poll_fn(|cx| self.mode.tx_dma.poll_complete(cx));
         let _ = select(i2c_interrupt, dma_is_done).await;
 
         let mut ssr = self.info.regs().ssr().read();
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
-        unsafe {
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
+        let _ = self.info.regs().sder().read();
+        self.mode.tx_dma.stop();
+        if self.mode.tx_dma.errors().is_some() {
+            return Err(IOError::Other);
         }
 
         // DMA completion only means the final byte reached the TX FIFO. TDF

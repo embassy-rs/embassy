@@ -13,11 +13,11 @@ use core::sync::atomic::{Ordering, fence};
 use heapless::deque::DequeView;
 #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
 use stm32_metapac::eth::vals::{Rpd, Rps};
-use xarxa_driver::PacketBuf;
 #[cfg(feature = "ptp")]
 use xarxa_driver::Timestamp;
 #[cfg(feature = "ptp")]
 use xarxa_driver::TxTimestamp;
+use xarxa_driver::{DriverBuf, RxWanted};
 
 use crate::eth::{RDes, RDesInfo, TDes};
 #[cfg(any(eth_v1a, eth_v1b, eth_v1c, eth_v2))]
@@ -76,7 +76,7 @@ pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     /// One buffer per descriptor, DMA'd into in place. `None` for the slots whose
     /// buffer was handed to the stack and not yet replaced by `rx_give`.
-    buffers: &'a mut [Option<PacketBuf>],
+    buffers: &'a mut [Option<DriverBuf>],
     /// Next descriptor to receive from.
     index: usize,
     /// Next slot to check for a missing buffer.
@@ -89,7 +89,7 @@ pub(crate) struct RDesRing<'a> {
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Option<DriverBuf>]) -> Self {
         assert!(descriptors.len() > 1);
         // A timestamped frame needs a frame descriptor, a context descriptor and a tail guard.
         #[cfg(all(feature = "ptp", any(eth_v2, eth_v2a, eth_v2b)))]
@@ -138,13 +138,17 @@ impl<'a> RDesRing<'a> {
         }
     }
 
-    /// Number of empty slots, waiting for a buffer.
-    pub(crate) fn wanted(&self) -> usize {
-        self.empty
+    /// Number of empty slots, waiting for a buffer. With no buffer in any slot
+    /// the DMA can't receive anything, so the ring is starved.
+    pub(crate) fn wanted(&self) -> RxWanted {
+        RxWanted {
+            count: self.empty,
+            starved: self.empty == self.descriptors.len(),
+        }
     }
 
     /// Give a buffer to the next empty slot and hand it to the DMA.
-    pub(crate) fn give(&mut self, mut buf: PacketBuf) {
+    pub(crate) fn give(&mut self, mut buf: DriverBuf) {
         if self.empty == 0 {
             // Not asked for: dropping it gives it back to the pool.
             return;
@@ -225,7 +229,7 @@ impl<'a> RDesRing<'a> {
     ///
     /// The buffer the frame was DMA'd into is handed out, and its slot stays
     /// empty until `give` fills it again.
-    pub(crate) fn receive(&mut self) -> Option<PacketBuf> {
+    pub(crate) fn receive(&mut self) -> Option<DriverBuf> {
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
         if self.running_state() != RunningState::Running {
             ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::Poll));
@@ -363,7 +367,7 @@ impl<'a> RDesRing<'a> {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     /// The buffer of each frame in flight, held until the DMA is done with it.
-    buffers: &'a mut [Option<PacketBuf>],
+    buffers: &'a mut [Option<DriverBuf>],
     #[cfg(feature = "ptp")]
     /// Retained timestamps.
     timestamps: &'a mut DequeView<TxTimestamp>,
@@ -377,7 +381,7 @@ impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt.
     pub(crate) fn new(
         descriptors: &'a mut [TDes],
-        buffers: &'a mut [Option<PacketBuf>],
+        buffers: &'a mut [Option<DriverBuf>],
         #[cfg(feature = "ptp")] timestamps: &'a mut DequeView<TxTimestamp>,
     ) -> Self {
         #[cfg(feature = "ptp")]
@@ -508,7 +512,7 @@ impl<'a> TDesRing<'a> {
     }
 
     /// Transmit a frame. `can_transmit` must have returned `true`.
-    pub(crate) fn transmit(&mut self, buf: PacketBuf) {
+    pub(crate) fn transmit(&mut self, buf: DriverBuf) {
         debug_assert!(self.in_flight < self.capacity());
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.available());

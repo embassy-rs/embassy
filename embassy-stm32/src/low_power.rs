@@ -218,6 +218,13 @@ fn clear_flags() {
         #[cfg(feature = "_core-cm0p")]
         w.set_c2cssf(true);
     });
+    #[cfg(stm32wb)]
+    // CPU1 clears its own Stop/Standby flags (each core owns its own bits, as on
+    // stm32wl). C1STOPF is only ever set when the system actually entered Stop mode,
+    // so clearing it before each entry is what lets `exit_stop` distinguish a real
+    // system Stop (clocks gone) from a mere CPU1 deepsleep in which the clocks were
+    // left untouched. CPU2's flags are left alone - they belong to CPU2.
+    crate::pac::PWR.extscr().modify(|w| w.set_c1cssf(true));
     #[cfg(stm32wba)]
     crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
     #[cfg(stm32wba)]
@@ -300,7 +307,7 @@ fn exit_stop(cs: CriticalSection) {
         #[cfg(stm32wba)]
         let es = crate::pac::PWR.sr().read();
 
-        #[cfg(any(stm32wl, stm32wba))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
         let re_initialize_timer = {
             #[cfg(all(stm32wl, not(feature = "_core-cm0p")))]
             {
@@ -309,6 +316,15 @@ fn exit_stop(cs: CriticalSection) {
             #[cfg(all(stm32wl, feature = "_core-cm0p"))]
             {
                 es.c2stop2f()
+            }
+            #[cfg(stm32wb)]
+            {
+                // C1STOPF is only set when the system as a whole entered Stop (RM0473),
+                // i.e. exactly when HSE/PLL are gone and the clocks were restored above:
+                // the GPTIM is then parked and its prescaler must be recomputed for the
+                // restored timer clock. LPTIM keeps running from LSI/LSE through Stop and
+                // is skipped by the cfg inside the block below.
+                es.c1stopf()
             }
             #[cfg(stm32wba)]
             {
@@ -350,7 +366,7 @@ fn exit_stop(cs: CriticalSection) {
 
         clear_flags();
 
-        #[cfg(any(stm32wl, stm32wba))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
         if re_initialize_timer {
             trace!("low power: re-initializing timer");
             // when we wake from STOP2, we need to re-initialize the time driver

@@ -18,7 +18,7 @@ use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use embassy_time::{Duration, with_timeout};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 teleprobe_meta::timeout!(120);
 
@@ -96,13 +96,25 @@ async fn main(_spawner: Spawner) {
     #[cfg(not(feature = "stm32f207zg"))]
     const POOL_COUNT: usize = 16;
     // The ethernet DMA needs 8-byte aligned buffers, sized in multiples of 8.
-    static POOL: StaticPool<1520, POOL_COUNT, 8> = StaticPool::new();
+    // A pool belongs to one stack, so each round's stack gets its own.
+    const ROUNDS: usize = 2;
+    static POOLS: [ConstStaticCell<StaticPool<1520, POOL_COUNT, 8>>; ROUNDS] =
+        [const { ConstStaticCell::new(StaticPool::new()) }; ROUNDS];
 
     #[cfg(feature = "stop")]
     let _guard = WakeGuard::new(StopMode::Stop1);
 
-    for round in 0..2u64 {
-        run_round(&mut p, &mut *packets, &POOL, mac_addr, seed.wrapping_add(round), round).await;
+    for (round, pool) in POOLS.iter().enumerate() {
+        let round = round as u64;
+        run_round(
+            &mut p,
+            &mut *packets,
+            pool.take(),
+            mac_addr,
+            seed.wrapping_add(round),
+            round,
+        )
+        .await;
         assert_dma_stopped();
         info!("Round {}: dropped Ethernet", round);
     }
@@ -114,7 +126,7 @@ async fn main(_spawner: Spawner) {
 async fn run_round<const TX: usize, const RX: usize>(
     p: &mut embassy_stm32::Peripherals,
     packets: &mut PacketQueue<TX, RX>,
-    pool: &'static impl Pool,
+    pool: &'static mut impl Pool,
     mac_addr: [u8; 6],
     seed: u64,
     round: u64,

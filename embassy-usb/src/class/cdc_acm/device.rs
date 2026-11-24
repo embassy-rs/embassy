@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 
 use super::{
-    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_GET_LINE_CODING, REQ_SET_CONTROL_LINE_STATE,
+    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_GET_LINE_CODING, REQ_SEND_BREAK, REQ_SET_CONTROL_LINE_STATE,
     REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
@@ -22,6 +22,11 @@ const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
 const CDC_TYPE_ACM: u8 = 0x02;
 const CDC_TYPE_UNION: u8 = 0x06;
+
+/// `bmCapabilities` bit D1: line coding, control line state and SERIAL_STATE.
+const ACM_CAP_LINE: u8 = 1 << 1;
+/// `bmCapabilities` bit D2: SEND_BREAK.
+const ACM_CAP_SEND_BREAK: u8 = 1 << 2;
 
 const REQ_SEND_ENCAPSULATED_COMMAND: u8 = 0x00;
 #[allow(unused)]
@@ -60,14 +65,22 @@ pub struct Config {
     pub out_endpoint_options: EndpointOptions,
     /// Options for the data IN endpoint, which sends data to the host.
     pub in_endpoint_options: EndpointOptions,
+    /// Accept `SEND_BREAK` requests from the host and advertise them in the descriptor. Off by
+    /// default.
+    ///
+    /// Requests are reported by [`ControlChanged::take_break`] and [`CdcAcmClass::take_break`].
+    /// Only enable this if the application handles them: when it is off, Linux tells programs that
+    /// the port can't send a break, instead of accepting breaks that are never handled.
+    pub send_break: bool,
 }
 
 impl Config {
-    /// Create a configuration with default endpoint options.
+    /// Create a configuration with default endpoint options and break support turned off.
     pub const fn new() -> Self {
         Self {
             out_endpoint_options: EndpointOptions::new(),
             in_endpoint_options: EndpointOptions::new(),
+            send_break: false,
         }
     }
 }
@@ -75,6 +88,30 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A break request from the host.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Break {
+    /// Stop the break (the host sent a duration of 0).
+    ///
+    /// This is also reported after a bus reset or when the device is disabled, since the host
+    /// can no longer end the break in those cases.
+    Stop,
+    /// Keep the break going until a [`Break::Stop`] (sent as a duration of 0xFFFF).
+    UntilStopped,
+    /// Send a break for this many milliseconds.
+    Millis(u16),
+}
+
+/// The `bmCapabilities` byte of the ACM functional descriptor.
+const fn acm_capabilities(config: &Config) -> u8 {
+    if config.send_break {
+        ACM_CAP_LINE | ACM_CAP_SEND_BREAK
+    } else {
+        ACM_CAP_LINE
     }
 }
 
@@ -123,14 +160,16 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 struct Control<'a> {
     comm_if: InterfaceNumber,
     data_if: InterfaceNumber,
+    send_break: bool,
     shared: &'a ControlShared,
 }
 
 /// Shared data between Control and CdcAcmClass
 struct ControlShared {
-    line_coding: CriticalSectionMutex<Cell<LineCoding>>,
+    line_coding: CriticalSectionMutex<Cell<Option<LineCoding>>>,
     dtr: AtomicBool,
     rts: AtomicBool,
+    pending_break: CriticalSectionMutex<Cell<Option<Break>>>,
 
     waker: RefCell<WakerRegistration>,
     changed: AtomicBool,
@@ -147,10 +186,15 @@ impl ControlShared {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
-            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding::DEFAULT)),
+            line_coding: CriticalSectionMutex::new(Cell::new(None)),
+            pending_break: CriticalSectionMutex::new(Cell::new(None)),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
+    }
+
+    fn take_break(&self) -> Option<Break> {
+        self.pending_break.lock(Cell::take)
     }
 
     fn changed(&self) -> impl Future<Output = ()> + '_ {
@@ -170,14 +214,32 @@ impl<'a> Control<'a> {
     fn shared(&mut self) -> &'a ControlShared {
         self.shared
     }
+
+    /// Ends a break the host started but can no longer stop, e.g. after a bus reset.
+    fn end_break(&mut self) {
+        if self.send_break {
+            self.shared().pending_break.lock(|x| x.set(Some(Break::Stop)));
+        }
+    }
 }
 
 impl<'d> Handler for Control<'d> {
+    fn enabled(&mut self, enabled: bool) {
+        if !enabled && self.send_break {
+            self.end_break();
+
+            let shared = self.shared();
+            shared.changed.store(true, Ordering::Relaxed);
+            shared.waker.borrow_mut().wake();
+        }
+    }
+
     fn reset(&mut self) {
         let shared = self.shared();
-        shared.line_coding.lock(|x| x.set(LineCoding::default()));
+        shared.line_coding.lock(|x| x.set(None));
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
+        self.end_break();
 
         shared.changed.store(true, Ordering::Relaxed);
         shared.waker.borrow_mut().wake();
@@ -199,7 +261,7 @@ impl<'d> Handler for Control<'d> {
             REQ_SET_LINE_CODING if data.len() >= 7 => {
                 let coding = LineCoding::from_bytes(data[0..7].try_into().unwrap());
                 let shared = self.shared();
-                shared.line_coding.lock(|x| x.set(coding));
+                shared.line_coding.lock(|x| x.set(Some(coding)));
                 debug!("Set line coding to: {:?}", coding);
 
                 shared.changed.store(true, Ordering::Relaxed);
@@ -221,6 +283,22 @@ impl<'d> Handler for Control<'d> {
 
                 Some(OutResponse::Accepted)
             }
+            REQ_SEND_BREAK if self.send_break => {
+                let request = match req.value {
+                    0 => Break::Stop,
+                    0xFFFF => Break::UntilStopped,
+                    ms => Break::Millis(ms),
+                };
+
+                let shared = self.shared();
+                shared.pending_break.lock(|x| x.set(Some(request)));
+                debug!("Send break: {:?}", request);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
+
+                Some(OutResponse::Accepted)
+            }
             _ => Some(OutResponse::Rejected),
         }
     }
@@ -236,7 +314,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(Cell::get);
+                let coding = self.shared().line_coding.lock(Cell::get).unwrap_or_default();
                 assert!(buf.len() >= 7);
                 buf[0..7].copy_from_slice(&coding.to_bytes());
                 Some(InResponse::Accepted(&buf[0..7]))
@@ -276,11 +354,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         alt.descriptor(
             CS_INTERFACE,
             &[
-                CDC_TYPE_ACM, // bDescriptorSubtype
-                0x02,         // bmCapabilities:
-                              // D1: Device supports the request combination of
-                              // Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding,
-                              // and the Notification Serial_State.
+                CDC_TYPE_ACM,              // bDescriptorSubtype
+                acm_capabilities(&config), // bmCapabilities
             ],
         );
         alt.descriptor(
@@ -307,6 +382,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             shared: &state.shared,
             comm_if,
             data_if,
+            send_break: config.send_break,
         });
         builder.interface_handler(control);
 
@@ -327,9 +403,11 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -341,6 +419,18 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Gets the RTS (request to send) state
     pub fn rts(&self) -> bool {
         self.control.rts.load(Ordering::Relaxed)
+    }
+
+    /// Returns the host's latest `SEND_BREAK` request, if it hasn't been taken yet.
+    ///
+    /// Only the newest request is kept, so a [`Break::Stop`] received before the previous
+    /// request is taken replaces a [`Break::UntilStopped`]. After a bus reset or when the device
+    /// is disabled, this returns [`Break::Stop`]. Always returns `None` unless
+    /// [`Config::send_break`] is set.
+    ///
+    /// To be notified of new requests, use [`split_with_control()`](Self::split_with_control).
+    pub fn take_break(&self) -> Option<Break> {
+        self.control.take_break()
     }
 
     /// Writes a single packet into the IN endpoint.
@@ -378,7 +468,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Split the class into sender, receiver and control
     ///
     /// Allows concurrently sending and receiving packets whilst monitoring for
-    /// control changes (dtr, rts)
+    /// control changes (dtr, rts, line coding, break requests)
     pub fn split_with_control(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>) {
         (
             Sender {
@@ -418,9 +508,23 @@ impl<'d> ControlChanged<'d> {
         self.control.rts.load(Ordering::Relaxed)
     }
 
-    /// Gets the current line coding (baud rate, data bits, parity, stop bits).
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding (baud rate, data bits, parity, stop bits) the host has set.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
+    }
+
+    /// Returns the host's latest `SEND_BREAK` request, if it hasn't been taken yet.
+    ///
+    /// Only the newest request is kept, so a [`Break::Stop`] received before the previous
+    /// request is taken replaces a [`Break::UntilStopped`]. After a bus reset or when the device
+    /// is disabled, this returns [`Break::Stop`]. Always returns `None` unless
+    /// [`Config::send_break`] is set.
+    ///
+    /// [`control_changed()`](Self::control_changed) returns whenever the host sends a new request.
+    pub fn take_break(&self) -> Option<Break> {
+        self.control.take_break()
     }
 }
 
@@ -440,9 +544,11 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.write_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -522,9 +628,11 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -598,9 +706,11 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
         len
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.receiver.line_coding()
     }
 
@@ -654,5 +764,234 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         }
         self.start = 0;
         Ok(self.read_from_buffer(buf))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use core::pin::pin;
+    use core::task::{Context, Waker};
+    use std::sync::Arc;
+    use std::task::Wake;
+
+    use super::*;
+    use crate::class::cdc_acm::{ParityType, StopBits};
+
+    const COMM_IF: InterfaceNumber = InterfaceNumber(0);
+
+    fn control(shared: &ControlShared, send_break: bool) -> Control<'_> {
+        Control {
+            comm_if: COMM_IF,
+            data_if: InterfaceNumber(1),
+            send_break,
+            shared,
+        }
+    }
+
+    fn set_line_coding(control: &mut Control<'_>, coding: LineCoding) -> Option<OutResponse> {
+        let req = Request::parse(&[0x21, REQ_SET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_out(req, &coding.to_bytes())
+    }
+
+    fn get_line_coding<'a>(control: &'a mut Control<'_>, buf: &'a mut [u8; 7]) -> Option<InResponse<'a>> {
+        let req = Request::parse(&[0xA1, REQ_GET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_in(req, buf)
+    }
+
+    #[test]
+    fn line_coding_is_none_until_host_sets_it() {
+        let shared = ControlShared::new();
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn line_coding_reports_what_host_set() {
+        let shared = ControlShared::new();
+        let coding = LineCoding::new(115_200, StopBits::One, ParityType::Even, 8);
+
+        assert_eq!(
+            set_line_coding(&mut control(&shared, false), coding),
+            Some(OutResponse::Accepted)
+        );
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+    }
+
+    #[test]
+    fn reset_clears_line_coding() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+        let coding = LineCoding::new(9600, StopBits::One, ParityType::None, 8);
+        set_line_coding(&mut control, coding);
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+
+        Handler::reset(&mut control);
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn get_line_coding_answers_default_until_host_sets_it() {
+        let shared = ControlShared::new();
+        let mut buf = [0; 7];
+
+        // 8000 baud, 1 stop bit, no parity, 8 data bits.
+        assert_eq!(
+            get_line_coding(&mut control(&shared, false), &mut buf),
+            Some(InResponse::Accepted(&[0x40, 0x1f, 0x00, 0x00, 0, 0, 8][..]))
+        );
+    }
+
+    #[test]
+    fn get_line_coding_answers_what_host_set() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+        set_line_coding(
+            &mut control,
+            LineCoding::new(115_200, StopBits::Two, ParityType::Odd, 7),
+        );
+        let mut buf = [0; 7];
+
+        assert_eq!(
+            get_line_coding(&mut control, &mut buf),
+            Some(InResponse::Accepted(&[0x00, 0xc2, 0x01, 0x00, 2, 1, 7][..]))
+        );
+    }
+
+    fn request_break(control: &mut Control<'_>, duration: u16) -> Option<OutResponse> {
+        let [lo, hi] = duration.to_le_bytes();
+        let req = Request::parse(&[0x21, REQ_SEND_BREAK, lo, hi, COMM_IF.0, 0, 0, 0]);
+        control.control_out(req, &[])
+    }
+
+    /// Remembers whether it was woken.
+    struct Woken(AtomicBool);
+
+    impl Wake for Woken {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Checks that `f` wakes up a waiting `control_changed()`.
+    fn assert_wakes_control_changed(shared: &ControlShared, f: impl FnOnce()) {
+        let changed = ControlChanged { control: shared };
+        let woken = Arc::new(Woken(AtomicBool::new(false)));
+        let waker = Waker::from(woken.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = pin!(changed.control_changed());
+        assert!(fut.as_mut().poll(&mut cx).is_pending());
+
+        f();
+
+        assert!(woken.0.load(Ordering::Relaxed));
+        assert!(fut.as_mut().poll(&mut cx).is_ready());
+    }
+
+    #[test]
+    fn send_break_is_rejected_unless_enabled() {
+        let shared = ControlShared::new();
+
+        assert_eq!(
+            request_break(&mut control(&shared, false), 0xFFFF),
+            Some(OutResponse::Rejected)
+        );
+        assert_eq!(ControlChanged { control: &shared }.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_reports_each_request_once() {
+        let shared = ControlShared::new();
+        let changed = ControlChanged { control: &shared };
+
+        assert_eq!(
+            request_break(&mut control(&shared, true), 0xFFFF),
+            Some(OutResponse::Accepted)
+        );
+        assert_eq!(changed.take_break(), Some(Break::UntilStopped));
+        assert_eq!(changed.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_decodes_duration() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        let changed = ControlChanged { control: &shared };
+
+        for (duration, expected) in [
+            (0, Break::Stop),
+            (1, Break::Millis(1)),
+            (250, Break::Millis(250)),
+            (0xFFFE, Break::Millis(0xFFFE)),
+            (0xFFFF, Break::UntilStopped),
+        ] {
+            assert_eq!(request_break(&mut control, duration), Some(OutResponse::Accepted));
+            assert_eq!(changed.take_break(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn later_break_request_replaces_untaken_one() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        let changed = ControlChanged { control: &shared };
+
+        request_break(&mut control, 0xFFFF);
+        request_break(&mut control, 0);
+
+        assert_eq!(changed.take_break(), Some(Break::Stop));
+        assert_eq!(changed.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_wakes_control_changed() {
+        let shared = ControlShared::new();
+
+        assert_wakes_control_changed(&shared, || {
+            request_break(&mut control(&shared, true), 250);
+        });
+    }
+
+    #[test]
+    fn reset_reports_break_stop() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        request_break(&mut control, 0xFFFF);
+
+        Handler::reset(&mut control);
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), Some(Break::Stop));
+    }
+
+    #[test]
+    fn disabling_reports_break_stop_and_wakes_control_changed() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+
+        assert_wakes_control_changed(&shared, || Handler::enabled(&mut control, false));
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), Some(Break::Stop));
+    }
+
+    #[test]
+    fn reset_and_disable_report_nothing_unless_enabled() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+
+        Handler::reset(&mut control);
+        Handler::enabled(&mut control, false);
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), None);
+    }
+
+    #[test]
+    fn capabilities_advertise_send_break_only_if_enabled() {
+        let mut config = Config::new();
+        assert_eq!(acm_capabilities(&config), 0x02);
+
+        config.send_break = true;
+        assert_eq!(acm_capabilities(&config), 0x06);
     }
 }

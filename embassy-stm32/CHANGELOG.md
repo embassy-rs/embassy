@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+NPU:
+- feat: stm32/npu: run a network compiled to streaming-engine epochs (without `--enable-epoch-controller`). `EpochBlock::streaming` carries the generated pre-op, post-op, and the output-engine wait mask. `Npu::run_streaming_epoch` arms that mask, runs the pre-op, and sleeps until those engines complete. `Npu::run_network` dispatches streaming-engine blocks the same way. The driver still does not program the NPU units; that sequence stays in the generated pre-op.
+- change: stm32/npu: `EpochBlock` has a `streng_mask` field. `hw`, `hw_with`, and `sw` set it to 0. A struct literal must include it.
+
 PAC:
 - change: stm32: the `defmt` feature no longer enables `defmt` in `stm32-metapac`. PAC types, including the ones re-exported by the HAL (e.g. `rcc::AHBPrescaler`), no longer implement `defmt::Format` by default.
 - change: stm32: PAC types no longer implement `Debug` by default.
@@ -15,6 +19,14 @@ PAC:
 
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
+- fix: stm32/atomic: `Reg::set_bits`/`clear_bits` (used by the HSEM, IPCC, I2C and SDMMC drivers) no longer use core atomics for the read-modify-write. `LDREX`/`STREX` on peripheral registers is UNPREDICTABLE on Armv7-M, and when the write re-arms an interrupt whose handler runs between the `LDREX` and the `STREX` the retry loop never terminates. The update is now done in a critical section.
+
+HSEM:
+- fix: stm32/hsem: `blocking_listen` and `listen` no longer drop a notification that was sent before the call. The notification is consumed after it has been observed instead of being cleared before waiting for it, which deadlocked `init_secondary` when the other core had already completed `init_primary` (e.g. when starting or restarting the secondary core under a debugger).
+- fix: stm32/hsem: `HardwareSemaphoreInterruptHandler` now consumes the notification flags with `HSEM_CnICR` and latches them in software before waking. The latched masked status keeps the interrupt line asserted until the flags are cleared, so masking `HSEM_CnIER` (the old behavior) did not deassert it: arming the interrupt with a notification pending re-entered the handler forever, starving the tasks supposed to consume the notification. The software latch also delivers a notification whose wake happens before the listener registers its waker.
+- feat: stm32/hsem: add `HardwareSemaphoreChannel::is_notified` and `HardwareSemaphoreChannel::clear_notification`, which check and clear the notification without consuming it.
+- fix: stm32: `init_primary` discards a stale HSEM notification from a previous run of the core before initializing the hardware, and `init_secondary`/`try_init_secondary` treat the notification as a level rather than an event. The secondary core can now be started (or restarted under a debugger) in any order relative to the primary core without deadlocking or consuming a stale notification.
+- change: stm32: `try_init_secondary` no longer blocks when the other core is not done with its init (matching its documentation).
 
 SUBGHZ:
 - feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzControl`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
@@ -35,6 +47,8 @@ UCPD:
 - fix: stm32/ucpd: receive PD messages in the background ([#7527](https://github.com/embassy-rs/embassy/issues/7527)). The RX DMA only ran while `PdPhy::receive` was pending, so a message arriving between two calls was lost, and its first byte left a DMA request pending that put a stale byte in front of the next received message. The interrupt now restarts the DMA after every message, alternating between two buffers; one message can wait for `receive`.
 - change: stm32/ucpd: `Ucpd::split_pd_phy` and `IdlePdPhy::activate` take the receive buffers, `&mut RxBuffers`.
 - fix: stm32/ucpd: `PdPhy::transmit_with_sop` and `PdPhy::transmit_hardreset` return `TxError::HardReset` without transmitting if a Hard Reset was received that hasn't been reported yet. They started the transmission first, so a message was cut short when its DMA was stopped, or a Hard Reset was sent back.
+- fix: stm32/ucpd: a transmission after a cancelled `PdPhy::transmit` no longer loses its first byte. The cancelled message ran out of data, which left the TX DMA request for its next byte pending, so the next transmission's DMA wrote its first byte before the message started. Every following message was sent corrupted.
+- fix: stm32/ucpd: `PdPhy::transmit` no longer hangs after a cancelled `PdPhy::transmit_hardreset`. The Hard Reset is still sent, and while it is, the UCPD ignores a transmission request without reporting it. `transmit` now waits for the Hard Reset first.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.

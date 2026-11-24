@@ -21,7 +21,7 @@ stm32g071rb = ["embassy-stm32/stm32g071rb", "stop", "jiff", "cm0", "not-gpdma", 
 stm32g491re = ["embassy-stm32/stm32g491re", "stop", "jiff", "not-gpdma", "rng", "fdcan", "cordic", "adc"]
 stm32h563zi = ["embassy-stm32/stm32h563zi", "stop", "spi-v345", "jiff", "eth", "rng", "fdcan", "hash-v34", "cordic", "adc", "edata"]
 stm32h753zi = ["embassy-stm32/stm32h753zi", "not-stop", "spi-v345", "jiff", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp", "adc", "mem2mem", "mem2mem-dma", "mem2mem-mdma"]
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-stop", "spi-v345", "jiff", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp", "adc"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-stop", "spi-v345", "jiff", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp", "adc", "hsem"]
 stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-stop", "spi-v345", "not-gpdma", "rng", "fdcan", "adc"]
 stm32h723zg = ["embassy-stm32/stm32h723zg", "not-stop", "spi-v345", "jiff", "not-gpdma", "dac", "rng", "fdcan", "cordic", "adc", "adc-b", "mem2mem", "mem2mem-dma", "mem2mem-mdma"]
 stm32l073rz = ["embassy-stm32/stm32l073rz", "stop", "jiff", "cm0", "not-gpdma", "rng", "eeprom", "adc"]
@@ -132,7 +132,7 @@ embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", f
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", default-features = false }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "b13f21360587d4e021c9798a49e7a0d36468f693", default-features = false }
 
 defmt = "1.1.1"
 defmt-rtt = "1.3.0"
@@ -273,6 +273,16 @@ required-features = [ "hash-v34",]
 name = "hsem"
 path = "src/bin/hsem.rs"
 required-features = [ "hsem",]
+
+[[bin]]
+name = "hsem_notify"
+path = "src/bin/hsem_notify.rs"
+required-features = [ "hsem",]
+
+[[bin]]
+name = "hsem_secondary"
+path = "src/bin/hsem_secondary.rs"
+required-features = [ "stm32h755zi",]
 
 [[bin]]
 name = "i2s_dma"

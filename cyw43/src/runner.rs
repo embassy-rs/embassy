@@ -1128,7 +1128,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
 
-            // Process every drained frame, even when there's no `PacketBuf` to
+            // Process every drained frame, even when there's no `DriverBuf` to
             // receive it into: credits, ioctl responses, and events must not be
             // dropped just because the rx pool is empty.
             let reception = self.rx(&mut buf[..len]);

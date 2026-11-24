@@ -339,7 +339,7 @@ impl Info {
 #[macro_export]
 macro_rules! impl_i3c_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::i3c::SealedInstance for $crate::peripherals::[<I3C $n>] {
                 fn info() -> &'static $crate::i3c::Info {
                     static INFO: $crate::i3c::Info = $crate::i3c::Info {
@@ -445,7 +445,7 @@ impl AsyncMode for Dma<'_> {}
 #[macro_export]
 macro_rules! impl_i3c_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::i3c::sealed::Sealed for $crate::peripherals::$pin {}
 
             impl $crate::i3c::$trait<$crate::peripherals::$peri> for $crate::peripherals::$pin {

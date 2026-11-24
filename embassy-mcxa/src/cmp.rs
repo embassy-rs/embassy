@@ -532,7 +532,15 @@ impl<'d, M: Mode> Cmp<'d, M> {
                 r.dcr().modify(|w| w.set_dac_en(self.dac.is_some()));
                 r.ccr0().modify(|w| w.set_cmp_en(true));
             });
-            self.ready_at = Some(Instant::now() + Duration::from_micros(self.settling_us));
+            // LPTMR timestamps advance only on FRO16K edges and round down to
+            // us. Add one counter period plus 1 us so that the next edge cannot
+            // consume the settling interval.
+            let phase_margin_us = if cfg!(feature = "time-driver-lptmr") {
+                1_000_000u64.div_ceil(16_384) + 1
+            } else {
+                0
+            };
+            self.ready_at = Some(Instant::now() + Duration::from_micros(self.settling_us + phase_margin_us));
         });
     }
 
@@ -847,7 +855,7 @@ impl<M: AsyncMode> embedded_hal_async::digital::Wait for Cmp<'_, M> {
 #[macro_export]
 macro_rules! impl_cmp_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::cmp::SealedInstance for $crate::peripherals::[<CMP $n>] {
                 fn info() -> &'static $crate::cmp::Info {
                     static INFO: $crate::cmp::Info = $crate::cmp::Info {

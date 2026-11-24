@@ -263,12 +263,23 @@ fn generate_cc_gates() -> TokenStream {
             continue;
         }
 
+        // CC banks provide write-one SET/CLR aliases. ACC banks do not and
+        // require an interrupt-protected RMW instead. Keep the metadata's bank
+        // selection: automatic gating and forced-on control are not synonyms.
+        let gate_kind = if prefix_num(gate.enable, "mrcc_glb_cc").is_some() {
+            format_ident!("cc")
+        } else if prefix_num(gate.enable, "mrcc_glb_acc").is_some() {
+            format_ident!("acc")
+        } else {
+            panic!("Unsupported MCXA clock gate register: {}", gate.enable);
+        };
+
         match reset {
             Some(reset) => generated.extend(quote! {
-                crate::impl_cc_gate!(#peripheral_name, #enable, #reset, #bit, #config);
+                crate::impl_cc_gate!(#peripheral_name, #gate_kind, #enable, #reset, #bit, #config);
             }),
             None => generated.extend(quote! {
-                crate::impl_cc_gate!(#peripheral_name, #enable, #bit, #config);
+                crate::impl_cc_gate!(#peripheral_name, #gate_kind, #enable, #bit, #config);
             }),
         }
     }

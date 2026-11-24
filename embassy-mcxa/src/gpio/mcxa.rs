@@ -100,7 +100,7 @@ pub(crate) trait SealedInstance {
 
 macro_rules! impl_gpio_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::gpio::SealedInstance for $crate::peripherals::[<GPIO $n>] {
                 fn info() -> &'static $crate::gpio::Info {
                     static INFO: $crate::gpio::Info =  $crate::gpio::Info {
@@ -394,7 +394,7 @@ impl GpioPin for AnyPin {}
 #[macro_export]
 macro_rules! impl_gpio_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
-        ::paste::paste! {
+        ::pastey::paste! {
 
             impl $crate::gpio::SealedPin for $crate::peripherals::$peri {
                 #[inline(always)]
