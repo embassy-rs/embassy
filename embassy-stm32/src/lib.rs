@@ -735,23 +735,12 @@ mod dual_core {
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
         // The HSEM peripheral must be clocked before its registers can be used.
         //
-        // On families where each core has its own RCC enable registers this core
-        // can safely enable it. On families where the RCC enable registers are
-        // shared between the cores (STM32H7), doing so here would race with the
-        // other core's clock setup: critical sections are core-local and do not
-        // synchronize across cores, so a concurrent read-modify-write could drop
-        // either side's enable bit and leave the peripheral unclocked. Instead,
-        // wait for `init_primary`, which enables the HSEM peripheral before
-        // anything else, to clock it.
-        #[cfg(stm32wl5x)]
+        // The RCC enable registers are banked per core on these parts: each
+        // core gates its own peripheral clocks and cannot enable a peripheral
+        // for the other core, so this core enables HSEM in its own bank.
         critical_section::with(|cs| {
             rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
-
-        #[cfg(not(stm32wl5x))]
-        if !rcc::is_enabled::<peripherals::HSEM>() {
-            return None;
-        }
 
         // Wait for the primary core to complete its init. The notification is not
         // consumed here, so a notification sent before this call (or before this

@@ -10,8 +10,9 @@
 //! core keeps running.
 //!
 //! This exercises the same `blocking_listen`/`is_notified` primitives that
-//! `init_secondary` uses. (The handshake itself needs both cores running, which the
-//! HIL farm cannot do; `init_primary` is covered by `common::init()` on this board.)
+//! `init_secondary` uses. The handshake itself across both cores is covered by
+//! the `hsem_secondary` test; `init_primary` is covered by `common::init()` on
+//! this board.
 #![no_std]
 #![no_main]
 
