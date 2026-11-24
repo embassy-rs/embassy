@@ -2,12 +2,12 @@
 #![allow(missing_docs)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+    AddressSet, DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{RW, Reg};
@@ -248,6 +248,7 @@ pub struct HostState {
     allocated_pipes: AtomicU32,
     /// Bitmap of used endpoint-buffer blocks of `USBRAM_BLOCK_SIZE` bytes each.
     used_blocks: AtomicU32,
+    device_generation: [AtomicU8; 128],
 }
 
 impl HostState {
@@ -256,6 +257,7 @@ impl HostState {
         Self {
             allocated_pipes: AtomicU32::new(0),
             used_blocks: AtomicU32::new(0),
+            device_generation: [const { AtomicU8::new(0) }; 128],
         }
     }
 }
@@ -403,6 +405,7 @@ pub struct Channel<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type>
     index: usize,
     /// Device address this pipe targets (re-asserted before each control transfer).
     addr: u8,
+    generation: u8,
     max_packet_size_in: u16,
     #[allow(dead_code)]
     max_packet_size_out: u16,
@@ -411,6 +414,10 @@ pub struct Channel<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type>
 }
 
 impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I, D, T> {
+    fn is_removed(&self) -> bool {
+        I::host_state().device_generation[self.addr as usize].load(Ordering::Acquire) != self.generation
+    }
+
     fn new(
         index: usize,
         addr: u8,
@@ -423,6 +430,7 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
             _marker: PhantomData,
             index,
             addr,
+            generation: I::host_state().device_generation[addr as usize].load(Ordering::Acquire),
             max_packet_size_in,
             max_packet_size_out,
             buf_in,
@@ -519,6 +527,9 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
 
     //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
     async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError> {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         self.write_data(buf);
 
         let index = self.index;
@@ -535,6 +546,11 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
 
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
+
+            if self.is_removed() {
+                self.disable_tx();
+                return Poll::Ready(Err(PipeError::Disconnected));
+            }
 
             // Detect disconnect
             let istr = regs.istr().read();
@@ -561,6 +577,9 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         let index = self.index;
 
         #[allow(unused)]
@@ -586,6 +605,11 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
 
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
+
+            if self.is_removed() {
+                self.disable_rx();
+                return Poll::Ready(Err(PipeError::Disconnected));
+            }
 
             // Detect disconnect
             let istr = regs.istr().read();
@@ -645,6 +669,9 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
         T: pipe::IsControl,
         D: pipe::IsIn,
     {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         // Slot 0 is shared by all control pipes; re-point it at this device.
         self.restore_control_channel();
 
@@ -679,6 +706,9 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
         T: pipe::IsControl,
         D: pipe::IsOut,
     {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         // Slot 0 is shared by all control pipes; re-point it at this device.
         self.restore_control_channel();
 
@@ -829,6 +859,19 @@ fn free_channel_mem(state: &HostState, addr: u16, len: u16) {
 
 impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
+
+    fn device_removed(&self, addrs: AddressSet) {
+        let state = I::host_state();
+        critical_section::with(|_| {
+            for addr in addrs {
+                let generation = &state.device_generation[addr as usize];
+                generation.store(generation.load(Ordering::Relaxed).wrapping_add(1), Ordering::Release);
+            }
+        });
+        for waker in EP_IN_WAKERS.iter().chain(EP_OUT_WAKERS.iter()) {
+            waker.wake();
+        }
+    }
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
