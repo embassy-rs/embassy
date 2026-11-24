@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Add `IsoEndpointIn`, `IsoInSlot`, `IsoWriteError`, and `iso::IsoSchedule` for scheduled isochronous IN transfers. `IsoEndpointIn::ready()` asynchronously reserves a borrowing `Slot` for the next service interval, and `IsoInSlot::write()` synchronously queues one packet for it. Uncollected packets are dropped rather than sent late, `IsoInSlot::skipped()` reports empty intervals left by a late writer, and `IsoWriteError::TooLate` reports a slot that started before `write()` was called. No fallback default implementations are provided.
+- Add `IsoEndpointIn` for scheduled isochronous IN transfers.
 
 - **Breaking:** Merge `ControlPipe` into `Bus`. `Driver::start()` returns just the `Bus`, which has `control_max_packet_size()`, `control_data_out()`, `control_data_in()`, `control_accept()`, `control_reject()` and `control_accept_set_address()`, and `Bus::poll()` returns the new `Event::Setup` for a SETUP packet instead of `ControlPipe::setup()`. The control methods must return immediately when the transfer can no longer complete (reset, suspend, power removed, new SETUP) without consuming the event, so `poll()` still returns it.
 - **Breaking:** `Driver::alloc_endpoint_in()` and `Driver::alloc_endpoint_out()` take an `EndpointConfig`, which has the endpoint's address, type, max packet size and interval, the number of packet buffers, and the SuperSpeed fields.
