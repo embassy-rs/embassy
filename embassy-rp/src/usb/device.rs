@@ -88,6 +88,10 @@ fn update_dev_sof_irq<T: Instance>(cs: critical_section::CriticalSection<'_>) {
         .iter()
         .any(|s| s.enabled || s.armed || s.arm_wait);
     if active {
+        if !T::regs().inte().read().dev_sof() {
+            // Acknowledge the DEV_SOF left pending while masked, so the first interrupt is a real SOF.
+            let _ = T::regs().sof_rd().read();
+        }
         T::regs().inte().write_set(|w| w.set_dev_sof(true));
     } else {
         T::regs().inte().write_clear(|w| w.set_dev_sof(true));
