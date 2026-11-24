@@ -163,6 +163,10 @@ pub struct Clocks {
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub clk_32k_vbat: Option<Clock>,
 
+    /// Outcome of `OSC32K` setup against the oscillator retained in the VBAT domain.
+    #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+    pub osc32k_status: Osc32KStatus,
+
     /// `main_clk` is the main clock, upstream of the cpu/system clock.
     pub main_clk: Option<Clock>,
 
@@ -175,6 +179,39 @@ pub struct Clocks {
 
     /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
     pub pll1_clk_div: Option<Clock>,
+}
+
+/// Outcome of `OSC32K` setup against the oscillator retained in the VBAT domain.
+///
+/// VBAT controls survive every reset except a VBAT POR. A locked oscillator (see
+/// `Osc32KConfig::lock`, or locked by other firmware) stays read-only until a VBAT POR.
+/// Setup reports what it did instead of failing.
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Osc32KStatus {
+    /// `OSC32K` was not requested.
+    #[default]
+    NotRequested,
+    /// Runs with the requested settings: started now, or already running with them.
+    Requested,
+    /// An unlocked oscillator ran with other settings and was restarted with the
+    /// requested settings. The RTC loses up to the start-up time once.
+    Restarted,
+    /// A locked oscillator runs with other settings. It keeps running and feeds the
+    /// 32 kHz outputs; the requested settings apply after a VBAT POR.
+    LockedMismatch,
+    /// A locked oscillator is disabled. No 32 kHz output until a VBAT POR.
+    LockedDisabled,
+}
+
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+impl Osc32KStatus {
+    /// The requested settings apply only after a VBAT POR (power cycle).
+    pub fn needs_power_cycle(self) -> bool {
+        matches!(self, Self::LockedMismatch | Self::LockedDisabled)
+    }
 }
 
 /// `ClockError` is the main error returned when configuring or checking clock state

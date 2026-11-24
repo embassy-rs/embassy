@@ -84,6 +84,8 @@ pub(crate) fn glikey_access_ready() -> bool {
     }
 }
 pub use sleep::deep_sleep_if_possible;
+#[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
+pub use types::Osc32KStatus;
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
 #[cfg(time_driver_ostimer)]

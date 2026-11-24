@@ -468,21 +468,8 @@ impl ClockOperator<'_> {
                 reason: "LDO controls locked incompatible; VBAT POR required",
             });
         }
-        let osc = self.vbat0.oscctla().read();
-        if osc.osc_en() {
-            // Do not restart or retune an oscillator that may already supply the RTC.
-            if !self.osc32k_lp_controls_match() {
-                return Err(ClockError::BadConfig {
-                    clock: "osc32k",
-                    reason: "retained oscillator is not compatible LP; VBAT POR required",
-                });
-            }
-        } else if self.vbat0.osclcka().read().lock() {
-            return Err(ClockError::BadConfig {
-                clock: "osc32k",
-                reason: "oscillator locked disabled; VBAT POR required",
-            });
-        }
+        // A retained oscillator with other settings is restarted or kept by
+        // `configure_osc32k_clocks` and reported in `Clocks::osc32k_status`.
         Ok(())
     }
 
@@ -518,10 +505,17 @@ impl ClockOperator<'_> {
     }
 
     /// Establish LP OSC32K or adopt a compatible retained source without restarting it.
+    ///
+    /// `Osc32KConfig::lock` selects whether OSC32K is locked. A retained oscillator with
+    /// other settings is restarted when unlocked. When locked it cannot change:
+    /// it is kept (or, if disabled, left without outputs) and reported through
+    /// `Clocks::osc32k_status` instead of failing.
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
     pub(super) fn configure_osc32k_clocks(&mut self) -> Result<(), ClockError> {
         use config::Osc32KCoarseGain;
         use nxp_pac::vbat::{CoarseAmpGain, InitTrim, ModeEn, SupplyDet, XtalCapSel as ExtalCapSel, XtalCapSel};
+
+        use super::types::Osc32KStatus;
 
         // None neither claims the source nor changes its controls, gates or locks.
         let Some(cfg) = self.config.osc32k.as_ref() else {
@@ -535,6 +529,29 @@ impl ClockOperator<'_> {
             });
         }
 
+        let locked = self.vbat0.osclcka().read().lock();
+        let running = self.vbat0.oscctla().read().osc_en();
+        if locked && !running {
+            self.clocks.osc32k_status = Osc32KStatus::LockedDisabled;
+            return Ok(());
+        }
+        let mismatch = running && !self.osc32k_lp_controls_match();
+        self.clocks.osc32k_status = match (mismatch, locked) {
+            (false, _) => Osc32KStatus::Requested,
+            (true, true) => Osc32KStatus::LockedMismatch,
+            (true, false) => {
+                // Stop the unlocked oscillator so the start-up sequence below applies
+                // the requested settings. Wait for OSC_RDY to clear, so the start-up
+                // wait does not pass on the stale flag.
+                self.vbat0.oscctla().modify(|w| w.set_osc_en(false));
+                let mut remaining = cfg.readiness_poll_budget.get();
+                while self.vbat0.statusa().read().osc_rdy() && remaining > 0 {
+                    remaining -= 1;
+                }
+                Osc32KStatus::Restarted
+            }
+        };
+        let keep_settings = self.clocks.osc32k_status == Osc32KStatus::LockedMismatch;
         let retained = self.vbat0.oscctla().read().osc_en();
         let ldo = self.vbat0.ldoctla().read();
         if !(ldo.ldo_en() && ldo.bg_en() && ldo.refresh_en()) {
@@ -616,7 +633,7 @@ impl ClockOperator<'_> {
                 });
             }
         }
-        if !self.osc32k_lp_controls_match() {
+        if !keep_settings && !self.osc32k_lp_controls_match() {
             return Err(ClockError::BadConfig {
                 clock: "osc32k",
                 reason: "LP control readback failed",
@@ -640,10 +657,12 @@ impl ClockOperator<'_> {
             });
         }
 
-        // Write-once locks clear only on VBAT POR. Lock only after successful readback.
+        // The LDO lock is write-once until VBAT POR. Lock only after successful readback.
         // Failures deliberately leave supplies/source running, without rollback or cache publication.
         self.vbat0.ldolcka().modify(|w| w.set_lock(true));
-        self.vbat0.osclcka().modify(|w| w.set_lock(true));
+        if cfg.lock {
+            self.vbat0.osclcka().modify(|w| w.set_lock(true));
+        }
         const ENABLED: Option<Clock> = Some(Clock {
             frequency: 32_768,
             power: PoweredClock::AlwaysEnabled,
