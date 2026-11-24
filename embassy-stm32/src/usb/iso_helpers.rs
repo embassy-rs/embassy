@@ -37,7 +37,7 @@ pub(crate) struct IsoSchedule {
     epoch: u32,
     phase: Option<u32>,
     last_frame: Option<u64>,
-    last_accepted: bool,
+    last_written: Option<u64>,
 }
 
 impl IsoSchedule {
@@ -48,7 +48,7 @@ impl IsoSchedule {
             epoch: 0,
             phase: None,
             last_frame: None,
-            last_accepted: false,
+            last_written: None,
         }
     }
 
@@ -60,7 +60,7 @@ impl IsoSchedule {
         self.epoch = 0;
         self.phase = None;
         self.last_frame = None;
-        self.last_accepted = false;
+        self.last_written = None;
     }
 
     /// Lock the host polling phase from a completed IN transfer at `frame`.
@@ -83,8 +83,11 @@ impl IsoSchedule {
         let extended = self.observe(now, span);
 
         let phase = u64::from(self.phase.unwrap_or(0)) % interval;
-        // Smallest frame strictly after `extended` with `frame % interval == phase`.
-        let min_frame = extended + 1;
+        // Smallest frame after `extended` and the last written interval, with `frame % interval == phase`.
+        let min_frame = match self.last_written {
+            Some(written) => (extended + 1).max(written + interval),
+            None => extended + 1,
+        };
         let rem = min_frame % interval;
         let add = if phase >= rem {
             phase - rem
@@ -93,22 +96,21 @@ impl IsoSchedule {
         };
         let frame = min_frame + add;
 
-        let skipped = NonZeroU32::new(self.skipped_before(frame, interval));
+        // Cumulative since the last write; nothing counts as skipped before the first one.
+        let skipped = self
+            .last_written
+            .and_then(|written| NonZeroU32::new((frame.saturating_sub(written) / interval).saturating_sub(1) as u32));
 
-        if self.last_frame != Some(frame) {
-            self.last_frame = Some(frame);
-            self.last_accepted = false;
-        }
+        self.last_frame = Some(frame);
 
         IsoOffer::new((frame % span) as u32, skipped)
     }
 
-    /// Mark the most recently offered slot as queued.
-    ///
-    /// Later offers will not count that interval as empty.
+    /// Record a write attempt for the most recently offered slot.
+    /// Later offers count skipped intervals after this slot, even if the write failed.
     pub(crate) fn accept(&mut self) {
         if self.last_frame.is_some() {
-            self.last_accepted = true;
+            self.last_written = self.last_frame;
         }
     }
 
@@ -122,23 +124,6 @@ impl IsoSchedule {
         }
         self.last_now = Some(now_u);
         u64::from(self.epoch) * span + now
-    }
-
-    fn skipped_before(&self, frame: u64, interval: u64) -> u32 {
-        match self.last_frame {
-            None => 0,
-            Some(prev) => {
-                let delta = frame.saturating_sub(prev);
-                let gap = (delta / interval) as u32;
-                if gap == 0 {
-                    0
-                } else if self.last_accepted {
-                    gap - 1
-                } else {
-                    gap
-                }
-            }
-        }
     }
 }
 
@@ -210,14 +195,37 @@ mod tests {
     }
 
     #[test]
-    fn an_offered_slot_that_was_not_queued_counts_as_skipped_once_it_starts() {
+    fn nothing_counts_as_skipped_before_the_first_write() {
         let mut schedule = IsoSchedule::new();
         let first = schedule.offer(0, 8, 16384);
         assert_eq!(first.frame, 8);
 
-        let next = schedule.offer(8, 8, 16384);
-        assert_eq!(next.frame, 16);
+        let next = schedule.offer(40, 8, 16384);
+        assert_eq!(next.frame, 48);
+        assert_eq!(next.skipped, None);
+    }
+
+    #[test]
+    fn an_offered_slot_that_was_not_queued_counts_as_skipped_once_it_starts() {
+        let mut schedule = IsoSchedule::new();
+        schedule.offer(0, 8, 16384);
+        schedule.accept();
+        let first = schedule.offer(8, 8, 16384);
+        assert_eq!(first.frame, 16);
+
+        let next = schedule.offer(16, 8, 16384);
+        assert_eq!(next.frame, 24);
         assert_eq!(next.skipped, NonZeroU32::new(1));
+    }
+
+    #[test]
+    fn repeated_offers_report_the_count_since_the_write_not_a_sum() {
+        let mut schedule = IsoSchedule::new();
+        schedule.offer(10, 1, 2048);
+        schedule.accept();
+
+        assert_eq!(schedule.offer(14, 1, 2048).skipped, NonZeroU32::new(3));
+        assert_eq!(schedule.offer(20, 1, 2048).skipped, NonZeroU32::new(9));
     }
 
     #[test]
@@ -284,6 +292,35 @@ mod tests {
         let fresh = schedule.offer(10, 8, 2048);
         assert_eq!(fresh.frame, 16);
         assert_eq!(fresh.skipped, None);
+    }
+
+    #[test]
+    fn a_dropped_slot_reports_its_skips_again() {
+        let mut schedule = IsoSchedule::new();
+        schedule.offer(10, 1, 2048);
+        schedule.accept();
+
+        // Three intervals missed; the slot is dropped without a write.
+        let dropped = schedule.offer(14, 1, 2048);
+        assert_eq!(dropped.frame, 15);
+        assert_eq!(dropped.skipped, NonZeroU32::new(3));
+
+        let again = schedule.offer(14, 1, 2048);
+        assert_eq!(again.frame, 15);
+        assert_eq!(again.skipped, NonZeroU32::new(3));
+    }
+
+    #[test]
+    fn a_written_interval_is_not_offered_again() {
+        let mut schedule = IsoSchedule::new();
+        let first = schedule.offer(0, 8, 2048);
+        assert_eq!(first.frame, 8);
+        schedule.accept();
+
+        // The host collected frame 8 early; the counter still reads 7.
+        let next = schedule.offer(7, 8, 2048);
+        assert_eq!(next.frame, 16);
+        assert_eq!(next.skipped, None);
     }
 
     #[test]

@@ -1901,6 +1901,7 @@ pub struct IsoSlot<'a, 'd, T: Instance> {
 
 impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
         let index = self.ep.info.addr.index();
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
@@ -1946,9 +1947,7 @@ impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
             Ok(())
         });
 
-        res?;
-        self.ep.schedule.accept();
-        Ok(())
+        res
     }
 }
 
@@ -2032,11 +2031,10 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
             }
         });
 
-        let mut total_skipped: u32 = 0;
         loop {
             let now = u32::from(T::regs().fnr().read().fn_());
             let offer = self.schedule.offer(now, interval, ISO_FRAME_SPAN);
-            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let skipped = offer.skipped;
             let frame = offer.frame;
 
             let ready = poll_fn(|cx| {
@@ -2064,7 +2062,7 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
             .await?;
 
             if ready {
-                return Ok((NonZeroU32::new(total_skipped), IsoSlot { ep: self, frame }));
+                return Ok((skipped, IsoSlot { ep: self, frame }));
             }
         }
     }

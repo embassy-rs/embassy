@@ -2411,6 +2411,7 @@ where
     M: RawMutex + Copy,
 {
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
         }
@@ -2446,9 +2447,7 @@ where
             Ok(())
         });
 
-        armed?;
-        self.ep.schedule.accept();
-        Ok(())
+        armed
     }
 }
 
@@ -2507,17 +2506,16 @@ where
             self.schedule.lock_phase(u32::from(phase), interval);
         }
 
-        let mut total_skipped: u32 = 0;
         loop {
             if !self.state.in_enabled.load(Ordering::Acquire) {
                 return Err(EndpointDisabledError);
             }
             let offer = self.schedule.offer(self.fnsof(), interval, span);
-            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let skipped = offer.skipped;
             // The even/odd bit can only name the next tick, so wait until `offer.frame` is that tick.
             if self.wait_until_arm_point(offer.frame, interval, span).await? {
                 return Ok((
-                    NonZeroU32::new(total_skipped),
+                    skipped,
                     IsoSlot {
                         ep: self,
                         frame: offer.frame,
