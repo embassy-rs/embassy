@@ -34,6 +34,7 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 portable-atomic = { version = "1" }
+critical-section = "1.1"
 
 document-features = "0.2.7"
 

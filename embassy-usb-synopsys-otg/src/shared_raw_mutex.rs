@@ -26,7 +26,9 @@ unsafe impl SharedRawMutex for CriticalSectionRawMutex {
     }
 
     fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
-        RawMutex::lock(self, f)
+        // Take the critical section directly. The handles don't share the lock flag of
+        // `CriticalSectionRawMutex`, so they must not use it.
+        critical_section::with(|_| f())
     }
 }
 
@@ -36,6 +38,6 @@ unsafe impl<M: RawMutex> SharedRawMutex for &M {
     }
 
     fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
-        RawMutex::lock(*self, f)
+        (*self).with_lock(f)
     }
 }

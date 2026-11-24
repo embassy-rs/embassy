@@ -185,7 +185,7 @@ pub struct ControllerAdapter<'d> {
     ipcc_ble_event_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
     ipcc_hci_acl_tx_data_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
     ipcc_hci_acl_rx_data_channel: Mutex<NoopRawMutex, ProtectedChannel<'d>>,
-    slot: blocking_mutex::NoopMutex<RefCell<Option<bt_hci::cmd::Opcode>>>,
+    slot: RefCell<Option<bt_hci::cmd::Opcode>>,
     signal: Signal<NoopRawMutex, Option<EvtBox<Ble<'d>>>>,
     waker: AtomicWaker,
     cc_no_status: AtomicBool,
@@ -243,7 +243,7 @@ struct SlotGuard<'d, 'a> {
 #[cfg(feature = "bt-hci")]
 impl<'d, 'a> Drop for SlotGuard<'d, 'a> {
     fn drop(&mut self) {
-        self.controller.slot.borrow().borrow_mut().take();
+        self.controller.slot.borrow_mut().take();
         self.controller.signal.reset();
         self.controller.waker.wake();
     }
@@ -257,7 +257,7 @@ impl<'d> ControllerAdapter<'d> {
             ipcc_ble_event_channel: Mutex::new(controller.ipcc_ble_event_channel),
             ipcc_hci_acl_tx_data_channel: Mutex::new(controller.ipcc_hci_acl_tx_data_channel),
             ipcc_hci_acl_rx_data_channel: Mutex::new(controller.ipcc_hci_acl_rx_data_channel),
-            slot: blocking_mutex::NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(None)),
+            slot: RefCell::new(None),
             signal: Signal::new(),
             waker: AtomicWaker::new(),
             cc_no_status: AtomicBool::new(false),
@@ -270,7 +270,7 @@ impl<'d> ControllerAdapter<'d> {
         poll_fn(|cx| {
             self.waker.register(cx.waker());
 
-            let mut slot = self.slot.borrow().borrow_mut();
+            let mut slot = self.slot.borrow_mut();
 
             if slot.is_some() || self.cc_no_status.load(Ordering::Acquire) {
                 Poll::Pending
@@ -287,7 +287,7 @@ impl<'d> ControllerAdapter<'d> {
         use bt_hci::cmd::Cmd;
         use bt_hci::cmd::controller_baseband::Reset;
 
-        let slot = self.slot.borrow().borrow_mut();
+        let slot = self.slot.borrow_mut();
 
         if let Some(waiting_opcode) = *slot
             && waiting_opcode == opcode
@@ -401,7 +401,7 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                             })
                             .await;
 
-                        buf.lock_mut(|buf| buf.push(evt))?
+                        buf.lock(|buf| buf.push(evt))?
                     };
 
                     match pkt {
@@ -415,13 +415,13 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                                     return Ok(pkt);
                                 }
 
-                                self.signal_cmd(e.cmd_opcode, unsafe { buf.lock_mut(|buf| buf.pop()).unwrap() });
+                                self.signal_cmd(e.cmd_opcode, buf.lock(|buf| buf.pop()).unwrap());
                                 continue;
                             }
                             EventKind::CommandStatus => {
                                 let e = CommandStatus::from_hci_bytes_complete(event.data).map_err(to_err)?;
 
-                                self.signal_cmd(e.cmd_opcode, unsafe { buf.lock_mut(|buf| buf.pop()).unwrap() });
+                                self.signal_cmd(e.cmd_opcode, buf.lock(|buf| buf.pop()).unwrap());
                                 continue;
                             }
                             _ => {
@@ -445,7 +445,7 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                         .receive(|| Some(EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _)))
                         .await;
 
-                    buf.lock_mut(|buf| buf.push(evt))?
+                    buf.lock(|buf| buf.push(evt))?
                 };
 
                 Ok(pkt)

@@ -216,7 +216,7 @@ pub struct InterruptHandler<T: InterruptInstance> {
 impl<T: InterruptInstance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let state = &T::state().triggered;
-        let Some(session) = state.session.lock(Cell::get) else {
+        let Some(session) = state.session.lock(|s| s.get()) else {
             return;
         };
 

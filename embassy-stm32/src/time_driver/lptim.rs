@@ -7,9 +7,7 @@ use core::cell::RefCell;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 use stm32_metapac::lptim::Lptim;
@@ -153,7 +151,7 @@ fn write_compare(r: Lptim, val: u16) {
 pub(crate) struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
-    alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
+    alarm: Mutex<AlarmState>,
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool,
     /// Whether the driver prevents Stop mode because its clock does not run in Stop.
@@ -161,19 +159,19 @@ pub(crate) struct RtcDriver {
     stop_blocked: AtomicBool,
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
-    min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
-    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    min_stop_pause: Mutex<Cell<embassy_time::Duration>>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
-    alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    alarm: Mutex::new(AlarmState::new()),
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool::new(false),
     #[cfg(feature = "low-power")]
     stop_blocked: AtomicBool::new(false),
     #[cfg(feature = "low-power")]
-    min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
+    min_stop_pause: Mutex::new(Cell::new(embassy_time::Duration::from_millis(0))),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 

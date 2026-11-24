@@ -1,7 +1,7 @@
 //! Async read-write lock.
 //!
 //! This module provides a read-write lock that can be used to synchronize data between asynchronous tasks.
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::fmt;
 use core::future::{Future, poll_fn};
 use core::ops::{Deref, DerefMut};
@@ -42,7 +42,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: BlockingMutex<M, RefCell<State>>,
+    state: BlockingMutex<M, State>,
     inner: UnsafeCell<T>,
 }
 
@@ -58,11 +58,11 @@ where
     pub const fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
-            state: BlockingMutex::new(RefCell::new(State {
+            state: BlockingMutex::new(State {
                 readers: 0,
                 writer: false,
                 waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 }
@@ -78,7 +78,6 @@ where
     pub fn read(&self) -> impl Future<Output = RwLockReadGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
-                let mut s = s.borrow_mut();
                 if s.writer {
                     s.waker.register(cx.waker());
                     false
@@ -102,7 +101,6 @@ where
     pub fn write(&self) -> impl Future<Output = RwLockWriteGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
-                let mut s = s.borrow_mut();
                 if s.writer || s.readers > 0 {
                     s.waker.register(cx.waker());
                     false
@@ -126,7 +124,6 @@ where
     pub fn try_read(&self) -> Result<RwLockReadGuard<'_, M, T>, TryLockError> {
         self.state
             .lock(|s| {
-                let mut s = s.borrow_mut();
                 if s.writer {
                     return Err(());
                 }
@@ -144,7 +141,6 @@ where
     pub fn try_write(&self) -> Result<RwLockWriteGuard<'_, M, T>, TryLockError> {
         self.state
             .lock(|s| {
-                let mut s = s.borrow_mut();
                 if s.writer || s.readers > 0 {
                     return Err(());
                 }
@@ -227,7 +223,6 @@ where
 {
     fn drop(&mut self) {
         self.rwlock.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
             s.readers -= 1;
             if s.readers == 0 {
                 s.waker.wake();
@@ -292,7 +287,6 @@ where
 {
     fn drop(&mut self) {
         self.rwlock.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
             s.writer = false;
             s.waker.wake();
         })

@@ -16,8 +16,7 @@
 use core::cell::RefCell;
 use core::task::Waker;
 
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::Mutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -139,7 +138,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: LptmrTimeDriver = LptmrTim
 });
 
 struct LptmrTimeDriver {
-    state: Mutex<CriticalSectionRawMutex, RefCell<State>>,
+    state: Mutex<RefCell<State>>,
 }
 
 impl Driver for LptmrTimeDriver {

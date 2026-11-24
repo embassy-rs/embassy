@@ -11,10 +11,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_stm32::interrupt;
 #[cfg(feature = "bt-hci")]
-use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "bt-hci")]
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
 use stm32_bindings::ble::{BLE_SLEEPMODE_RUNNING, BleStack_Process, BleStack_Request};
 
@@ -226,7 +224,7 @@ const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(e
 
 #[cfg(feature = "bt-hci")]
 pub struct ControllerAdapter<'d> {
-    controller: NoopMutex<RefCell<Controller<'d>>>,
+    controller: RefCell<Controller<'d>>,
     pending_evt: AtomicBool,
 }
 
@@ -234,7 +232,7 @@ pub struct ControllerAdapter<'d> {
 impl<'d> ControllerAdapter<'d> {
     pub const fn new(controller: Controller<'d>) -> Self {
         Self {
-            controller: NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
+            controller: RefCell::new(controller),
             pending_evt: AtomicBool::new(false),
         }
     }
@@ -242,7 +240,7 @@ impl<'d> ControllerAdapter<'d> {
     /// Runs a direct BLE stack call while holding the controller, like `exec`.
     #[cfg(feature = "direct")]
     pub(super) fn call<R>(&self, f: impl FnOnce() -> R) -> R {
-        let _controller = self.controller.borrow().borrow_mut();
+        let _controller = self.controller.borrow_mut();
         f()
     }
 }
@@ -264,7 +262,7 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     async fn write_acl_data(&self, packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
         use bt_hci::transport::{PacketToController, WithIndicator};
 
-        let mut controller = self.controller.borrow().borrow_mut();
+        let mut controller = self.controller.borrow_mut();
 
         controller.exec(|buf| {
             WithIndicator::new(packet)
@@ -280,7 +278,7 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
     async fn write_sync_data(&self, packet: &bt_hci::data::SyncPacket<'_>) -> Result<(), Self::Error> {
         use bt_hci::transport::{PacketToController, WithIndicator};
 
-        let mut controller = self.controller.borrow().borrow_mut();
+        let mut controller = self.controller.borrow_mut();
 
         controller.exec(|buf| {
             WithIndicator::new(packet)
@@ -299,7 +297,7 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
         let buf = poll_fn(|cx| {
-            let mut controller = self.controller.borrow().borrow_mut();
+            let mut controller = self.controller.borrow_mut();
 
             if self.pending_evt.swap(false, Ordering::AcqRel) {
                 // Advance the channel
@@ -335,7 +333,7 @@ where
 
         use crate::util::make_cc_with_cs;
 
-        let mut controller = self.controller.borrow().borrow_mut();
+        let mut controller = self.controller.borrow_mut();
 
         debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;
@@ -359,7 +357,7 @@ where
 
         use crate::util::make_cc_with_cs;
 
-        let mut controller = self.controller.borrow().borrow_mut();
+        let mut controller = self.controller.borrow_mut();
 
         debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;

@@ -53,7 +53,6 @@
 
 #![no_std]
 
-use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Waker;
 
@@ -160,8 +159,8 @@ unsafe fn make_gic() -> gicv3::GicV3<'static> {
 
 /// A type for handling a queue of alarms on the EL1 Virtual Timer
 struct Aarch32VirtualTimerQueue {
-    core0: Mutex<CriticalSectionRawMutex, RefCell<Aarch32VirtualTimerQueueInner>>,
-    core1: Mutex<CriticalSectionRawMutex, RefCell<Aarch32VirtualTimerQueueInner>>,
+    core0: Mutex<CriticalSectionRawMutex, Aarch32VirtualTimerQueueInner>,
+    core1: Mutex<CriticalSectionRawMutex, Aarch32VirtualTimerQueueInner>,
 }
 
 impl embassy_time_driver::Driver for Aarch32VirtualTimerQueue {
@@ -178,13 +177,11 @@ impl embassy_time_driver::Driver for Aarch32VirtualTimerQueue {
             cpuid
         );
         if cpuid == 0 {
-            critical_section::with(|cs| {
-                let mut inner = self.core0.borrow(cs).borrow_mut();
+            self.core0.lock(|inner| {
                 inner.schedule_wake(at, waker);
             });
         } else {
-            critical_section::with(|cs| {
-                let mut inner = self.core1.borrow(cs).borrow_mut();
+            self.core1.lock(|inner| {
                 inner.schedule_wake(at, waker);
             });
         }
@@ -196,13 +193,11 @@ impl Aarch32VirtualTimerQueue {
     fn on_irq(&self) {
         defmt::trace!("Alarm went off on {=u8}", cpuid());
         if cpuid() == 0 {
-            critical_section::with(|cs| {
-                let mut inner = self.core0.borrow(cs).borrow_mut();
+            self.core0.lock(|inner| {
                 inner.update_alarm();
             });
         } else {
-            critical_section::with(|cs| {
-                let mut inner = self.core1.borrow(cs).borrow_mut();
+            self.core1.lock(|inner| {
                 inner.update_alarm();
             });
         }
@@ -249,16 +244,16 @@ impl Aarch32VirtualTimerQueueInner {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: Aarch32VirtualTimerQueue = Aarch32VirtualTimerQueue {
-    core0: Mutex::new(RefCell::new(
+    core0: Mutex::new(
         Aarch32VirtualTimerQueueInner {
             queue: embassy_time_queue_utils::Queue::new(),
         }
-    )),
-    core1: Mutex::new(RefCell::new(
+    ),
+    core1: Mutex::new(
         Aarch32VirtualTimerQueueInner {
             queue: embassy_time_queue_utils::Queue::new(),
         }
-    ))
+    )
 });
 
 /// Default Core 1 entry point

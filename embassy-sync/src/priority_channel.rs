@@ -3,7 +3,6 @@
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
 //! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
-use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -493,7 +492,7 @@ where
     K: Kind,
     M: RawMutex,
 {
-    inner: Mutex<M, RefCell<ChannelState<T, K, N>>>,
+    inner: Mutex<M, ChannelState<T, K, N>>,
 }
 
 impl<M, T, K, const N: usize> PriorityChannel<M, T, K, N>
@@ -513,12 +512,12 @@ where
     /// ```
     pub const fn new() -> Self {
         Self {
-            inner: Mutex::new(RefCell::new(ChannelState::new())),
+            inner: Mutex::new(ChannelState::new()),
         }
     }
 
     fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, K, N>) -> R) -> R {
-        self.inner.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
+        self.inner.lock(f)
     }
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {

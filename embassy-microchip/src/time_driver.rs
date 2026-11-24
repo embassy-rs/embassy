@@ -2,10 +2,8 @@
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
-use critical_section::CriticalSection;
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -58,7 +56,7 @@ pub(crate) struct CctDriver {
 
 embassy_time_driver::time_driver_impl!(static DRIVER: CctDriver = CctDriver {
     period: AtomicU32::new(0),
-    alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    alarm: Mutex::new(AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 

@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::cell::{Cell, RefCell};
-
 use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -24,8 +22,7 @@ bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
 });
 
-static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2>>>> =
-    Mutex::new(RefCell::new(None));
+static TIMER: Mutex<CriticalSectionRawMutex, Option<timer::low_level::Timer<peripherals::TIM2>>> = Mutex::new(None);
 
 // A counter signal that is written by the feedback timer, once every `FEEDBACK_REFRESH_PERIOD`.
 // At that point, a feedback value is sent to the host.
@@ -217,35 +214,34 @@ async fn usb_control_task(control_monitor: speaker::ControlMonitor<'static>) {
 /// This gives an (ideal) counter value of 336.000 for every update of the `FEEDBACK_SIGNAL`.
 #[interrupt]
 fn TIM2() {
-    static LAST_TICKS: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell::new(0));
-    static FRAME_COUNT: Mutex<CriticalSectionRawMutex, Cell<usize>> = Mutex::new(Cell::new(0));
+    static LAST_TICKS: Mutex<CriticalSectionRawMutex, u32> = Mutex::new(0);
+    static FRAME_COUNT: Mutex<CriticalSectionRawMutex, usize> = Mutex::new(0);
 
-    critical_section::with(|cs| {
-        // Read timer counter.
-        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
+    // Read timer counter.
+    let timer = TIMER.lock(|timer| timer.as_ref().unwrap().regs_gp32());
 
-        let status = timer.sr().read();
+    let status = timer.sr().read();
 
-        const CHANNEL_INDEX: usize = 0;
-        if status.ccif(CHANNEL_INDEX) {
-            let ticks = timer.ccr(CHANNEL_INDEX).read();
+    const CHANNEL_INDEX: usize = 0;
+    if status.ccif(CHANNEL_INDEX) {
+        let ticks = timer.ccr(CHANNEL_INDEX).read();
 
-            let frame_count = FRAME_COUNT.borrow(cs);
-            let last_ticks = LAST_TICKS.borrow(cs);
-
-            frame_count.set(frame_count.get() + 1);
-            if frame_count.get() >= FEEDBACK_REFRESH_PERIOD.frame_count() {
-                frame_count.set(0);
-                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(last_ticks.get()));
-                last_ticks.set(ticks);
+        FRAME_COUNT.lock(|frame_count| {
+            *frame_count += 1;
+            if *frame_count >= FEEDBACK_REFRESH_PERIOD.frame_count() {
+                *frame_count = 0;
+                LAST_TICKS.lock(|last_ticks| {
+                    FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(*last_ticks));
+                    *last_ticks = ticks;
+                });
             }
-        };
-
-        // Clear trigger interrupt flag.
-        timer.sr().write(|r| {
-            r.0 = 0xFFFF_FFFF;
-            r.set_tif(false);
         });
+    };
+
+    // Clear trigger interrupt flag.
+    timer.sr().write(|r| {
+        r.0 = 0xFFFF_FFFF;
+        r.set_tif(false);
     });
 }
 
@@ -381,7 +377,7 @@ async fn main(spawner: Spawner) {
 
     tim.start();
 
-    TIMER.lock(|p| p.borrow_mut().replace(tim));
+    TIMER.lock(|p| p.replace(tim));
 
     // Unmask the TIM2 interrupt.
     unsafe {

@@ -14,7 +14,6 @@
 //! messages that it can store. If this limit is reached, trying to send
 //! another message either waits or returns an error depending on the function.
 
-use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -39,7 +38,7 @@ use crate::waitqueue::WakerRegistration;
 pub struct Channel<'a, M: RawMutex, T> {
     buf: BufferPtr<T>,
     phantom: PhantomData<&'a mut T>,
-    state: Mutex<M, RefCell<State>>,
+    state: Mutex<M, State>,
 }
 
 impl<'a, M: RawMutex, T> Channel<'a, M, T> {
@@ -54,14 +53,14 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
         Self {
             buf: BufferPtr(buf.as_mut_ptr()),
             phantom: PhantomData,
-            state: Mutex::new(RefCell::new(State {
+            state: Mutex::new(State {
                 capacity: len,
                 front: 0,
                 back: 0,
                 full: false,
                 send_waker: WakerRegistration::new(),
                 receive_waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 
@@ -76,23 +75,23 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     /// Clears all elements in the channel.
     pub fn clear(&mut self) {
         self.state.lock(|s| {
-            s.borrow_mut().clear();
+            s.clear();
         });
     }
 
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
-        self.state.lock(|s| s.borrow().len())
+        self.state.lock(|s| s.len())
     }
 
     /// Returns whether the channel is empty.
     pub fn is_empty(&self) -> bool {
-        self.state.lock(|s| s.borrow().is_empty())
+        self.state.lock(|s| s.is_empty())
     }
 
     /// Returns whether the channel is full.
     pub fn is_full(&self) -> bool {
-        self.state.lock(|s| s.borrow().is_full())
+        self.state.lock(|s| s.is_full())
     }
 }
 
@@ -123,23 +122,33 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 
     /// Attempts to send a value over the channel.
     pub fn try_send(&mut self) -> Option<SendSlot<'_, M, T>> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.push_index() {
-                Some(i) => Some(SendSlot {
-                    value: unsafe { &mut *self.channel.buf.add(i) },
-                    state: &self.channel.state,
-                }),
-                None => None,
-            }
+        self.channel.state.lock(|s| match s.push_index() {
+            Some(i) => Some(SendSlot {
+                value: unsafe { &mut *self.channel.buf.add(i) },
+                state: &self.channel.state,
+            }),
+            None => None,
         })
     }
 
     /// Attempts to send a value over the channel.
     pub fn poll_send(&mut self, cx: &mut Context) -> Poll<SendSlot<'_, M, T>> {
-        self.channel.state.lock(move |s| {
-            let s = &mut *s.borrow_mut();
-            match s.push_index() {
+        self.channel.state.lock(move |s| match s.push_index() {
+            Some(i) => Poll::Ready(SendSlot {
+                value: unsafe { &mut *self.channel.buf.add(i) },
+                state: &self.channel.state,
+            }),
+            None => {
+                s.receive_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+    }
+
+    /// Asynchronously send a value over the channel.
+    pub fn send(&mut self) -> impl Future<Output = SendSlot<'_, M, T>> {
+        poll_fn(|cx| {
+            self.channel.state.lock(|s| match s.push_index() {
                 Some(i) => Poll::Ready(SendSlot {
                     value: unsafe { &mut *self.channel.buf.add(i) },
                     state: &self.channel.state,
@@ -148,42 +157,23 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
                     s.receive_waker.register(cx.waker());
                     Poll::Pending
                 }
-            }
-        })
-    }
-
-    /// Asynchronously send a value over the channel.
-    pub fn send(&mut self) -> impl Future<Output = SendSlot<'_, M, T>> {
-        poll_fn(|cx| {
-            self.channel.state.lock(|s| {
-                let s = &mut *s.borrow_mut();
-                match s.push_index() {
-                    Some(i) => Poll::Ready(SendSlot {
-                        value: unsafe { &mut *self.channel.buf.add(i) },
-                        state: &self.channel.state,
-                    }),
-                    None => {
-                        s.receive_waker.register(cx.waker());
-                        Poll::Pending
-                    }
-                }
             })
         })
     }
 
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
-        self.channel.state.lock(|s| s.borrow().len())
+        self.channel.state.lock(|s| s.len())
     }
 
     /// Returns whether the channel is empty.
     pub fn is_empty(&self) -> bool {
-        self.channel.state.lock(|s| s.borrow().is_empty())
+        self.channel.state.lock(|s| s.is_empty())
     }
 
     /// Returns whether the channel is full.
     pub fn is_full(&self) -> bool {
-        self.channel.state.lock(|s| s.borrow().is_full())
+        self.channel.state.lock(|s| s.is_full())
     }
 }
 
@@ -193,7 +183,7 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SendSlot<'a, M: RawMutex, T> {
-    state: &'a Mutex<M, RefCell<State>>,
+    state: &'a Mutex<M, State>,
     value: &'a mut T,
 }
 
@@ -214,7 +204,7 @@ impl<M: RawMutex, T> DerefMut for SendSlot<'_, M, T> {
 impl<M: RawMutex, T> SendSlot<'_, M, T> {
     /// Notify the channel that the sending of the value has been finalized.
     pub fn send_done(self) {
-        self.state.lock(|s| s.borrow_mut().push_done());
+        self.state.lock(|s| s.push_done());
     }
 }
 
@@ -232,23 +222,33 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 
     /// Attempts to receive a value over the channel.
     pub fn try_receive(&mut self) -> Option<ReceiveSlot<'_, M, T>> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.pop_index() {
-                Some(i) => Some(ReceiveSlot {
-                    value: unsafe { &mut *self.channel.buf.add(i) },
-                    state: &self.channel.state,
-                }),
-                None => None,
-            }
+        self.channel.state.lock(|s| match s.pop_index() {
+            Some(i) => Some(ReceiveSlot {
+                value: unsafe { &mut *self.channel.buf.add(i) },
+                state: &self.channel.state,
+            }),
+            None => None,
         })
     }
 
     /// Attempts to asynchronously receive a value over the channel.
     pub fn poll_receive(&mut self, cx: &mut Context) -> Poll<ReceiveSlot<'_, M, T>> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.pop_index() {
+        self.channel.state.lock(|s| match s.pop_index() {
+            Some(i) => Poll::Ready(ReceiveSlot {
+                value: unsafe { &mut *self.channel.buf.add(i) },
+                state: &self.channel.state,
+            }),
+            None => {
+                s.send_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+    }
+
+    /// Asynchronously receive a value over the channel.
+    pub fn receive(&mut self) -> impl Future<Output = ReceiveSlot<'_, M, T>> {
+        poll_fn(|cx| {
+            self.channel.state.lock(|s| match s.pop_index() {
                 Some(i) => Poll::Ready(ReceiveSlot {
                     value: unsafe { &mut *self.channel.buf.add(i) },
                     state: &self.channel.state,
@@ -257,25 +257,6 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
                     s.send_waker.register(cx.waker());
                     Poll::Pending
                 }
-            }
-        })
-    }
-
-    /// Asynchronously receive a value over the channel.
-    pub fn receive(&mut self) -> impl Future<Output = ReceiveSlot<'_, M, T>> {
-        poll_fn(|cx| {
-            self.channel.state.lock(|s| {
-                let s = &mut *s.borrow_mut();
-                match s.pop_index() {
-                    Some(i) => Poll::Ready(ReceiveSlot {
-                        value: unsafe { &mut *self.channel.buf.add(i) },
-                        state: &self.channel.state,
-                    }),
-                    None => {
-                        s.send_waker.register(cx.waker());
-                        Poll::Pending
-                    }
-                }
             })
         })
     }
@@ -283,23 +264,23 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     /// Clears all elements in the channel.
     pub fn clear(&mut self) {
         self.channel.state.lock(|s| {
-            s.borrow_mut().clear();
+            s.clear();
         });
     }
 
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
-        self.channel.state.lock(|s| s.borrow().len())
+        self.channel.state.lock(|s| s.len())
     }
 
     /// Returns whether the channel is empty.
     pub fn is_empty(&self) -> bool {
-        self.channel.state.lock(|s| s.borrow().is_empty())
+        self.channel.state.lock(|s| s.is_empty())
     }
 
     /// Returns whether the channel is full.
     pub fn is_full(&self) -> bool {
-        self.channel.state.lock(|s| s.borrow().is_full())
+        self.channel.state.lock(|s| s.is_full())
     }
 }
 
@@ -309,7 +290,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReceiveSlot<'a, M: RawMutex, T> {
-    state: &'a Mutex<M, RefCell<State>>,
+    state: &'a Mutex<M, State>,
     value: &'a mut T,
 }
 
@@ -330,7 +311,7 @@ impl<M: RawMutex, T> DerefMut for ReceiveSlot<'_, M, T> {
 impl<M: RawMutex, T> ReceiveSlot<'_, M, T> {
     /// Notify the channel that the receiving of the value has been finalized.
     pub fn receive_done(self) {
-        self.state.lock(|s| s.borrow_mut().pop_done());
+        self.state.lock(|s| s.pop_done());
     }
 }
 

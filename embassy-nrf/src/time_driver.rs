@@ -2,9 +2,7 @@ use core::cell::{Cell, RefCell};
 #[cfg(not(feature = "_grtc"))]
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -213,7 +211,7 @@ struct RtcDriver {
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     #[cfg(not(feature = "_grtc"))]
     period: AtomicU32::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    alarms: Mutex::new(AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 

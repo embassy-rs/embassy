@@ -10,8 +10,8 @@ use embassy_sync::channel::{SendDynamicReceiver, SendDynamicSender};
 
 use super::mailbox::tx;
 use super::{
-    BusErrorMode, Cell, Channel, CriticalSectionRawMutex, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InitError,
-    Instance, Mode, ReceiveError, SendError, functions, mailbox, sealed,
+    BusErrorMode, Channel, CriticalSectionRawMutex, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InitError, Instance,
+    Mode, ReceiveError, SendError, functions, mailbox, sealed,
 };
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::{RxPin, TxPin};
@@ -72,8 +72,7 @@ impl<'d> FlexCan<'d, Async> {
         let rx_queue: &'static RxQueue<N> = rx_queue;
         let rx_sender: SendDynamicSender<'static, Frame> = rx_queue.0.sender().into();
         let rx_receiver: SendDynamicReceiver<'static, Frame> = rx_queue.0.receiver().into();
-        info.rx_sender
-            .lock(|c: &Cell<Option<SendDynamicSender<'static, Frame>>>| c.set(Some(rx_sender)));
+        info.rx_sender.lock(|c| c.set(Some(rx_sender)));
 
         // Setup the interrupts
         T::Interrupt::unpend();
@@ -337,9 +336,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         /* RX STUFF: */
 
         // Check if any RX messages can be dequeued, and if so, dequeue them.
-        let rx_sender: Option<SendDynamicSender<'static, Frame>> = info
-            .rx_sender
-            .lock(|c: &Cell<Option<SendDynamicSender<'static, Frame>>>| c.get());
+        let rx_sender: Option<SendDynamicSender<'static, Frame>> = info.rx_sender.lock(|c| c.get());
         while let Some(message) = mailbox::rx::fifo::get(info) {
             // Dequeue a frame from the hardware RX FIFO
             let frame: Frame = match message.try_into() {

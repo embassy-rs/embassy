@@ -11,9 +11,7 @@
 use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -87,8 +85,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
 });
 
 struct OsTimer {
-    time: Mutex<CriticalSectionRawMutex, Cell<u64>>,
-    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    time: Mutex<Cell<u64>>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 impl OsTimer {

@@ -1,7 +1,7 @@
 //! A synchronization primitive for passing the latest value to a task.
-use core::cell::Cell;
 use core::convert::Infallible;
 use core::future::{Future, poll_fn};
+use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
@@ -38,7 +38,7 @@ pub struct Signal<M, T>
 where
     M: RawMutex,
 {
-    state: Mutex<M, Cell<State<T>>>,
+    state: Mutex<M, State<T>>,
 }
 
 #[derive(Debug)]
@@ -55,7 +55,7 @@ where
     /// Create a new `Signal`.
     pub const fn new() -> Self {
         Self {
-            state: Mutex::new(Cell::new(State::None)),
+            state: Mutex::new(State::None),
         }
     }
 }
@@ -75,12 +75,11 @@ where
 {
     /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::Signaled(val));
-            if let State::Waiting(waker) = state {
-                waker.wake();
-            }
-        })
+        // Wake the waiter and drop the previous value after the lock is released.
+        let state = self.state.lock(|state| mem::replace(state, State::Signaled(val)));
+        if let State::Waiting(waker) = state {
+            waker.wake();
+        }
     }
 
     /// Remove the queued value in this `Signal`, if any.
@@ -90,25 +89,26 @@ where
 
     /// Poll for state changes of this Signal.
     pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-            match state {
-                State::None => {
-                    cell.set(State::Waiting(cx.waker().clone()));
-                    Poll::Pending
-                }
-                State::Waiting(w) if w.will_wake(cx.waker()) => {
-                    cell.set(State::Waiting(w));
-                    Poll::Pending
-                }
-                State::Waiting(w) => {
-                    cell.set(State::Waiting(cx.waker().clone()));
-                    w.wake();
-                    Poll::Pending
-                }
-                State::Signaled(res) => Poll::Ready(res),
+        let (poll, evicted) = self.state.lock(|state| match mem::replace(state, State::None) {
+            State::None => {
+                *state = State::Waiting(cx.waker().clone());
+                (Poll::Pending, None)
             }
-        })
+            State::Waiting(w) if w.will_wake(cx.waker()) => {
+                *state = State::Waiting(w);
+                (Poll::Pending, None)
+            }
+            State::Waiting(w) => {
+                *state = State::Waiting(cx.waker().clone());
+                (Poll::Pending, Some(w))
+            }
+            State::Signaled(res) => (Poll::Ready(res), None),
+        });
+        // Wake the previous waiter after the lock is released.
+        if let Some(w) = evicted {
+            w.wake();
+        }
+        poll
     }
 
     /// Future that completes when this Signal has been signaled, taking the value out of the signal.
@@ -120,29 +120,18 @@ where
 
     /// non-blocking method to try and take the signal value.
     pub fn try_take(&self) -> Option<T> {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-            match state {
-                State::Signaled(res) => Some(res),
-                state => {
-                    cell.set(state);
-                    None
-                }
+        self.state.lock(|state| match mem::replace(state, State::None) {
+            State::Signaled(res) => Some(res),
+            other => {
+                *state = other;
+                None
             }
         })
     }
 
     /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.
     pub fn signaled(&self) -> bool {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-
-            let res = matches!(state, State::Signaled(_));
-
-            cell.set(state);
-
-            res
-        })
+        self.state.lock(|state| matches!(state, State::Signaled(_)))
     }
 }
 
