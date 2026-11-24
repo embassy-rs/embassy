@@ -17,6 +17,7 @@ use critical_section::Mutex;
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -33,8 +34,6 @@ use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::rcc::RccPeripheral;
 use crate::{Peri, interrupt};
-
-use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

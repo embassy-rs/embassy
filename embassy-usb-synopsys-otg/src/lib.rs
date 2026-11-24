@@ -19,6 +19,7 @@ use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::{Context, Poll};
 
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
@@ -30,8 +31,6 @@ use embassy_usb_driver::{
 };
 
 use crate::fmt::Bytes;
-
-use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 pub mod otg_v1;
 

@@ -14,6 +14,7 @@ use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
 use critical_section::{CriticalSection, Mutex};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -27,8 +28,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usbd::vals;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac};
-
-use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_WAKER: AtomicWaker = AtomicWaker::new();

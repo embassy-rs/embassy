@@ -7,6 +7,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use critical_section::Mutex;
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -17,8 +18,6 @@ use embassy_usb_driver::{
 use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{Peri, RegExt, interrupt, pac};
-
-use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
