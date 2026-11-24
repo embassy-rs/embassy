@@ -280,6 +280,11 @@ path = "src/bin/hsem_notify.rs"
 required-features = [ "hsem",]
 
 [[bin]]
+name = "hsem_secondary"
+path = "src/bin/hsem_secondary.rs"
+required-features = [ "stm32h755zi",]
+
+[[bin]]
 name = "i2s_dma"
 path = "src/bin/i2s_dma.rs"
 required-features = [ "i2s_f4",]
