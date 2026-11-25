@@ -5,13 +5,15 @@ use core::convert::Infallible;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
+use embassy_nxp_drivers::gpio::Line;
+pub(crate) use embassy_nxp_drivers::gpio::{Info, State};
 
 #[cfg(not(feature = "_mcxn"))]
 mod mcxa;
 #[cfg(not(feature = "_mcxn"))]
-pub use mcxa::{AnyPin, Async, GpioPin, HasGpioInstance, Instance, InterruptHandler, PeriGpioExt};
+pub(crate) use mcxa::SealedPin;
 #[cfg(not(feature = "_mcxn"))]
-pub(crate) use mcxa::{Info, SealedInstance, SealedPin};
+pub use mcxa::{AnyPin, Async, GpioPin, HasGpioInstance, Instance, InterruptHandler, PeriGpioExt};
 #[cfg(feature = "_mcxn")]
 mod mcxn;
 #[cfg(feature = "_mcxn")]
@@ -73,6 +75,49 @@ pub enum Inverter {
 
 pub type Gpio = crate::peripherals::GPIO0;
 
+/// A GPIO port: its register block and state for the shared GPIO core.
+pub(crate) trait SealedInstance {
+    fn info() -> &'static Info;
+    fn state() -> &'static State;
+    #[cfg(not(feature = "_mcxn"))]
+    const PERF_INT_INCR: fn();
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_gpio_instance {
+    ($n:expr) => {
+        pastey::paste! {
+            impl $crate::gpio::SealedInstance for $crate::peripherals::[<GPIO $n>] {
+                fn info() -> &'static $crate::gpio::Info {
+                    static INFO: $crate::gpio::Info = $crate::gpio::Info {
+                        regs: $crate::pac::[<GPIO $n>],
+                        port: $n,
+                        #[cfg(not(feature = "_mcxn"))]
+                        interrupt: $crate::pac::Interrupt::[<GPIO $n>],
+                        #[cfg(feature = "_mcxn")]
+                        interrupt: $crate::pac::Interrupt::[<GPIO $n 0>],
+                    };
+                    &INFO
+                }
+
+                fn state() -> &'static $crate::gpio::State {
+                    static STATE: $crate::gpio::State = $crate::gpio::State::new();
+                    &STATE
+                }
+
+                #[cfg(not(feature = "_mcxn"))]
+                const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
+            }
+
+            #[cfg(not(feature = "_mcxn"))]
+            impl $crate::gpio::Instance for $crate::peripherals::[<GPIO $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<GPIO $n>];
+            }
+        }
+    };
+}
+
 mod sealed {
     pub trait Sealed {}
 }
@@ -88,29 +133,33 @@ impl Mode for Blocking {}
 /// A flexible pin that can be configured as input or output.
 pub struct Flex<'d, M: Mode = Blocking> {
     pin: Peri<'d, AnyPin>,
+    line: Line,
     _phantom: PhantomData<&'d mut M>,
 }
 
 impl<'d, M: Mode> Flex<'d, M> {
-    #[inline]
-    fn gpio(&self) -> crate::pac::gpio::Gpio {
-        self.pin.gpio()
+    /// Wrap a pin the caller owns exclusively, with its pad set up for GPIO.
+    fn from_pin(pin: Peri<'d, AnyPin>) -> Self {
+        // SAFETY: the `Peri` is the only handle to the pin, the port clock runs after `init`, and
+        // `new_async` / `async_from_anypin` only build async waits when the port interrupt is bound.
+        let line = unsafe { Line::new(pin.gpio_info(), pin.gpio_state(), pin.pin_index()) };
+        Self {
+            pin,
+            line,
+            _phantom: PhantomData,
+        }
     }
 
     /// Set output level to High.
     #[inline]
     pub fn set_high(&mut self) {
-        self.gpio()
-            .psor()
-            .write(|w| w.set_ptso(self.pin.pin_index() as usize, true));
+        self.line.set_high();
     }
 
     /// Set output level to Low.
     #[inline]
     pub fn set_low(&mut self) {
-        self.gpio()
-            .pcor()
-            .write(|w| w.set_ptco(self.pin.pin_index() as usize, true));
+        self.line.set_low();
     }
 
     /// Set output level to the given `Level`.
@@ -125,15 +174,13 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Toggle output level.
     #[inline]
     pub fn toggle(&mut self) {
-        self.gpio()
-            .ptor()
-            .write(|w| w.set_ptto(self.pin.pin_index() as usize, true));
+        self.line.toggle();
     }
 
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
-        self.gpio().pdir().read().pdi(self.pin.pin_index() as usize)
+        self.line.is_high()
     }
 
     /// Get whether the pin input level is low.
@@ -146,6 +193,12 @@ impl<'d, M: Mode> Flex<'d, M> {
     #[inline]
     pub fn is_set_low(&self) -> bool {
         !self.is_set_high()
+    }
+
+    /// Is the output pin set as high?
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        self.line.output_is_high()
     }
 
     /// Configure the pin pull up/down level.
@@ -177,6 +230,8 @@ impl<'d, M: Mode> Flex<'d, M> {
 impl<'d, M: Mode> Drop for Flex<'d, M> {
     #[inline]
     fn drop(&mut self) {
+        // Stops an armed wait and drops the pin to a released input before the pad is released.
+        self.line.release();
         self.pin.set_as_disabled();
     }
 }

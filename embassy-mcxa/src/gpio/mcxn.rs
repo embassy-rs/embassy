@@ -1,10 +1,8 @@
 //! MCXN native PCR and blocking GPIO capabilities.
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use super::{DriveStrength, Flex, Inverter, Mode, OpenDrain, Pull, SlewRate};
+use super::{DriveStrength, Flex, Info, Inverter, Mode, OpenDrain, Pull, SlewRate, State};
 // N has native per-pad PCR types, not A's uniform PORT/PCR model. Keep the
 // dispatch local to pin control; the GPIO registers and public driver are shared.
 
@@ -62,18 +60,24 @@ const fn inverter_bits(invert: Inverter) -> bool {
 pub struct AnyPin {
     port: u8,
     pin: u8,
-    gpio: crate::pac::gpio::Gpio,
+    info: &'static Info,
+    state: &'static State,
 }
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub(crate) fn new(port: u8, pin: u8, gpio: crate::pac::gpio::Gpio) -> Self {
-        Self { port, pin, gpio }
+    pub(crate) fn new(port: u8, pin: u8, info: &'static Info, state: &'static State) -> Self {
+        Self { port, pin, info, state }
     }
 
     #[inline(always)]
-    pub(super) fn gpio(&self) -> crate::pac::gpio::Gpio {
-        self.gpio
+    pub(super) fn gpio_info(&self) -> &'static Info {
+        self.info
+    }
+
+    #[inline(always)]
+    pub(super) fn gpio_state(&self) -> &'static State {
+        self.state
     }
 
     #[inline(always)]
@@ -94,7 +98,14 @@ pub(crate) trait SealedPin {
 
     fn pin(&self) -> u8;
 
-    fn gpio(&self) -> crate::pac::gpio::Gpio;
+    fn info(&self) -> &'static Info;
+
+    fn state(&self) -> &'static State;
+
+    #[inline(always)]
+    fn gpio(&self) -> crate::pac::gpio::Gpio {
+        self.info().regs
+    }
 
     fn set_function(&self, _function: Mux) {
         modify_mcxn_pcr!(self, |w| { w.set_mux(0u8.into()) });
@@ -141,7 +152,7 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(self.port(), self.pin(), self.gpio())
+        AnyPin::new(self.port(), self.pin(), self.info(), self.state())
     }
 }
 
@@ -157,8 +168,13 @@ impl SealedPin for AnyPin {
     }
 
     #[inline(always)]
-    fn gpio(&self) -> crate::pac::gpio::Gpio {
-        self.gpio()
+    fn info(&self) -> &'static Info {
+        self.info
+    }
+
+    #[inline(always)]
+    fn state(&self) -> &'static State {
+        self.state
     }
 }
 
@@ -173,7 +189,12 @@ macro_rules! impl_gpio_pin {
             impl $crate::gpio::SealedPin for $crate::peripherals::$peri {
                 fn port(&self) -> u8 { $port }
                 fn pin(&self) -> u8 { $pin }
-                fn gpio(&self) -> $crate::pac::gpio::Gpio { $crate::pac::$block }
+                fn info(&self) -> &'static $crate::gpio::Info {
+                    <$crate::peripherals::$block as $crate::gpio::SealedInstance>::info()
+                }
+                fn state(&self) -> &'static $crate::gpio::State {
+                    <$crate::peripherals::$block as $crate::gpio::SealedInstance>::state()
+                }
             }
 
             impl $crate::gpio::GpioPin for $crate::peripherals::$peri {}
@@ -192,8 +213,8 @@ macro_rules! impl_gpio_pin {
                     $crate::gpio::AnyPin::new(
                         self.port(),
                         self.pin(),
-                        self.gpio(),
-
+                        self.info(),
+                        self.state(),
                     )
                 }
             }
@@ -208,10 +229,7 @@ impl<'d> Flex<'d> {
     /// The pin remains unmodified. The initial output level is unspecified, but
     /// can be changed before the pin is put into output mode.
     pub fn new(pin: Peri<'d, impl GpioPin>) -> Self {
-        Self {
-            pin: pin.into(),
-            _phantom: PhantomData,
-        }
+        Self::from_pin(pin.into())
     }
 }
 
@@ -220,14 +238,9 @@ impl<'d, M: Mode> Flex<'d, M> {
     pub fn set_as_input(&mut self) {
         self.pin.set_function(Mux::Mux0);
         self.set_enable_input_buffer(true);
-        // Clear PIDR to enable pin input. set_as_disabled() sets PID=1
+        // Clears PIDR to enable pin input. set_as_disabled() sets PID=1
         // which permanently disables input reads (always returns 0).
-        self.gpio()
-            .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
-        self.gpio()
-            .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, false));
+        self.line.set_direction(false);
     }
 
     /// Put the pin into output mode.
@@ -235,19 +248,8 @@ impl<'d, M: Mode> Flex<'d, M> {
         self.set_pull(Pull::Disabled);
 
         self.pin.set_function(Mux::Mux0);
-        // Clear PIDR in case this pin was previously disabled.
-        self.gpio()
-            .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
-        self.gpio()
-            .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, true));
-    }
-
-    /// Is the output pin set as high?
-    #[inline]
-    pub fn is_set_high(&self) -> bool {
-        (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0
+        // Clears PIDR in case this pin was previously disabled.
+        self.line.set_direction(true);
     }
 
     /// Configure open-drain output.

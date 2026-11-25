@@ -87,6 +87,7 @@ fn main() {
         let digits = METADATA.name.strip_prefix("MCXN").expect("MCXN PAC metadata name");
         let device_type = 0x1000u16 | u16::from_str_radix(digits, 16).expect("MCXN part digits");
         generated.push(quote! { pub(crate) const MCXN_DEVICE_TYPE: u16 = #device_type; });
+        generated.push(generate_mcxn_gpio_instances());
     }
     if !is_mcxn() {
         generated.extend([
@@ -333,6 +334,24 @@ fn generate_instance_calls() -> TokenStream {
                 crate::#macro_ident!(#arg);
             });
         }
+    }
+
+    generated
+}
+
+fn generate_mcxn_gpio_instances() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    for (gpio_num, _) in METADATA
+        .peripherals
+        .iter()
+        .filter(|p| matches!(p.name, "GPIO0" | "GPIO1"))
+        .filter_map(|p| prefix_num(p.name, "GPIO").map(|gpio_num| (gpio_num, p)))
+    {
+        let gpio_num = proc_macro2::Literal::u32_unsuffixed(gpio_num);
+        generated.extend(quote! {
+            crate::impl_gpio_instance!(#gpio_num);
+        });
     }
 
     generated
