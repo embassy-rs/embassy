@@ -107,6 +107,10 @@ impl<'d> Crc<'d> {
         // (reverse I/O, polysize, poly)
         PAC_CRC.cr().write(|w| {
             // configure reverse output
+            // crc_v3_h5_ef (STM32G5) has no RevOut enum; REV_OUT is a plain bit there.
+            #[cfg(crc_v3_h5_ef)]
+            w.set_rev_out(self._config.reverse_out as u8);
+            #[cfg(not(crc_v3_h5_ef))]
             w.set_rev_out(match self._config.reverse_out {
                 true => vals::RevOut::Reversed,
                 false => vals::RevOut::Normal,

@@ -119,6 +119,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! internal {
     ($inst:ident: $($tok:ident = $ch:expr),* $(,)?) => {
         $(

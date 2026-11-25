@@ -238,6 +238,7 @@ pub(crate) unsafe fn init(config: Config) {
         lse: config.ls.lse.map(|l| l.frequency),
         lsi: config.ls.lsi.then_some(super::LSI_FREQ),
 
+        pll1_p: pll1.p,
         pll1_q: pll1.q,
         pll2_p: pll2.p,
         pll2_q: pll2.q,
@@ -245,6 +246,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         audioclk: None,
         i2s_ckin: None,
+        adc: None,
         usb: Some(Hertz(48_000_000)),
     );
 }
