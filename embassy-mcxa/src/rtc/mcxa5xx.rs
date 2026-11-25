@@ -413,6 +413,8 @@ pub enum RtcError {
     InvalidDateTime,
     /// Invalid DST year
     InvalidDstYear,
+    /// Write protection could not be disabled
+    WriteProtected,
     /// Other error
     Other,
 }
@@ -694,6 +696,7 @@ impl<'a> Rtc<'a> {
     /// Returns `RtcError::Other` if the counters are inaccessible or the update
     /// cannot be verified. An unsuccessful update may have changed some fields;
     /// the caller can retry setting the complete datetime.
+    /// Returns `RtcError::WriteProtected` if write protection could not be disabled, and nothing was written.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
         Self::is_valid_datetime(t)?;
 
@@ -730,7 +733,7 @@ impl<'a> Rtc<'a> {
             }
 
             if !self.disable_write_protect() {
-                return Err(RtcError::Other);
+                return Err(RtcError::WriteProtected);
             }
 
             self.info.regs().yearmon().write(|w| {
@@ -794,7 +797,7 @@ impl<'a> Rtc<'a> {
 
         critical_section::with(|_| {
             if !self.disable_write_protect() {
-                return Err(RtcError::Other);
+                return Err(RtcError::WriteProtected);
             }
 
             self.info.regs().dst_hour().write(|w| {
@@ -850,7 +853,7 @@ impl<'a> Rtc<'a> {
 
         critical_section::with(|_| {
             if !self.disable_write_protect() {
-                return Err(RtcError::Other);
+                return Err(RtcError::WriteProtected);
             }
             self.info.regs().ier().modify(|w| w.set_alm_ie(false));
 
