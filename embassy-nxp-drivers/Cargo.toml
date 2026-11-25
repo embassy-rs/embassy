@@ -1,0 +1,47 @@
+[package]
+name = "embassy-nxp-drivers"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "HAL-independent driver cores for NXP IP blocks, shared by the Embassy NXP HALs"
+keywords = ["embedded", "async", "nxp", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-nxp-drivers"
+
+publish = false
+
+# The chip is selected by the HAL through nxp-pac; these rows pick chips to build the cores against.
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["nxp-pac/mcxa577", "gpio", "defmt"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nxp-pac/mcxa266", "gpio"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["nxp-pac/mcxn947", "gpio"]},
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nxp-drivers-v$VERSION/embassy-nxp-drivers/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp-drivers/src/"
+features = ["defmt", "gpio", "nxp-pac/mcxa577"]
+target = "thumbv8m.main-none-eabihf"
+
+[package.metadata.docs.rs]
+features = ["defmt", "gpio", "nxp-pac/mcxa577"]
+targets = ["thumbv8m.main-none-eabihf"]
+
+[dependencies]
+# No chip feature: the HAL that depends on this crate selects the chip.
+# Pinned to the NXP fork until the nxp-pac IP-feature export is merged; then use the embassy-rs URL and the merged rev.
+nxp-pac = { git = "https://github.com/nxp-upstream/nxp-pac.git", rev = "e49166648d21543c2eec6bd107d33b115ffdf899" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+critical-section = "1.1"
+
+defmt = { version = "1", optional = true }
+
+[features]
+default = []
+## Derive `defmt::Format` on the public data types.
+defmt = ["dep:defmt", "embassy-sync/defmt"]
+
+## GPIO port core (data, direction, pin interrupts).
+gpio = []
