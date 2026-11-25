@@ -6,13 +6,14 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb::Driver;
+use embassy_stm32::usb::{Driver, Endpoint, In};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_usb::class::uac::device as uac1;
 use embassy_usb::class::uac::device::source::{
-    AudioSource, Config as SourceConfig, ControlMonitor, FeatureUnitControls, State, Stream,
+    AudioSource, Config as SourceConfig, ControlMonitor, FeatureUnitControls, State,
 };
 use embassy_usb::class::uac::terminal_type::TerminalType;
+use embassy_usb::driver::{Endpoint as _, IsoEndpointIn as _, IsoInSlot as _};
 use embassy_usb::{Builder, UsbVersion};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -46,20 +47,23 @@ async fn usb_bus(
 
 #[embassy_executor::task]
 async fn sine_wave_gen(
-    mut audio_ep_in: Stream<'static, embassy_stm32::usb::Driver<'static, peripherals::USB>>,
+    mut audio_ep_in: Endpoint<'static, peripherals::USB, In>,
     control_monitor: ControlMonitor<'static>,
 ) {
     static SILENCE: [u8; SINE_16000HZ_1MS_16BIT_2CH.len()] = [0; SINE_16000HZ_1MS_16BIT_2CH.len()];
 
     loop {
-        audio_ep_in.wait_connection().await;
+        audio_ep_in.wait_enabled().await;
+        let Ok((_skipped, slot)) = audio_ep_in.ready().await else {
+            continue;
+        };
         // Honor the all-channels mute control.
         let packet = if control_monitor.muted() {
             &SILENCE
         } else {
             &SINE_16000HZ_1MS_16BIT_2CH
         };
-        let _ = audio_ep_in.write_packet(packet).await;
+        let _ = slot.write(packet);
     }
 }
 

@@ -17,9 +17,9 @@ use critical_section::Mutex;
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
     EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
@@ -1895,15 +1895,11 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 pub struct IsoSlot<'a, 'd, T: Instance> {
     ep: &'a mut Endpoint<'d, T, In>,
     frame: u32,
-    skipped: Option<NonZeroU32>,
 }
 
 impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
-    fn skipped(&self) -> Option<NonZeroU32> {
-        self.skipped
-    }
-
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
         let index = self.ep.info.addr.index();
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
@@ -1913,7 +1909,7 @@ impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
         let res = critical_section::with(|cs| {
             let regs = T::regs();
             if regs.epr(index).read().stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
-                return Err(IsoWriteError::Disabled);
+                return Ok(());
             }
             let now = u32::from(regs.fnr().read().fn_());
             if forward(now, self.frame, ISO_FRAME_SPAN) != 1 {
@@ -1949,9 +1945,7 @@ impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
             Ok(())
         });
 
-        res?;
-        self.ep.schedule.accept();
-        Ok(())
+        res
     }
 }
 
@@ -1981,15 +1975,7 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
     where
         Self: 'a;
 
-    fn queue_depth(&self) -> u8 {
-        if self.info.ep_type == EndpointType::Isochronous {
-            1
-        } else {
-            0
-        }
-    }
-
-    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,
             EndpointType::Isochronous,
@@ -2035,11 +2021,10 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
             }
         });
 
-        let mut total_skipped: u32 = 0;
         loop {
             let now = u32::from(T::regs().fnr().read().fn_());
             let offer = self.schedule.offer(now, interval, ISO_FRAME_SPAN);
-            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let skipped = offer.skipped;
             let frame = offer.frame;
 
             let ready = poll_fn(|cx| {
@@ -2067,11 +2052,7 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
             .await?;
 
             if ready {
-                return Ok(IsoSlot {
-                    ep: self,
-                    frame,
-                    skipped: NonZeroU32::new(total_skipped),
-                });
+                return Ok((skipped, IsoSlot { ep: self, frame }));
             }
         }
     }

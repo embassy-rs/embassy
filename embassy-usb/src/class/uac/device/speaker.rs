@@ -14,10 +14,10 @@ use embassy_usb_driver::EndpointInterval;
 
 pub use super::Volume;
 use super::function::AudioFunction;
-pub use super::function::{ControlMonitor, FeatureUnitControls, Feedback, State};
+pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
+use crate::driver::{Driver, EndpointType};
 use crate::{Builder, EndpointOptions};
 
 /// Speaker stream settings and optional host controls.
@@ -68,9 +68,9 @@ impl<'d> Config<'d> {
 /// Implementation of the USB audio class 1.0.
 pub struct Speaker<'d, D: Driver<'d>> {
     /// Stream
-    pub stream: Stream<'d, D>,
+    pub stream: D::EndpointOut,
     /// Feedback
-    pub feedback: Feedback<'d, D>,
+    pub feedback: D::EndpointIn,
     /// Control Monitor
     pub control_monitor: ControlMonitor<'d>,
 }
@@ -106,7 +106,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             feature_unit,
         };
 
-        let (streaming_endpoint, feedback, control_monitor) = function.build(
+        let (stream, feedback, control_monitor) = function.build(
             builder,
             state,
             max_packet_size,
@@ -123,26 +123,9 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         );
 
         Self {
-            stream: Stream { streaming_endpoint },
+            stream,
             feedback: feedback.unwrap(),
             control_monitor,
         }
-    }
-}
-
-/// Used for reading audio frames.
-pub struct Stream<'d, D: Driver<'d>> {
-    streaming_endpoint: D::EndpointOut,
-}
-
-impl<'d, D: Driver<'d>> Stream<'d, D> {
-    /// Reads a single packet from the OUT endpoint
-    pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        crate::class::read_packet(&mut self.streaming_endpoint, data).await
-    }
-
-    /// Waits for the USB host to enable this interface
-    pub async fn wait_connection(&mut self) {
-        self.streaming_endpoint.wait_enabled().await;
     }
 }

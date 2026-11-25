@@ -20,11 +20,11 @@ use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::{Context, Poll};
 
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
-use embassy_usb_driver::iso::{IsoSchedule, forward};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
     EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed,
@@ -2402,30 +2402,26 @@ where
 {
     ep: &'a mut Endpoint<'d, In, M>,
     frame: u32,
-    skipped: Option<NonZeroU32>,
 }
 
 impl<M> IsoInSlot for IsoSlot<'_, '_, M>
 where
     M: SharedRawMutex,
 {
-    fn skipped(&self) -> Option<NonZeroU32> {
-        self.skipped
-    }
-
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
         }
         if !self.ep.state.in_enabled.load(Ordering::Acquire) {
-            return Err(IsoWriteError::Disabled);
+            return Ok(());
         }
 
         let span = self.ep.frame_span();
         let interval = self.ep.service_interval();
         let armed = self.ep.mutex.lock(|| {
             if !self.ep.state.in_enabled.load(Ordering::Acquire) {
-                return Err(IsoWriteError::Disabled);
+                return Ok(());
             }
             let ahead = forward(self.ep.fnsof(), self.frame, span);
             if ahead != 1 {
@@ -2449,9 +2445,7 @@ where
             Ok(())
         });
 
-        armed?;
-        self.ep.schedule.accept();
-        Ok(())
+        armed
     }
 }
 
@@ -2464,17 +2458,7 @@ where
     where
         Self: 'a;
 
-    fn queue_depth(&self) -> u8 {
-        if self.info.ep_type == EndpointType::Isochronous {
-            // One packet can sit in the endpoint FIFO. `ready` waits until it has been sent or
-            // dropped before offering another slot.
-            1
-        } else {
-            0
-        }
-    }
-
-    async fn ready(&mut self) -> Result<Self::Slot<'_>, EndpointDisabledError> {
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
         assert_eq!(
             self.info.ep_type,
             EndpointType::Isochronous,
@@ -2510,20 +2494,21 @@ where
             self.schedule.lock_phase(u32::from(phase), interval);
         }
 
-        let mut total_skipped: u32 = 0;
         loop {
             if !self.state.in_enabled.load(Ordering::Acquire) {
                 return Err(EndpointDisabledError);
             }
             let offer = self.schedule.offer(self.fnsof(), interval, span);
-            total_skipped = total_skipped.saturating_add(offer.skipped.map_or(0, NonZeroU32::get));
+            let skipped = offer.skipped;
             // The even/odd bit can only name the next tick, so wait until `offer.frame` is that tick.
             if self.wait_until_arm_point(offer.frame, interval, span).await? {
-                return Ok(IsoSlot {
-                    ep: self,
-                    frame: offer.frame,
-                    skipped: NonZeroU32::new(total_skipped),
-                });
+                return Ok((
+                    skipped,
+                    IsoSlot {
+                        ep: self,
+                        frame: offer.frame,
+                    },
+                ));
             }
         }
     }
