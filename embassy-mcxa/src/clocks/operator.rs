@@ -473,10 +473,11 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    // Startup trim may change across reset without changing the running LP source.
     #[cfg(all(feature = "_mcxa5xx", not(feature = "rosc-32k-as-gpio")))]
-    fn osc32k_lp_controls_match(&self) -> bool {
+    fn osc32k_lp_runtime_controls_match(&self) -> bool {
         use config::Osc32KCoarseGain;
-        use nxp_pac::vbat::{CoarseAmpGain, InitTrim, ModeEn, SupplyDet, XtalCapSel as ExtalCapSel, XtalCapSel};
+        use nxp_pac::vbat::{CoarseAmpGain, ModeEn, SupplyDet, XtalCapSel as ExtalCapSel, XtalCapSel};
 
         let Some(cfg) = self.config.osc32k.as_ref() else {
             return false;
@@ -501,7 +502,6 @@ impl ClockOperator<'_> {
             && osc.extal_cap_sel() == ExtalCapSel::Sel0
             && osc.coarse_amp_gain() == gain
             && osc.supply_det() == supply
-            && self.vbat0.osccfga().read().init_trim() == InitTrim::Sel0
     }
 
     /// Establish LP OSC32K or adopt a compatible retained source without restarting it.
@@ -535,21 +535,33 @@ impl ClockOperator<'_> {
             self.clocks.osc32k_status = Osc32KStatus::LockedDisabled;
             return Ok(());
         }
-        let mismatch = running && !self.osc32k_lp_controls_match();
+        // Snapshot output ownership before stopping the source. Gates can also
+        // survive an interrupted restart with OSC_EN already cleared.
+        let retained_gates = self.vbat0.oscclke().read();
+        let mismatch = running && !self.osc32k_lp_runtime_controls_match();
+        if !locked && (mismatch || !running) {
+            // Establish a stopped, non-bypass state before startup, including
+            // recovery from an interrupted stop with OSC_EN=0 and BYP_EN=1.
+            self.vbat0.oscctla().modify(|w| {
+                w.set_osc_en(false);
+                // RM 31.7.1.8: exit bypass with both enable bits cleared.
+                w.set_osc_byp_en(false);
+            });
+            let mut remaining = cfg.readiness_poll_budget.get();
+            while self.vbat0.statusa().read().osc_rdy() {
+                remaining -= 1;
+                if remaining == 0 {
+                    return Err(ClockError::BadConfig {
+                        clock: "osc32k",
+                        reason: "stop readiness poll budget exhausted",
+                    });
+                }
+            }
+        }
         self.clocks.osc32k_status = match (mismatch, locked) {
             (false, _) => Osc32KStatus::Requested,
             (true, true) => Osc32KStatus::LockedMismatch,
-            (true, false) => {
-                // Stop the unlocked oscillator so the start-up sequence below applies
-                // the requested settings. Wait for OSC_RDY to clear, so the start-up
-                // wait does not pass on the stale flag.
-                self.vbat0.oscctla().modify(|w| w.set_osc_en(false));
-                let mut remaining = cfg.readiness_poll_budget.get();
-                while self.vbat0.statusa().read().osc_rdy() && remaining > 0 {
-                    remaining -= 1;
-                }
-                Osc32KStatus::Restarted
-            }
+            (true, false) => Osc32KStatus::Restarted,
         };
         let keep_settings = self.clocks.osc32k_status == Osc32KStatus::LockedMismatch;
         let retained = self.vbat0.oscctla().read().osc_en();
@@ -633,7 +645,10 @@ impl ClockOperator<'_> {
                 });
             }
         }
-        if !keep_settings && !self.osc32k_lp_controls_match() {
+        if !keep_settings
+            && (!self.osc32k_lp_runtime_controls_match()
+                || (!retained && self.vbat0.osccfga().read().init_trim() != InitTrim::Sel0))
+        {
             return Err(ClockError::BadConfig {
                 clock: "osc32k",
                 reason: "LP control readback failed",
@@ -642,9 +657,9 @@ impl ClockOperator<'_> {
 
         // Preserve retained gates that may feed an existing RTC; only claim requested outputs.
         self.vbat0.oscclke().modify(|w| {
-            w.set_clke(0, cfg.vsys_domain_active || (retained && w.clke(0)));
-            w.set_clke(1, cfg.vdd_core_domain_active || (retained && w.clke(1)));
-            w.set_clke(2, cfg.vbat_domain_active || (retained && w.clke(2)));
+            w.set_clke(0, cfg.vsys_domain_active || retained_gates.clke(0));
+            w.set_clke(1, cfg.vdd_core_domain_active || retained_gates.clke(1));
+            w.set_clke(2, cfg.vbat_domain_active || retained_gates.clke(2));
         });
         let gates = self.vbat0.oscclke().read();
         if (cfg.vsys_domain_active && !gates.clke(0))
@@ -658,7 +673,7 @@ impl ClockOperator<'_> {
         }
 
         // The LDO lock is write-once until VBAT POR. Lock only after successful readback.
-        // Failures deliberately leave supplies/source running, without rollback or cache publication.
+        // Failures do not roll back hardware changes or publish the clock cache.
         self.vbat0.ldolcka().modify(|w| w.set_lock(true));
         if cfg.lock {
             self.vbat0.osclcka().modify(|w| w.set_lock(true));
