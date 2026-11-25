@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TRNG: remove the instance generic and add a `Mode` generic with a `new_blocking` constructor.
 - Watchdog: add a lifetime parameter, and rename `get_scratch` to `scratch`.
 - PIO programs: the interrupt binding and DMA channel now come after the pins in `PioI2sIn::new`, `PioWs2812::new`, `PioWs2812::with_color_order`, `PioStepper::new` and `PioStepDir::new`.
+- PIO programs: `PioEncoderProgram::new` takes an `alternating: bool` argument. Pass `true` for rotary encoders whose rest position alternates between `11` and `00` on each step, `false` for the previous behavior.
 - TRNG: retry failed health checks instead of hanging or panicking, panic only after 1000 consecutive failures.
 - TRNG: wait for the soft reset to complete before applying the configuration.
 - TRNG: stop the block and disable the interrupt when `fill_bytes` is dropped.
