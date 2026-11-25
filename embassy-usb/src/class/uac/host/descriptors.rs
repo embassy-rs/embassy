@@ -1781,6 +1781,8 @@ mod test {
                         max_packet_size: 512,
                         interval: 1,
                         companion: None,
+                        ssp_isochronous_companion: None,
+                        eusb2_isochronous_companion: None,
                     }),
                     feedback_endpoint_descriptor: Some(EndpointDescriptor {
                         endpoint_address: 129,
@@ -1788,6 +1790,8 @@ mod test {
                         max_packet_size: 4,
                         interval: 4,
                         companion: None,
+                        ssp_isochronous_companion: None,
+                        eusb2_isochronous_companion: None,
                     }),
                     audio_endpoint_descriptor: Some(AudioEndpointDescriptor {
                         attributes_bitmap: 0,
@@ -1836,6 +1840,8 @@ mod test {
                         max_packet_size: 512,
                         interval: 1,
                         companion: None,
+                        ssp_isochronous_companion: None,
+                        eusb2_isochronous_companion: None,
                     }),
                     feedback_endpoint_descriptor: None,
                     audio_endpoint_descriptor: Some(AudioEndpointDescriptor {
