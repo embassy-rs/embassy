@@ -1100,6 +1100,36 @@ fn cdc_acm_send_break_is_rejected_by_default() {
     assert!(config_descriptor.windows(4).any(|w| w == [4, 0x24, 0x02, 0x02]));
 }
 
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_notification_endpoint_fits_serial_state() {
+    use crate::class::cdc_acm::device::{CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let class = CdcAcmClass::new(&mut builder, &mut state, AcmConfig::new());
+    let (_sender, _receiver, _control, _notifier) = class.split_with_notifier();
+    drop(builder.build());
+
+    // The 10-byte SERIAL_STATE notification has to fit in one packet.
+    let endpoint = config_descriptor
+        .windows(7)
+        .find(|w| w[0] == 7 && w[1] == 5 && w[3] == 0x03)
+        .expect("interrupt endpoint descriptor not found");
+    // wMaxPacketSize 16, bInterval 255.
+    assert_eq!(endpoint[4..7], [16, 0, 255]);
+}
+
 #[cfg(feature = "class-printer")]
 #[test]
 fn test_printer_device_descriptors() {

@@ -18,6 +18,15 @@ use crate::driver::{Driver, Endpoint, EndpointDisabledError, EndpointError, Endp
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
+macro_rules! bitflags {
+    ($($tt:tt)*) => {
+        #[cfg(feature = "defmt")]
+        defmt::bitflags! { $($tt)* }
+        #[cfg(not(feature = "defmt"))]
+        bitflags::bitflags! { #[derive(Debug, Clone, Copy, PartialEq, Eq)] $($tt)* }
+    };
+}
+
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
 const CDC_TYPE_ACM: u8 = 0x02;
@@ -27,6 +36,11 @@ const CDC_TYPE_UNION: u8 = 0x06;
 const ACM_CAP_LINE: u8 = 1 << 1;
 /// `bmCapabilities` bit D2: SEND_BREAK.
 const ACM_CAP_SEND_BREAK: u8 = 1 << 2;
+
+// SERIAL_STATE notification and the line bits of its UART state (CDC PSTN 1.2 §6.5.4, Table 31).
+const NOTIFY_SERIAL_STATE: u8 = 0x20;
+const SERIAL_STATE_DCD: u16 = 1 << 0;
+const SERIAL_STATE_DSR: u16 = 1 << 1;
 
 const REQ_SEND_ENCAPSULATED_COMMAND: u8 = 0x00;
 #[allow(unused)]
@@ -115,6 +129,22 @@ const fn acm_capabilities(config: &Config) -> u8 {
     }
 }
 
+bitflags! {
+    /// UART events to report to the host with [`Notifier::report`] (CDC PSTN 1.2 Table 31).
+    pub struct SerialEvents: u16 {
+        /// Break received.
+        const BREAK   = 1 << 2;
+        /// Ring signal detected.
+        const RING    = 1 << 3;
+        /// Framing error.
+        const FRAMING = 1 << 4;
+        /// Parity error.
+        const PARITY  = 1 << 5;
+        /// Overrun, the UART lost received data.
+        const OVERRUN = 1 << 6;
+    }
+}
+
 /// Internal state for CDC-ACM
 pub struct State<'a> {
     control: MaybeUninit<Control<'a>>,
@@ -150,7 +180,7 @@ impl<'a> State<'a> {
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct CdcAcmClass<'d, D: Driver<'d>> {
-    _comm_ep: D::EndpointIn,
+    notifier: SerialStateWriter<D::EndpointIn>,
     _data_if: InterfaceNumber,
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
@@ -367,7 +397,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
+        // 16 bytes, so that the 10-byte SERIAL_STATE notification fits in one packet.
+        let comm_ep = alt.endpoint_interrupt_in(None, 16, 255);
 
         // Data interface
         let mut iface = func.interface();
@@ -389,7 +420,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         let control_shared = &state.shared;
 
         CdcAcmClass {
-            _comm_ep: comm_ep,
+            notifier: SerialStateWriter::new(comm_ep, comm_if),
             _data_if: data_if,
             read_ep,
             write_ep,
@@ -431,6 +462,39 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// To be notified of new requests, use [`split_with_control()`](Self::split_with_control).
     pub fn take_break(&self) -> Option<Break> {
         self.control.take_break()
+    }
+
+    /// Sets the DCD and DSR lines and notifies the host.
+    ///
+    /// The new levels are kept in place even if sending failed. Every notification, including
+    /// the ones from [`report()`](Self::report), contains them. They are not sent automatically
+    /// after a bus reset, so they need to be set again once the host has reconnected. Linux
+    /// hangs up the port when DCD turns off, unless the port is in `CLOCAL` mode.
+    ///
+    /// This call waits until the host has read the previous notification. The host only polls
+    /// for notifications during the time the port is open, up to 255 ms apart. `Ok` means the
+    /// endpoint has accepted the notification, but does not mean the host has read it already.
+    pub async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.notifier.set_lines(dcd, dsr).await
+    }
+
+    /// Reports UART events to the host in a single notification, along with the current lines.
+    ///
+    /// This notification contains the event bits, use this if they are required. Like
+    /// [`set_lines()`](Self::set_lines), this may have to wait for the host, so events that
+    /// occur in the meantime need to be combined into one call.
+    pub async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.notifier.report(events).await
+    }
+
+    /// Gets the DCD (data carrier detect) level set with [`set_lines()`](Self::set_lines).
+    pub fn dcd(&self) -> bool {
+        self.notifier.dcd()
+    }
+
+    /// Gets the DSR (data set ready) level set with [`set_lines()`](Self::set_lines).
+    pub fn dsr(&self) -> bool {
+        self.notifier.dsr()
     }
 
     /// Writes a single packet into the IN endpoint.
@@ -483,11 +547,135 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ControlChanged { control: self.control },
         )
     }
+
+    /// Split the class into sender, receiver, control and notifier
+    ///
+    /// Like [`split_with_control()`](Self::split_with_control), with an additional [`Notifier`]
+    /// to send `SERIAL_STATE` notifications concurrently.
+    pub fn split_with_notifier(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>, Notifier<'d, D>) {
+        (
+            Sender {
+                write_ep: self.write_ep,
+                control: self.control,
+                needs_zlp: false,
+            },
+            Receiver {
+                read_ep: self.read_ep,
+                control: self.control,
+            },
+            ControlChanged { control: self.control },
+            Notifier { writer: self.notifier },
+        )
+    }
+}
+
+/// CDC ACM `SERIAL_STATE` notification sender
+///
+/// Tells the host the state of the DCD and DSR lines and reports UART events such as breaks and
+/// overruns.
+///
+/// A `Notifier` can be obtained with [`CdcAcmClass::split_with_notifier`]
+pub struct Notifier<'d, D: Driver<'d>> {
+    writer: SerialStateWriter<D::EndpointIn>,
+}
+
+impl<'d, D: Driver<'d>> Notifier<'d, D> {
+    /// Sets the DCD and DSR lines and notifies the host.
+    ///
+    /// The new levels are kept in place even if sending failed. Every notification, including
+    /// the ones from [`report()`](Self::report), contains them. They are not sent automatically
+    /// after a bus reset, so they need to be set again once the host has reconnected. Linux
+    /// hangs up the port when DCD turns off, unless the port is in `CLOCAL` mode.
+    ///
+    /// This call waits until the host has read the previous notification. The host only polls
+    /// for notifications during the time the port is open, up to 255 ms apart. `Ok` means the
+    /// endpoint has accepted the notification, but does not mean the host has read it already.
+    pub async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.writer.set_lines(dcd, dsr).await
+    }
+
+    /// Reports UART events to the host in a single notification, along with the current lines.
+    ///
+    /// This notification contains the event bits, use this if they are required. Like
+    /// [`set_lines()`](Self::set_lines), this may have to wait for the host, so events that
+    /// occur in the meantime need to be combined into one call.
+    pub async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.writer.report(events).await
+    }
+
+    /// Gets the DCD (data carrier detect) level set with [`set_lines()`](Self::set_lines).
+    pub fn dcd(&self) -> bool {
+        self.writer.dcd()
+    }
+
+    /// Gets the DSR (data set ready) level set with [`set_lines()`](Self::set_lines).
+    pub fn dsr(&self) -> bool {
+        self.writer.dsr()
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.writer.ep.wait_enabled().await;
+    }
+}
+
+/// Remembers the DCD and DSR levels and writes `SERIAL_STATE` notifications to the interrupt endpoint.
+struct SerialStateWriter<E> {
+    ep: E,
+    comm_if: InterfaceNumber,
+    lines: u16,
+}
+
+impl<E: EndpointIn> SerialStateWriter<E> {
+    fn new(ep: E, comm_if: InterfaceNumber) -> Self {
+        Self { ep, comm_if, lines: 0 }
+    }
+
+    async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.lines = 0;
+        if dcd {
+            self.lines |= SERIAL_STATE_DCD;
+        }
+        if dsr {
+            self.lines |= SERIAL_STATE_DSR;
+        }
+        self.send(self.lines).await
+    }
+
+    async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.send(self.lines | events.bits()).await
+    }
+
+    fn dcd(&self) -> bool {
+        self.lines & SERIAL_STATE_DCD != 0
+    }
+
+    fn dsr(&self) -> bool {
+        self.lines & SERIAL_STATE_DSR != 0
+    }
+
+    async fn send(&mut self, state: u16) -> Result<(), EndpointDisabledError> {
+        let [lo, hi] = state.to_le_bytes();
+        let notification = [
+            0xA1,                // bmRequestType
+            NOTIFY_SERIAL_STATE, // bNotification
+            0x00,                // wValue
+            0x00,                // |
+            self.comm_if.0,      // wIndex = interface
+            0x00,                // |
+            0x02,                // wLength
+            0x00,                // |
+            lo,                  // UART state bitmap
+            hi,                  // |
+        ];
+        self.ep.write_transfer(&notification, false).await
+    }
 }
 
 /// CDC ACM Control status change monitor
 ///
-/// You can obtain a `ControlChanged` with [`CdcAcmClass::split_with_control`]
+/// A `ControlChanged` can be obtained with [`CdcAcmClass::split_with_control`] or
+/// [`CdcAcmClass::split_with_notifier`]
 pub struct ControlChanged<'d> {
     control: &'d ControlShared,
 }
@@ -771,13 +959,18 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
 mod tests {
     extern crate std;
 
+    use core::cell::{Cell, RefCell};
     use core::pin::pin;
     use core::task::{Context, Waker};
     use std::sync::Arc;
     use std::task::Wake;
+    use std::vec::Vec;
+
+    use embassy_futures::block_on;
 
     use super::*;
     use crate::class::cdc_acm::{ParityType, StopBits};
+    use crate::driver::{Direction, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
 
     const COMM_IF: InterfaceNumber = InterfaceNumber(0);
 
@@ -993,5 +1186,145 @@ mod tests {
 
         config.send_break = true;
         assert_eq!(acm_capabilities(&config), 0x06);
+    }
+
+    /// Interrupt endpoint that records every notification written by this class.
+    struct Recorder<'a> {
+        sent: &'a RefCell<Vec<Vec<u8>>>,
+        enabled: Cell<bool>,
+    }
+
+    impl Endpoint for Recorder<'_> {
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from_parts(1, Direction::In),
+                EndpointType::Interrupt,
+                16,
+                EndpointInterval::from_ms(255),
+            )
+        }
+
+        async fn wait_enabled(&mut self) {}
+
+        fn is_enabled(&self) -> bool {
+            self.enabled.get()
+        }
+
+        async fn set_stalled(&mut self, _: bool) {}
+
+        fn is_stalled(&self) -> bool {
+            false
+        }
+    }
+
+    impl EndpointIn for Recorder<'_> {
+        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+            if !self.enabled.get() {
+                return Err(EndpointDisabledError);
+            }
+            self.sent.borrow_mut().push(buf.to_vec());
+            Ok(())
+        }
+    }
+
+    /// A writer on interface 2, as in a composite device. On interface 0 the tests could not tell
+    /// `wIndex` from `wValue`, since both would be 0.
+    fn writer(sent: &RefCell<Vec<Vec<u8>>>) -> SerialStateWriter<Recorder<'_>> {
+        let recorder = Recorder {
+            sent,
+            enabled: Cell::new(true),
+        };
+        SerialStateWriter::new(recorder, InterfaceNumber(2))
+    }
+
+    #[test]
+    fn set_lines_sends_dcd_and_dsr() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        block_on(writer.set_lines(true, false)).unwrap();
+        assert!(writer.dcd() && !writer.dsr());
+        block_on(writer.set_lines(true, true)).unwrap();
+        block_on(writer.set_lines(false, false)).unwrap();
+
+        // Header: SERIAL_STATE for interface 2, wLength 2. Then the two bytes of UART state.
+        assert_eq!(
+            *sent.borrow(),
+            [
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x01, 0x00],
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x03, 0x00],
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x00, 0x00],
+            ]
+        );
+    }
+
+    #[test]
+    fn report_sends_events_once_with_the_lines() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        block_on(writer.set_lines(false, true)).unwrap();
+
+        block_on(writer.report(SerialEvents::OVERRUN)).unwrap();
+        block_on(writer.set_lines(true, true)).unwrap();
+
+        let sent = sent.borrow();
+        assert_eq!(sent[1][8..], [0x42, 0x00]);
+        assert_eq!(sent[2][8..], [0x03, 0x00]);
+    }
+
+    #[test]
+    fn report_does_not_repeat_the_previous_events() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        block_on(writer.report(SerialEvents::PARITY)).unwrap();
+        block_on(writer.report(SerialEvents::BREAK)).unwrap();
+
+        assert_eq!(sent.borrow()[1][8..], [0x04, 0x00]);
+    }
+
+    #[test]
+    fn report_sends_several_events_in_one_notification() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        block_on(writer.set_lines(true, false)).unwrap();
+
+        block_on(writer.report(SerialEvents::BREAK | SerialEvents::FRAMING | SerialEvents::OVERRUN)).unwrap();
+
+        let sent = sent.borrow();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1][8..], [0x55, 0x00]);
+    }
+
+    #[test]
+    fn set_lines_keeps_the_levels_when_sending_fails() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        writer.ep.enabled.set(false);
+
+        assert!(block_on(writer.set_lines(true, false)).is_err());
+
+        writer.ep.enabled.set(true);
+        block_on(writer.report(SerialEvents::BREAK)).unwrap();
+        assert_eq!(*sent.borrow(), [[0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x05, 0x00]]);
+    }
+
+    #[test]
+    fn report_uses_the_event_bits_from_the_spec() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        for events in [
+            SerialEvents::BREAK,
+            SerialEvents::RING,
+            SerialEvents::FRAMING,
+            SerialEvents::PARITY,
+            SerialEvents::OVERRUN,
+        ] {
+            block_on(writer.report(events)).unwrap();
+        }
+
+        let bits: Vec<u8> = sent.borrow().iter().map(|n| n[8]).collect();
+        assert_eq!(bits, [0x04, 0x08, 0x10, 0x20, 0x40]);
     }
 }
