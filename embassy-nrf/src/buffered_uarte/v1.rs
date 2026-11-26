@@ -28,7 +28,7 @@ use crate::ppi::{self, ChannelNumber, ConfigurableChannel, Event, Group, GroupNu
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{
     Config, CtsPin, DMA_SIZE, Instance as UarteInstance, RtsPin, RxPin, TxPin, configure, configure_rx_pins,
-    configure_tx_pins, drop_tx_rx,
+    configure_tx_pins, drop_tx_rx, set_baudrate,
 };
 use crate::{interrupt, pac};
 
@@ -383,9 +383,10 @@ impl<'d> BufferedUarte<'d> {
         let irq = U::Interrupt::IRQ;
         let state = U::state();
 
-        configure(r, config, cts.is_some());
+        let clk = U::clk();
+        configure(r, config, cts.is_some(), clk);
 
-        let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
+        let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer, clk);
         let rx = BufferedUarteRx::new_innerer(peri, rxd, rts, timer, ppi_ch1, ppi_ch2, ppi_group, rx_buffer);
 
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
@@ -420,6 +421,7 @@ impl<'d> BufferedUarte<'d> {
                 _irq: self.tx._irq,
                 state: self.tx.state,
                 buffered_state: self.tx.buffered_state,
+                clk: self.tx.clk,
                 is_borrowed: true,
                 _p: PhantomData,
             },
@@ -478,6 +480,7 @@ pub struct BufferedUarteTx<'d> {
     _irq: interrupt::Interrupt,
     state: &'static crate::uarte::State,
     buffered_state: &'static State,
+    clk: u32,
     /// Whether this half was borrowed via `split_ref`, in which case dropping it must not tear down the peripheral.
     is_borrowed: bool,
     _p: PhantomData<&'d ()>,
@@ -519,9 +522,10 @@ impl<'d> BufferedUarteTx<'d> {
         let state = U::state();
         let _buffered_state = U::buffered_state();
 
-        configure(r, config, cts.is_some());
+        let clk = U::clk();
+        configure(r, config, cts.is_some(), clk);
 
-        let this = Self::new_innerer(peri, txd, cts, tx_buffer);
+        let this = Self::new_innerer(peri, txd, cts, tx_buffer, clk);
 
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
         irq.pend();
@@ -537,6 +541,7 @@ impl<'d> BufferedUarteTx<'d> {
         txd: Flex<'d>,
         cts: Option<Flex<'d>>,
         tx_buffer: &'d mut [u8],
+        clk: u32,
     ) -> Self {
         let r = U::regs();
         let irq = U::Interrupt::IRQ;
@@ -562,6 +567,7 @@ impl<'d> BufferedUarteTx<'d> {
             _irq: irq,
             state,
             buffered_state,
+            clk,
             is_borrowed: false,
             _p: PhantomData,
         }
@@ -636,7 +642,7 @@ impl<'d> BufferedUarteTx<'d> {
 
     /// Adjust the baud rate to the provided value.
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {
-        self.r.baudrate().write(|w| w.set_baudrate(baudrate));
+        set_baudrate(self.r, baudrate, self.clk);
     }
 }
 
@@ -764,7 +770,7 @@ impl<'d> BufferedUarteRx<'d> {
         let state = U::state();
         let _buffered_state = U::buffered_state();
 
-        configure(r, config, rts.is_some());
+        configure(r, config, rts.is_some(), U::clk());
 
         let this = Self::new_innerer(peri, rxd, rts, timer, ppi_ch1, ppi_ch2, ppi_group, rx_buffer);
 

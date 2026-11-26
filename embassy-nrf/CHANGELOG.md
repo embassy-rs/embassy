@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: support for nrf54lm20b (`nrf54lm20b-app-s` feature). It shares the nrf54lm20a drivers and additionally has the `AXONS` interrupt.
 - added: usb: implement `IsoEndpointIn` on USBD (EP8) and USBHS (via `embassy-usb-synopsys-otg`) for scheduled isochronous IN transfers.
 
+- fixed: `uarte`, `buffered_uarte`: on nRF54L, scale the baud rate for UARTE00, which runs at the MCU clock of 64 or 128 MHz (#6214).
 - fixed: `buffered_uarte`: RX no longer hangs if interrupts are delayed while both halves of the RX buffer fill up (nRF52, nRF53, nRF91).
 - changed: PAC types no longer implement `Debug` by default.
 - added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
