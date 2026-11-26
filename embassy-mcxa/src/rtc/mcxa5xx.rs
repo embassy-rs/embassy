@@ -834,16 +834,6 @@ impl<'a> Rtc<'a> {
         Self::is_valid_datetime(t)?;
 
         let info = self.info;
-        let _cleanup = DropGuard::new(info, |info| {
-            critical_section::with(|_| {
-                if info.disable_write_protect() {
-                    info.regs().ier().modify(|w| w.set_alm_ie(false));
-                    info.regs().isr().write(|w| w.set_alm_is(true));
-                    info.enable_write_protect();
-                }
-            });
-        });
-
         let year = (t.year - Self::BASE_YEAR) as u8;
         let month = t.month.into();
         let day = t.day;
@@ -879,6 +869,16 @@ impl<'a> Rtc<'a> {
             self.enable_write_protect();
             Ok(())
         })?;
+
+        let _cleanup = DropGuard::new(info, |info| {
+            critical_section::with(|_| {
+                if info.disable_write_protect() {
+                    info.regs().ier().modify(|w| w.set_alm_ie(false));
+                    info.regs().isr().write(|w| w.set_alm_is(true));
+                    info.enable_write_protect();
+                }
+            });
+        });
 
         info.wait_cell()
             .wait_for(|| {
