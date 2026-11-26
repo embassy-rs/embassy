@@ -12,7 +12,8 @@ use std::vec::Vec;
 
 use crate::driver::{
     Bus, Direction, Driver, Endpoint, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError,
-    EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, Unsupported,
+    EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointConfig,
+    IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, Unsupported,
 };
 
 #[derive(Default)]
@@ -29,6 +30,8 @@ pub struct TestEndpoint {
 impl<'d> Driver<'d> for TestDriver {
     type EndpointOut = TestEndpoint;
     type EndpointIn = TestEndpoint;
+    type IsoEndpointOut = TestEndpoint;
+    type IsoEndpointIn = TestEndpoint;
     type Bus = TestBus;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
@@ -47,6 +50,14 @@ impl<'d> Driver<'d> for TestDriver {
         });
         assert!(addr.is_out());
         self.bus.allocate(addr, *config)
+    }
+
+    fn alloc_iso_endpoint_out(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        self.alloc_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        self.alloc_endpoint_in(config)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> TestBus {
@@ -86,6 +97,34 @@ impl EndpointIn for TestEndpoint {
 
 impl EndpointOut for TestEndpoint {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.io.read(self.info.addr, buf)
+    }
+}
+
+pub struct TestSlot<'a>(&'a TestEndpoint);
+
+impl IsoInSlot for TestSlot<'_> {
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.0
+            .io
+            .write(self.0.info.addr, data, false)
+            .map_err(|_| IsoWriteError::TooLate)
+    }
+}
+
+impl IsoEndpointIn for TestEndpoint {
+    type Slot<'a> = TestSlot<'a>;
+
+    async fn ready(&mut self) -> Result<(Option<core::num::NonZeroU32>, TestSlot<'_>), EndpointDisabledError> {
+        if !self.io.is_enabled(self.info.addr) {
+            return Err(EndpointDisabledError);
+        }
+        Ok((None, TestSlot(self)))
+    }
+}
+
+impl IsoEndpointOut for TestEndpoint {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         self.io.read(self.info.addr, buf)
     }
 }

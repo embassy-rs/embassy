@@ -7,7 +7,6 @@ use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb::{Endpoint, In, Out};
 use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, timer, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
@@ -15,13 +14,15 @@ use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
 use embassy_usb::class::uac::device as uac1;
 use embassy_usb::class::uac::device::speaker::{self, FeatureUnitControls, Speaker};
-use embassy_usb::driver::{
-    Endpoint as _, EndpointError, EndpointOut as _, IsoEndpointIn, IsoInSlot as _, IsoWriteError,
-};
+use embassy_usb::driver::{Endpoint as _, EndpointError, IsoEndpointIn, IsoEndpointOut, IsoInSlot as _, IsoWriteError};
 use heapless::Vec;
 use micromath::F32Ext;
 use panic_probe as _;
 use static_cell::StaticCell;
+
+type UsbDriver = usb::Driver<'static, peripherals::USB_OTG_FS>;
+type IsoIn = <UsbDriver as embassy_usb::driver::Driver<'static>>::IsoEndpointIn;
+type IsoOut = <UsbDriver as embassy_usb::driver::Driver<'static>>::IsoEndpointOut;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -79,7 +80,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 /// Sends feedback messages to the host.
-async fn feedback_handler(feedback: &mut Endpoint<'static, In>, feedback_factor: f32) -> Result<(), Disconnected> {
+async fn feedback_handler(feedback: &mut impl IsoEndpointIn, feedback_factor: f32) -> Result<(), Disconnected> {
     let mut packet: Vec<u8, 4> = Vec::new();
 
     // Collects the fractional component of the feedback value that is lost by rounding.
@@ -112,12 +113,12 @@ async fn feedback_handler(feedback: &mut Endpoint<'static, In>, feedback_factor:
 
 /// Handles streaming of audio data from the host.
 async fn stream_handler(
-    stream: &mut Endpoint<'static, Out>,
+    stream: &mut impl IsoEndpointOut,
     sender: &mut zerocopy_channel::Sender<'static, NoopRawMutex, SampleBlock>,
 ) -> Result<(), Disconnected> {
     loop {
         let mut usb_data = [0u8; USB_MAX_PACKET_SIZE];
-        let data_size = stream.read_transfer(&mut usb_data).await?;
+        let data_size = stream.read(&mut usb_data).await?;
 
         let word_count = data_size / SAMPLE_SIZE;
 
@@ -156,7 +157,7 @@ async fn audio_receiver_task(mut usb_audio_receiver: zerocopy_channel::Receiver<
 /// Receives audio samples from the host.
 #[embassy_executor::task]
 async fn usb_streaming_task(
-    mut stream: Endpoint<'static, Out>,
+    mut stream: IsoOut,
     mut sender: zerocopy_channel::Sender<'static, NoopRawMutex, SampleBlock>,
 ) {
     loop {
@@ -181,7 +182,7 @@ async fn usb_streaming_task(
 /// This simple example just uses the internal clocks for supplying the feedback timer,
 /// and does not even set up a SAI peripheral.
 #[embassy_executor::task]
-async fn usb_feedback_task(mut feedback: Endpoint<'static, In>) {
+async fn usb_feedback_task(mut feedback: IsoIn) {
     let feedback_factor =
         ((1 << FEEDBACK_SHIFT) as f32 / TICKS_PER_SAMPLE) / FEEDBACK_REFRESH_PERIOD.frame_count() as f32;
 
@@ -195,7 +196,7 @@ async fn usb_feedback_task(mut feedback: Endpoint<'static, In>) {
 }
 
 #[embassy_executor::task]
-async fn usb_task(mut usb_device: embassy_usb::UsbDevice<'static, usb::Driver<'static, peripherals::USB_OTG_FS>>) {
+async fn usb_task(mut usb_device: embassy_usb::UsbDevice<'static, UsbDriver>) {
     usb_device.run().await;
 }
 

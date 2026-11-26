@@ -8,7 +8,9 @@ use super::*;
 use crate::control::{OutResponse, Recipient};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::device::test_utils::{Response, TestBus, TestDriver, TestEndpoint};
-use crate::driver::{Direction, Endpoint, EndpointAllocError, EndpointConfig, EndpointInterval, Speed};
+use crate::driver::{
+    Direction, Endpoint, EndpointAllocError, EndpointConfig, EndpointInterval, IsoEndpointConfig, Speed,
+};
 use crate::types::InterfaceNumber;
 
 fn with_device_fullspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
@@ -1171,8 +1173,7 @@ fn test_endpoint_interval_and_other_speed_config() {
 
     // 5. Endpoint allocated first and described later: the descriptor must come from the
     // interval it was allocated with (250 µs), not from a lossy copy of it.
-    let late_ep = alt.alloc_endpoint_in(
-        EndpointType::Isochronous,
+    let late_ep = alt.alloc_iso_endpoint_in(
         Some(0x85.into()),
         64,
         EndpointInterval::from_microframes(2),
@@ -1672,6 +1673,8 @@ struct BurstLimitDriver(TestDriver);
 impl<'d> Driver<'d> for BurstLimitDriver {
     type EndpointOut = TestEndpoint;
     type EndpointIn = TestEndpoint;
+    type IsoEndpointOut = TestEndpoint;
+    type IsoEndpointIn = TestEndpoint;
     type Bus = TestBus;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
@@ -1684,6 +1687,14 @@ impl<'d> Driver<'d> for BurstLimitDriver {
         let mut config = *config;
         config.max_burst = config.max_burst.min(3);
         self.0.alloc_endpoint_out(&config)
+    }
+
+    fn alloc_iso_endpoint_out(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        self.0.alloc_iso_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        self.0.alloc_iso_endpoint_in(config)
     }
 
     fn start(self, control_max_packet_size: u16) -> TestBus {

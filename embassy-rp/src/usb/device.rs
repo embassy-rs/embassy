@@ -12,7 +12,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-    EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
+    EndpointInterval, EndpointType, Event, IsoEndpointConfig, IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError,
+    Speed, Unsupported,
 };
 
 use super::{Dir, In, Instance, Out};
@@ -651,6 +652,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
+    type IsoEndpointOut = Endpoint<'d, T, Out>;
+    type IsoEndpointIn = Endpoint<'d, T, In>;
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
@@ -659,6 +662,20 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
         self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, driver::EndpointAllocError> {
+        driver::Driver::alloc_endpoint_out(self, config)
+    }
+
+    fn alloc_iso_endpoint_in(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointIn, driver::EndpointAllocError> {
+        driver::Driver::alloc_endpoint_in(self, config)
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
@@ -1462,6 +1479,14 @@ impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
 
             current = critical_section::with(|cs| u32::from(ISO_SOF.borrow(cs).borrow().last_sof));
         }
+    }
+}
+
+impl<'d, T: Instance> IsoEndpointOut for Endpoint<'d, T, Out> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        // One packet per service interval.
+        let len = buf.len().min(usize::from(self.info.max_packet_size));
+        driver::EndpointOut::read_transfer(self, &mut buf[..len]).await
     }
 }
 

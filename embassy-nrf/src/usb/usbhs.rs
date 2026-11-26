@@ -11,7 +11,8 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
-    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event,
+    IsoEndpointConfig, Unsupported,
 };
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
@@ -85,6 +86,8 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = Endpoint<'d, Out>;
+    type IsoEndpointIn = Endpoint<'d, In>;
     type Bus = Bus<'d, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -93,6 +96,17 @@ impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
         self.inner.alloc_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError> {
+        self.inner.alloc_iso_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError> {
+        self.inner.alloc_iso_endpoint_in(config)
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {

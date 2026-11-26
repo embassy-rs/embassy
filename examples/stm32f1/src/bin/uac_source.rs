@@ -6,7 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb::{Driver, Endpoint, In};
+use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_usb::class::uac::device as uac1;
 use embassy_usb::class::uac::device::source::{
@@ -17,6 +17,8 @@ use embassy_usb::driver::{Endpoint as _, IsoEndpointIn as _, IsoInSlot as _};
 use embassy_usb::{Builder, UsbVersion};
 use panic_probe as _;
 use static_cell::StaticCell;
+
+type IsoIn = <Driver<'static, peripherals::USB> as embassy_usb::driver::Driver<'static>>::IsoEndpointIn;
 
 bind_interrupts!(struct Irqs {
     USB_LP_CAN1_RX0 => embassy_stm32::usb::InterruptHandler<peripherals::USB>;
@@ -46,10 +48,7 @@ async fn usb_bus(
 }
 
 #[embassy_executor::task]
-async fn sine_wave_gen(
-    mut audio_ep_in: Endpoint<'static, peripherals::USB, In>,
-    control_monitor: ControlMonitor<'static>,
-) {
+async fn sine_wave_gen(mut audio_ep_in: IsoIn, control_monitor: ControlMonitor<'static>) {
     static SILENCE: [u8; SINE_16000HZ_1MS_16BIT_2CH.len()] = [0; SINE_16000HZ_1MS_16BIT_2CH.len()];
 
     loop {

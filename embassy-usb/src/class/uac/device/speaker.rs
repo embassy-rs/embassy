@@ -17,7 +17,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, EndpointType};
+use crate::driver::Driver;
 use crate::{Builder, EndpointOptions};
 
 /// Speaker stream settings and optional host controls.
@@ -68,9 +68,9 @@ impl<'d> Config<'d> {
 /// Implementation of the USB audio class 1.0.
 pub struct Speaker<'d, D: Driver<'d>> {
     /// Stream
-    pub stream: D::EndpointOut,
+    pub stream: D::IsoEndpointOut,
     /// Feedback
-    pub feedback: D::EndpointIn,
+    pub feedback: D::IsoEndpointIn,
     /// Control Monitor
     pub control_monitor: ControlMonitor<'d>,
 }
@@ -112,8 +112,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             max_packet_size,
             Some(feedback_refresh_period),
             |alt, max_packet_size| {
-                alt.alloc_endpoint_out(
-                    EndpointType::Isochronous,
+                alt.alloc_iso_endpoint_out(
                     None,
                     max_packet_size,
                     EndpointInterval::from_ms(1),

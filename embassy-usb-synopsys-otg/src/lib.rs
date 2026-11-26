@@ -27,8 +27,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed,
-    Unsupported,
+    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointConfig, IsoEndpointIn, IsoEndpointOut,
+    IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -868,6 +868,8 @@ where
 {
     type EndpointOut = Endpoint<'d, Out, M>;
     type EndpointIn = Endpoint<'d, In, M>;
+    type IsoEndpointOut = Endpoint<'d, Out, M>;
+    type IsoEndpointIn = Endpoint<'d, In, M>;
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -875,6 +877,17 @@ where
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError> {
+        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError> {
         self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
     }
 
@@ -2511,6 +2524,17 @@ where
                 ));
             }
         }
+    }
+}
+
+impl<'d, M> IsoEndpointOut for Endpoint<'d, Out, M>
+where
+    M: SharedRawMutex,
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        // One packet per service interval.
+        let len = buf.len().min(usize::from(self.info.max_packet_size));
+        self.read_transfer(&mut buf[..len]).await
     }
 }
 

@@ -8,7 +8,7 @@ mod interval;
 pub mod iso;
 
 pub use interval::EndpointInterval;
-pub use iso::{IsoEndpointIn, IsoInSlot, IsoWriteError};
+pub use iso::{IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, NoIsoEndpoint};
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -244,6 +244,9 @@ impl EndpointConfig {
     }
 }
 
+/// Configuration to allocate an isochronous endpoint with.
+pub type IsoEndpointConfig = EndpointConfig;
+
 /// Main USB device driver trait.
 ///
 /// Implement this to add support for a new hardware platform.
@@ -252,6 +255,10 @@ pub trait Driver<'a> {
     type EndpointOut: EndpointOut + 'a;
     /// Type of the IN endpoints for this driver.
     type EndpointIn: EndpointIn + 'a;
+    /// Type of the isochronous OUT endpoints, or [`NoIsoEndpoint`].
+    type IsoEndpointOut: IsoEndpointOut + 'a;
+    /// Type of the isochronous IN endpoints, or [`NoIsoEndpoint`].
+    type IsoEndpointIn: IsoEndpointIn + 'a;
     /// Type for bus control for this driver.
     type Bus: Bus + 'a;
 
@@ -266,6 +273,15 @@ pub trait Driver<'a> {
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError>;
+
+    /// Allocates an isochronous OUT endpoint, before [`start`](Self::start).
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError>;
+
+    /// Allocates an isochronous IN endpoint, before [`start`](Self::start).
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError>;
 
     /// Start operation of the USB device.
     ///

@@ -1,8 +1,8 @@
-//! Isochronous IN traits and service-interval scheduling helpers.
+//! Isochronous endpoint traits.
 
 use core::num::NonZeroU32;
 
-use crate::{Endpoint, EndpointDisabledError};
+use crate::{Endpoint, EndpointDisabledError, EndpointError, EndpointInfo};
 
 /// Why [`IsoInSlot::write`] did not queue the transfer.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -135,4 +135,52 @@ pub trait IsoEndpointIn: Endpoint {
     /// }
     /// ```
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError>;
+}
+
+/// Isochronous OUT endpoint trait.
+pub trait IsoEndpointOut: Endpoint {
+    /// Read one service interval's data; `buf` must hold the endpoint's maximum.
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
+}
+
+/// Isochronous endpoint of drivers without isochronous support; allocating it fails.
+#[derive(Debug)]
+pub enum NoIsoEndpoint {}
+
+impl Endpoint for NoIsoEndpoint {
+    fn info(&self) -> EndpointInfo {
+        match *self {}
+    }
+    async fn wait_enabled(&mut self) {
+        match *self {}
+    }
+    fn is_enabled(&self) -> bool {
+        match *self {}
+    }
+    async fn set_stalled(&mut self, _stalled: bool) {
+        match *self {}
+    }
+    fn is_stalled(&self) -> bool {
+        match *self {}
+    }
+}
+
+impl IsoInSlot for NoIsoEndpoint {
+    fn write(self, _data: &[u8]) -> Result<(), IsoWriteError> {
+        match self {}
+    }
+}
+
+impl IsoEndpointIn for NoIsoEndpoint {
+    type Slot<'a> = NoIsoEndpoint;
+
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, NoIsoEndpoint), EndpointDisabledError> {
+        match *self {}
+    }
+}
+
+impl IsoEndpointOut for NoIsoEndpoint {
+    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
+        match *self {}
+    }
 }

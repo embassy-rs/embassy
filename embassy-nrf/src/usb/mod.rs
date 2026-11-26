@@ -20,7 +20,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo, EndpointType,
-    Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
+    Event, IsoEndpointConfig, IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use self::vbus_detect::VbusDetect;
@@ -365,6 +365,8 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = Endpoint<'d, Out>;
+    type IsoEndpointIn = Endpoint<'d, In>;
     type Bus = Bus<'d, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
@@ -383,6 +385,20 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
             self.regs,
             EndpointInfo::new(ep_addr, config.ep_type, config.max_packet_size, config.interval),
         ))
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, driver::EndpointAllocError> {
+        driver::Driver::alloc_endpoint_out(self, config)
+    }
+
+    fn alloc_iso_endpoint_in(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointIn, driver::EndpointAllocError> {
+        driver::Driver::alloc_endpoint_in(self, config)
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
@@ -1385,6 +1401,14 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
 
             current = u32::from(self.regs.framecntr().read().framecntr());
         }
+    }
+}
+
+impl<'d> IsoEndpointOut for Endpoint<'d, Out> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        // One packet per service interval.
+        let len = buf.len().min(usize::from(self.info.max_packet_size));
+        driver::EndpointOut::read_transfer(self, &mut buf[..len]).await
     }
 }
 
