@@ -13,7 +13,7 @@ use std::vec::Vec;
 use crate::driver::{
     Bus, Direction, Driver, Endpoint, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError,
     EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointConfig,
-    IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, Unsupported,
+    IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, TransferKind, Unsupported,
 };
 
 #[derive(Default)]
@@ -53,11 +53,13 @@ impl<'d> Driver<'d> for TestDriver {
     }
 
     fn alloc_iso_endpoint_out(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_out(config)
+        let ep = self.alloc_endpoint_out(&iso_as_config(config))?;
+        Ok(self.bus.set_iso(ep, config))
     }
 
     fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        self.alloc_endpoint_in(config)
+        let ep = self.alloc_endpoint_in(&iso_as_config(config))?;
+        Ok(self.bus.set_iso(ep, config))
     }
 
     fn start(mut self, control_max_packet_size: u16) -> TestBus {
@@ -129,6 +131,17 @@ impl IsoEndpointOut for TestEndpoint {
     }
 }
 
+/// An isochronous config stored as an interrupt one.
+fn iso_as_config(iso: &IsoEndpointConfig) -> EndpointConfig {
+    assert_eq!(iso.mult, 0);
+    let mut config = EndpointConfig::new(iso.addr, TransferKind::Interrupt(iso.interval), iso.max_packet_size);
+    config.buffers = iso.buffers;
+    config.max_burst = iso.max_burst;
+    config.bytes_per_interval = iso.bytes_per_interval;
+    config.additional_transactions = iso.additional_transactions;
+    config
+}
+
 pub struct TestBus {
     /// The response to the last control request.
     pub(crate) response: Option<Response>,
@@ -174,12 +187,7 @@ impl TestBus {
         addr: EndpointAddress,
         config: EndpointConfig,
     ) -> Result<TestEndpoint, EndpointAllocError> {
-        let info = {
-            let mut info = EndpointInfo::new(addr, config.ep_type, config.max_packet_size, config.interval);
-            info.max_burst = config.max_burst;
-            info.additional_transactions = config.additional_transactions;
-            info
-        };
+        let info = EndpointInfo::from_config(addr, &config);
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
         self.configs[slot] = Some(config);
@@ -189,6 +197,13 @@ impl TestBus {
             stalled: self.stalled[slot].clone(),
             io: self.io.clone(),
         })
+    }
+
+    /// Gives `ep` the info of an isochronous endpoint.
+    fn set_iso(&mut self, mut ep: TestEndpoint, config: &IsoEndpointConfig) -> TestEndpoint {
+        ep.info = EndpointInfo::from_iso_config(ep.info.addr, config);
+        self.endpoints[Self::slot(ep.info.addr)] = Some(ep.info);
+        ep
     }
 
     fn check_halt(&mut self, addr: EndpointAddress) -> usize {

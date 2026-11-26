@@ -672,11 +672,11 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_iso_endpoint_out(

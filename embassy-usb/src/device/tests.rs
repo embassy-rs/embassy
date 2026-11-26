@@ -1495,7 +1495,7 @@ fn allocated<'d, D: Driver<'d, Bus = TestBus>, const N: usize>(
 /// `max_burst` and `bytes_per_interval` of the configuration the driver allocated each endpoint with.
 fn superspeed_fields<const N: usize>(usb: &UsbDevice<'_, TestDriver>, endpoints: [u8; N]) -> [(u8, u32); N] {
     allocated(usb, endpoints).map(|config| {
-        assert_eq!((config.max_streams, config.mult), (0, 0));
+        assert_eq!(config.max_streams, 0);
         (config.max_burst, config.bytes_per_interval)
     })
 }

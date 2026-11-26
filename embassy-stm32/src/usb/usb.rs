@@ -932,12 +932,12 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
         // Double buffering is only a hint: fall back to an ordinary endpoint if it isn't possible.
         #[cfg(any(usb_v1, usb_v3, usb_v4))]
-        if config.ep_type == EndpointType::Bulk && config.buffers >= 2 {
+        if config.ep_type() == EndpointType::Bulk && config.buffers >= 2 {
             if let Ok(ep) = self.alloc_double_buffered(config.addr, config.max_packet_size) {
                 return Ok(ep);
             }
         }
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_endpoint<D: Dir>(

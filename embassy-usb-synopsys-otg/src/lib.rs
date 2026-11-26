@@ -888,11 +888,11 @@ where
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_iso_endpoint_out(
@@ -3058,7 +3058,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use embassy_usb_driver::Driver as _;
+    use embassy_usb_driver::{Driver as _, TransferKind};
 
     use super::*;
 
@@ -3102,20 +3102,10 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         driver
-            .alloc_endpoint_out(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_out(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         driver
-            .alloc_endpoint_in(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_in(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         let _ = driver.start(64);
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
@@ -3129,12 +3119,7 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         let ep = driver
-            .alloc_endpoint_out(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_out(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         assert_eq!(ep.info.addr.index(), 1);
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));

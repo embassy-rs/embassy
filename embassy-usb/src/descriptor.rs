@@ -1,7 +1,7 @@
 //! Utilities for writing USB descriptors.
 use embassy_usb_driver::EndpointType;
 
-use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo, EndpointInterval};
+use crate::driver::{EndpointAddress, EndpointConfig, EndpointInfo, EndpointInterval, IsoEndpointConfig, TransferKind};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{CONFIGURATION_VALUE, Config, EndpointOptions, UsbDeviceSpeed};
 
@@ -356,9 +356,14 @@ impl<'a> DescriptorWriter<'a> {
         interval: EndpointInterval,
         options: EndpointOptions,
     ) -> EndpointConfig {
-        let mut config = EndpointConfig::new(addr, ep_type, max_packet_size, interval);
+        let kind = match ep_type {
+            EndpointType::Bulk => TransferKind::Bulk,
+            EndpointType::Interrupt => TransferKind::Interrupt(interval),
+            _ => panic!("isochronous endpoints have their own methods"),
+        };
+        let mut config = EndpointConfig::new(addr, kind, max_packet_size);
         config.buffers = options.buffers;
-        if self.high_speed && matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous) {
+        if self.high_speed && ep_type == EndpointType::Interrupt {
             config.additional_transactions = options.additional_transactions;
         }
         if self.superspeed {
@@ -366,6 +371,25 @@ impl<'a> DescriptorWriter<'a> {
                 config.max_burst = options.max_burst;
             }
             config.bytes_per_interval = periodic_bytes_per_interval(ep_type, max_packet_size).into();
+        }
+        config
+    }
+
+    /// [`Self::endpoint_config`] for an isochronous endpoint.
+    pub(crate) fn iso_endpoint_config(
+        &self,
+        addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+        options: EndpointOptions,
+    ) -> IsoEndpointConfig {
+        let mut config = IsoEndpointConfig::new(addr, max_packet_size, interval);
+        config.buffers = options.buffers;
+        if self.high_speed {
+            config.additional_transactions = options.additional_transactions;
+        }
+        if self.superspeed {
+            config.bytes_per_interval = periodic_bytes_per_interval(EndpointType::Isochronous, max_packet_size).into();
         }
         config
     }

@@ -370,20 +370,20 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
     type Bus = Bus<'d, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        let index = self.alloc_in.allocate(config.ep_type, config.addr)?;
+        let index = self.alloc_in.allocate(config.ep_type(), config.addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
         Ok(Endpoint::new(
             self.regs,
-            EndpointInfo::new(ep_addr, config.ep_type, config.max_packet_size, config.interval),
+            EndpointInfo::new(ep_addr, config.ep_type(), config.max_packet_size, config.interval()),
         ))
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        let index = self.alloc_out.allocate(config.ep_type, config.addr)?;
+        let index = self.alloc_out.allocate(config.ep_type(), config.addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
         Ok(Endpoint::new(
             self.regs,
-            EndpointInfo::new(ep_addr, config.ep_type, config.max_packet_size, config.interval),
+            EndpointInfo::new(ep_addr, config.ep_type(), config.max_packet_size, config.interval()),
         ))
     }
 

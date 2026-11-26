@@ -838,10 +838,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         options: EndpointOptions,
     ) -> D::EndpointIn {
         options.check();
-        assert!(
-            ep_type != EndpointType::Isochronous,
-            "isochronous endpoints have their own methods"
-        );
         let config =
             self.builder
                 .config_descriptor
@@ -914,10 +910,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         options: EndpointOptions,
     ) -> D::EndpointOut {
         options.check();
-        assert!(
-            ep_type != EndpointType::Isochronous,
-            "isochronous endpoints have their own methods"
-        );
         let config =
             self.builder
                 .config_descriptor
@@ -987,13 +979,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         options: EndpointOptions,
     ) -> D::IsoEndpointIn {
         options.check();
-        let config = self.builder.config_descriptor.endpoint_config(
-            ep_addr,
-            EndpointType::Isochronous,
-            max_packet_size,
-            interval,
-            options,
-        );
+        let config = self
+            .builder
+            .config_descriptor
+            .iso_endpoint_config(ep_addr, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_iso_endpoint_in(&config)
@@ -1009,13 +998,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         options: EndpointOptions,
     ) -> D::IsoEndpointOut {
         options.check();
-        let config = self.builder.config_descriptor.endpoint_config(
-            ep_addr,
-            EndpointType::Isochronous,
-            max_packet_size,
-            interval,
-            options,
-        );
+        let config = self
+            .builder
+            .config_descriptor
+            .iso_endpoint_config(ep_addr, max_packet_size, interval, options);
         self.builder
             .driver
             .alloc_iso_endpoint_out(&config)
