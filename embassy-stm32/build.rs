@@ -246,6 +246,16 @@ fn main() {
         .filter_map(|p| Some((p.name, (p, p.registers.as_ref()?))))
         .collect();
 
+    // compile a map of I2S peripherals: extension blocks and clock-only carriers
+    // alike. The latter carry no registers - only the I2S kernel clock - so they
+    // are looked up separately from the registers-only peripheral_map.
+    let i2s_map: HashMap<&str, &Peripheral> = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name.starts_with("I2S"))
+        .map(|p| (p.name, p))
+        .collect();
+
     // compile a list of peripherals with registers
     let peripheral_list: Vec<(&Peripheral, &PeripheralRegisters)> = METADATA
         .peripherals
@@ -1144,50 +1154,7 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Clock(clock) => {
-                    // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock
-                    // comes from SYSCLK (or I2S_CKIN). If not, it's standard PCLK.
-                    //
-                    // Below code is implement a runtime check against I2SCFGR.I2SMOD that returns
-                    // the SPI clock in SPI mode and the I2S clock in I2S mode.
-                    let is_f3_i2s_capable = chip_name.starts_with("stm32f3")
-                        && p.name
-                            .strip_prefix("SPI")
-                            .map(|n| peripheral_map.contains_key(format!("I2S{}", n).as_str()))
-                            .unwrap_or(false);
-
-                    if is_f3_i2s_capable {
-                        let default_clock = clock_gen.gen_clock(p.name, clock);
-                        let pname = format_ident!("{}", p.name);
-                        quote! {
-                            if crate::pac::#pname.i2scfgr().read().i2smod() {
-                                // I2S mode: I2SxCLK source is selected by RCC_CFGR.I2SSRC
-                                let i2ssrc_ckin =
-                                    crate::pac::RCC.cfgr().read().i2ssrc() != crate::pac::rcc::vals::Issrc::Sys;
-
-                                if i2ssrc_ckin {
-                                    panic!(
-                                        "I2S on {} is configured to use external I2S_CKIN, which is not \
-                                         supported by this driver. Clear RCC_CFGR.I2SSRC to use SYSCLK.",
-                                        stringify!(#pname))
-                                }
-
-                                unsafe { crate::rcc::get_freqs() }
-                                    .sys
-                                    .to_hertz()
-                                    .unwrap_or_else(|| panic!(
-                                        "I2S on {} requires SYSCLK to be running, but it is not configured",
-                                        stringify!(#pname)
-                                    ))
-                            } else {
-                                // SPI mode: PCLK1 as before
-                                #default_clock
-                            }
-                        }
-                    } else {
-                        clock_gen.gen_clock(p.name, clock)
-                    }
-                }
+                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
                 PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(p.name, mux),
             };
 
@@ -1221,6 +1188,38 @@ fn main() {
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
+    }
+
+    // Generate the I2S clock accessor for every I2S-capable SPI. The I2S clock
+    // is usually just the SPI kernel clock, but when the metadata describes a
+    // separate kernel clock for the I2S extension block (e.g. STM32F3, where it
+    // is the RCC_CFGR.I2SSRC mux, resolved at runtime), the I2S driver uses that
+    // instead. This must run before the clock/mux tables below are generated,
+    // since it can register additional clocks and muxes.
+    for (p, regs) in &peripheral_list {
+        if regs.kind != "spi" || !regs.version.contains("i2s") {
+            continue;
+        }
+        let Some(peri) = p.name.strip_prefix("SPI") else {
+            continue;
+        };
+        let spi_peri = format_ident!("{}", p.name);
+
+        let ext = i2s_map
+            .get(format!("I2S{}", peri).as_str())
+            .and_then(|ep| ep.rcc.as_ref().map(|r| (ep.name, r)));
+        let (clk_peri, rcc) = match ext {
+            Some(ext) => ext,
+            None => (p.name, p.rcc.as_ref().expect("SPI peripheral without rcc")),
+        };
+        let i2s_clock = match &rcc.kernel_clock {
+            PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(clk_peri, clock),
+            PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(clk_peri, mux),
+        };
+
+        g.extend(quote! {
+            impl_i2s_clock!(#spi_peri, #i2s_clock);
+        });
     }
 
     g.extend({
