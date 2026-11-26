@@ -543,6 +543,16 @@ pub struct MaybeWakeGuard {
 }
 
 impl MaybeWakeGuard {
+    #[doc(hidden)]
+    pub const fn const_no_stop() -> Self {
+        Self {
+            #[cfg(feature = "low-power")]
+            stop_mode: StopMode::Stop1,
+            #[cfg(feature = "low-power")]
+            enabled: false,
+        }
+    }
+
     pub fn enable(&mut self) {
         #[cfg(feature = "low-power")]
         if !core::mem::replace(&mut self.enabled, true) {

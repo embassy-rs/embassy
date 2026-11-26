@@ -467,6 +467,8 @@ unsafe fn ll_sys_dependencies_init() {
     trace!("ll_sys_dependencies_init: calling ll_sys_config_params");
     ll_sys_config_params();
     trace!("ll_sys_dependencies_init: ll_sys_config_params done");
+
+    crate::wba::linklayer_plat::enable_low_power_hooks();
 }
 
 /// Reset all BLE host stack state so that `init_ble_stack()` can safely run again.
@@ -477,6 +479,7 @@ unsafe fn ll_sys_dependencies_init() {
 /// controller has been reset via `HCI_Reset`.
 #[cfg(feature = "wba-ble")]
 pub fn reset_ble_stack() {
+    crate::wba::linklayer_plat::disable_low_power_hooks();
     unsafe {
         IS_LL_INITIALIZED = 0;
         ble_buffers::DYN_ALLOC_BUFFER.0.fill(0);

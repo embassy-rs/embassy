@@ -99,6 +99,7 @@ wb-stack-hci-layer = [ "stm32wb-hci?/stack-hci-layer" ]
 wb-stack-hci-adv-scan = [ "stm32wb-hci?/stack-hci-adv-scan" ]
 
 wba = [ "dep:stm32-bindings", "stm32wb-hci?/wba_1_10_0" ]
+low-power = [ "embassy-stm32/low-power" ]
 wba-ble = [ "stm32-bindings/wba_wpan_ble" , "stm32-bindings/wba_wpan", "stm32-bindings/wba_wpan_mac" ]
 wba-mac = [ "stm32-bindings/wba_wpan_mac", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_linklayer_802_15_4_v3_0", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
 

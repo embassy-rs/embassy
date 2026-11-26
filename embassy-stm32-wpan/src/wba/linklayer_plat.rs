@@ -144,6 +144,9 @@ static RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO: AtomicBool = AtomicBool::new(false);
 static AHB5_SWITCHED_OFF: AtomicBool = AtomicBool::new(false);
 static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
 
+static mut RADIO_EVT_GUARD: embassy_stm32::rcc::MaybeWakeGuard = embassy_stm32::rcc::MaybeWakeGuard::const_no_stop();
+static mut RCO_CLBR_GUARD: embassy_stm32::rcc::MaybeWakeGuard = embassy_stm32::rcc::MaybeWakeGuard::const_no_stop();
+
 // ============================================================================
 // Event flow control (BLECB_Indication back-pressure)
 // ============================================================================
@@ -349,6 +352,7 @@ pub(crate) fn reset_ble_platform_state() {
 
     EVENT_FLOW_STALLED.store(false, Ordering::Release);
     EVENT_FLOW_RESUME.store(false, Ordering::Release);
+    disable_low_power_hooks();
 
     if let Some(platform) = unsafe { PLATFORM.as_ref() } {
         platform.get_p256_req().reset();
@@ -1178,6 +1182,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
     // Enable radio bus clock during Sleep/Stop modes (RADIOSMEN bit)
     // This keeps the radio clock alive while the radio is active
     RCC.ahb5smenr().modify(|w| w.set_radiosmen(true));
+    critical_section::with(|_| unsafe {
+        RADIO_EVT_GUARD.enable();
+    });
 
     nvic_set_priority(RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_HIGH));
     nvic_enable(RADIO_INTR_NUM);
@@ -1195,6 +1202,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
     // Disable radio bus clock during Sleep/Stop modes (RADIOSMEN bit)
     // Radio is no longer active, so the clock can be gated
     RCC.ahb5smenr().modify(|w| w.set_radiosmen(false));
+    critical_section::with(|_| unsafe {
+        RADIO_EVT_GUARD.disable();
+    });
 
     nvic_set_priority(RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_LOW));
 }
@@ -1207,15 +1217,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {
     trace!("LINKLAYER_PLAT_RCOStartClbr");
-    // #if (CFG_LPM_LEVEL != 0)
-    //   PWR_DisableSleepMode();
-    //   /* Disabling stop mode prevents also from entering in standby */
-    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_DISABLE);
-    // #endif /* (CFG_LPM_LEVEL != 0) */
-    // #if (CFG_SCM_SUPPORTED == 1)
-    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_32MHZ);
-    //   while (LL_PWR_IsActiveFlag_VOS() == 0);
-    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+    critical_section::with(|_| unsafe {
+        RCO_CLBR_GUARD.enable();
+    });
 }
 
 // /**
@@ -1226,13 +1230,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStopClbr() {
     trace!("LINKLAYER_PLAT_RCOStopClbr");
-    // #if (CFG_LPM_LEVEL != 0)
-    //   PWR_EnableSleepMode();
-    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_ENABLE);
-    // #endif /* (CFG_LPM_LEVEL != 0) */
-    // #if (CFG_SCM_SUPPORTED == 1)
-    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_16MHZ);
-    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+    critical_section::with(|_| unsafe {
+        RCO_CLBR_GUARD.disable();
+    });
 }
 
 // /**
@@ -1860,4 +1860,127 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data
     util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
 
     0 // Success
+}
+
+// ============================================================================
+// Low-power (Stop1/Stop2) integration hooks for embassy-stm32
+// ============================================================================
+
+/// Returns remaining microseconds until the earliest scheduled Link Layer or OS timer event,
+/// or `None` if no timers/events are currently scheduled.
+fn next_radio_event_us() -> Option<u64> {
+    let sw_active = unsafe { link_layer::os_timer_get_active_sw_timers_number() };
+    let sw_rem = unsafe { link_layer::os_timer_get_earliest_time() };
+    #[allow(unused_mut)]
+    let mut earliest = if sw_active > 0 || sw_rem > 0 {
+        Some(sw_rem)
+    } else {
+        None
+    };
+
+    #[cfg(feature = "wba-ble")]
+    {
+        let mut ble_rem: u32 = u32::MAX;
+        if unsafe { link_layer::ll_intf_le_get_remaining_time_for_next_event(&mut ble_rem) } == link_layer::SUCCESS
+            && ble_rem < u32::MAX
+        {
+            let ble_rem = u64::from(ble_rem);
+            earliest = Some(earliest.map_or(ble_rem, |e| e.min(ble_rem)));
+        }
+    }
+
+    earliest
+}
+
+fn wba_check_stop() -> Option<bool> {
+    use embassy_stm32::pac::rcc::vals::Radiostsel;
+
+    if unsafe { link_layer::emngr_can_mcu_sleep() } == 0 {
+        return None;
+    }
+
+    if unsafe { link_layer::os_timer_is_any_near_sw_timer_hg_prio() } != 0 {
+        return None;
+    }
+
+    // Only LSE and LSI2 keep the 2.4 GHz RADIO sleep timer running in Stop1/Stop2.
+    if matches!(RCC.bdcr().read().radiostsel(), Radiostsel::Hse | Radiostsel::Disable) {
+        return None;
+    }
+
+    // RM0515 Table 80: active RADIO (MODE >= 2) only operates down to Stop0 Range 1.
+    if PWR.radioscr().read().mode().to_bits() >= 2 {
+        return None;
+    }
+
+    if let Some(rem_us) = next_radio_event_us() {
+        if rem_us <= u64::from(mac::CFG_LPM_STDBY_WAKEUP_TIME) {
+            return None;
+        }
+    }
+
+    Some(true)
+}
+
+fn wba_before_stop(deep_stop: bool) -> Result<(), ()> {
+    use super::ll_sys::ll_sys_dp_slp::{ll_sys_dp_slp_enter, ll_sys_dp_slp_get_state};
+
+    if !deep_stop {
+        return Ok(());
+    }
+
+    if unsafe { ll_sys_dp_slp_get_state() } == link_layer::ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_ENABLED {
+        return Ok(());
+    }
+
+    // Account for HSE/PLL clock restore on exit in addition to the ST Link Layer deep-sleep margin.
+    const CLOCK_RESTORE_MARGIN_US: u32 = 500;
+    let wakeup_margin_us = mac::CFG_LPM_STDBY_WAKEUP_TIME.saturating_add(CLOCK_RESTORE_MARGIN_US);
+    let duration_us = match next_radio_event_us() {
+        Some(rem_us) => {
+            if rem_us <= u64::from(wakeup_margin_us) {
+                return Err(());
+            }
+            (rem_us - u64::from(wakeup_margin_us)).min(u64::from(u32::MAX - 1)) as u32
+        }
+        None => u32::MAX,
+    };
+
+    if unsafe { ll_sys_dp_slp_enter(duration_us) } != link_layer::ll_sys_status_t_LL_SYS_OK {
+        return Err(());
+    }
+
+    Ok(())
+}
+
+fn wba_before_wfi() {
+    unsafe { LINKLAYER_PLAT_NotifyWFIEnter() };
+}
+
+fn wba_after_wfi(_exited_stop: bool) {
+    use super::ll_sys::ll_sys_dp_slp::{ll_sys_dp_slp_exit, ll_sys_dp_slp_get_state};
+
+    unsafe { LINKLAYER_PLAT_NotifyWFIExit() };
+
+    if unsafe { ll_sys_dp_slp_get_state() } == link_layer::ll_sys_dp_slp_state_t_LL_SYS_DP_SLP_ENABLED {
+        unsafe { ll_sys_dp_slp_exit() };
+    }
+}
+
+pub(crate) fn enable_low_power_hooks() {
+    embassy_stm32::rcc::set_radio_sleep_hooks(Some(embassy_stm32::rcc::RadioSleepHooks {
+        check_stop: wba_check_stop,
+        before_stop: wba_before_stop,
+        before_wfi: wba_before_wfi,
+        after_wfi: wba_after_wfi,
+    }));
+}
+
+pub(crate) fn disable_low_power_hooks() {
+    embassy_stm32::rcc::set_radio_sleep_hooks(None);
+    AHB5_SWITCHED_OFF.store(false, Ordering::Release);
+    critical_section::with(|_| unsafe {
+        RADIO_EVT_GUARD.disable();
+        RCO_CLBR_GUARD.disable();
+    });
 }

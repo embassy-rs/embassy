@@ -15,7 +15,7 @@ macro_rules! LL_DP_SLP_NO_WAKEUP {
 
 macro_rules! LL_INTERNAL_TMR_US_TO_STEPS {
     ($us:expr) => {
-        ((($us) * 4) / 125)
+        ((((($us) as u64) * 4) / 125).min(u32::MAX as u64)) as u32
     };
 }
 
@@ -79,7 +79,7 @@ unsafe extern "C" fn ll_sys_dp_slp_init() -> ll_sys_status_t {
 //   * @retval Link Layer deep sleep state
 //   */
 #[unsafe(no_mangle)]
-unsafe extern "C" fn ll_sys_dp_slp_get_state() -> ll_sys_dp_slp_state_t {
+pub(crate) unsafe extern "C" fn ll_sys_dp_slp_get_state() -> ll_sys_dp_slp_state_t {
     return LINKLAYER_DP_SLP_STATE;
 }
 //
@@ -89,7 +89,7 @@ unsafe extern "C" fn ll_sys_dp_slp_get_state() -> ll_sys_dp_slp_state_t {
 //   * @retval LL_SYS status
 //   */
 #[unsafe(no_mangle)]
-unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_t {
+pub(crate) unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_t {
     let cmd_status: ble_stat_t;
     let os_status: i32;
     let mut return_status: ll_sys_status_t = ll_sys_status_t_LL_SYS_ERROR;
@@ -121,7 +121,7 @@ unsafe extern "C" fn ll_sys_dp_slp_enter(dp_slp_duration: u32) -> ll_sys_status_
 //   * @retval LL_SYS status
 //   */
 #[unsafe(no_mangle)]
-unsafe extern "C" fn ll_sys_dp_slp_exit() -> ll_sys_status_t {
+pub(crate) unsafe extern "C" fn ll_sys_dp_slp_exit() -> ll_sys_status_t {
     let cmd_status: ble_stat_t;
     let mut return_status: ll_sys_status_t = ll_sys_status_t_LL_SYS_ERROR;
 
