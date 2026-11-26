@@ -44,12 +44,12 @@
 // fails here until it is implemented deliberately. See `docs/low-power/00-hardware-survey.md`
 // §6.1 for the full analysis.
 #[cfg(not(any(
-    stm32f3, stm32f4, stm32f7, stm32g0, stm32g4, stm32l0, stm32l1, stm32l4, stm32l5, stm32u0, stm32u3, stm32u5,
-    stm32h5, stm32wb, stm32wba, stm32wl
+    stm32c5, stm32f0, stm32f3, stm32f4, stm32f7, stm32g0, stm32g4, stm32l0, stm32l1, stm32l4, stm32l5, stm32u0,
+    stm32u3, stm32u5, stm32h5, stm32wb, stm32wba, stm32wl
 )))]
 compile_error!(
     "the `low-power` feature is not implemented for this STM32 family. \
-     Implemented families: f3, f4, f7, g0, g4, l0, l1, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
+     Implemented families: c5, f0, f3, f4, f7, g0, g4, l0, l1, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
      See embassy-stm32/src/low_power.rs and docs/low-power/00-hardware-survey.md."
 );
 
@@ -58,6 +58,10 @@ compile_error!(
 compile_error!(
     "the `low-power` feature is not supported on STM32L1 Cat.1 devices: their RTC has no subsecond counter."
 );
+
+// Low-pin-count / entry-line STM32F0 devices lack the RTC wake-up timer (`WUTR`) required by `rtc::low_power`.
+#[cfg(any(rtc_v2_f0_nowut, rtc_v2_f0_x0_nowut))]
+compile_error!("the `low-power` feature is not supported on STM32F0 devices without an RTC wake-up timer.");
 
 use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
@@ -206,7 +210,7 @@ fn enter_stop(entry: &PowerModeEntry) -> Result<(), ()> {
                 w.set_lpds(entry.selector != 0);
             });
 
-            #[cfg(stm32f3)]
+            #[cfg(any(stm32f0, stm32f3))]
             crate::pac::PWR.cr().modify(|w| {
                 w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
                 w.set_lpds(entry.selector != 0);
@@ -249,6 +253,11 @@ fn enter_stop(entry: &PowerModeEntry) -> Result<(), ()> {
                     v.set_svos(vals::Svos::from_bits(svos));
                 }
             });
+
+            #[cfg(stm32c5)]
+            crate::pac::PWR
+                .pmcr()
+                .modify(|v| v.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
         }
         Dialect::DomainPdds | Dialect::Wb0Deepstop => {}
     }
@@ -271,7 +280,7 @@ fn did_enter_stop() -> Option<bool> {
             None
         }
         Dialect::PmcrSvos => {
-            #[cfg(stm32h5)]
+            #[cfg(any(stm32h5, stm32c5))]
             return Some(crate::pac::PWR.pmsr().read().stopf());
             #[allow(unreachable_code)]
             None
@@ -324,6 +333,13 @@ fn clear_flags() {
         Dialect::PmcrSvos => {
             #[cfg(stm32h5)]
             crate::pac::PWR.pmcr().modify(|w| w.set_cssf(true));
+            #[cfg(stm32c5)]
+            {
+                crate::pac::PWR
+                    .pmcr()
+                    .modify(|w| w.set_cssf(crate::pac::pwr::vals::Cssf::Clear));
+                crate::pac::PWR.wuscr().write(|w| w.0 = 0x7f);
+            }
         }
         Dialect::Classic => {
             #[cfg(stm32l0)]
@@ -336,7 +352,7 @@ fn clear_flags() {
                 w.set_cwuf(true);
                 w.set_lpsdsr(false);
             });
-            #[cfg(stm32f3)]
+            #[cfg(any(stm32f0, stm32f3))]
             crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
         }
         Dialect::LpmsScr => {

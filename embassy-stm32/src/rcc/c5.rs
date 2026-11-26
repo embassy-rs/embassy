@@ -123,6 +123,111 @@ impl Default for Config {
     }
 }
 
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    latency: (u8, u8),
+    wake_latency: Option<(u8, u8)>,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cr = RCC.cr().read();
+        let cfgr = RCC.cfgr().read();
+        let hpre = RCC.cfgr2().read().hpre();
+        let acr = FLASH.acr().read();
+        let latency = (acr.latency(), acr.wrhighfreq());
+        let wake_sys = match cfgr.stopwuck() {
+            crate::pac::rcc::vals::Stopwuck::Hsidiv3 => Hertz(HSI_FREQ.0 / 3),
+            crate::pac::rcc::vals::Stopwuck::Hsi => HSI_FREQ,
+        };
+        let wake_hclk = wake_sys / hpre;
+        let wake_latency = match wake_hclk.0 {
+            ..=34_000_000 => (0u8, 0u8),
+            ..=68_000_000 => (1, 0),
+            ..=102_000_000 => (2, 1),
+            ..=136_000_000 => (3, 1),
+            _ => (4, 2),
+        };
+        Self {
+            cr,
+            sw: cfgr.sws(),
+            latency,
+            wake_latency: (wake_latency.0 > latency.0).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some((latency, wrhighfreq)) = self.wake_latency {
+            FLASH.acr().modify(|w| {
+                w.set_wrhighfreq(wrhighfreq);
+                w.set_latency(latency);
+            });
+            while FLASH.acr().read().latency() != latency {}
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_hsidiv3on(w.hsidiv3on() | s.hsidiv3on());
+            w.set_hsikon(w.hsikon() | s.hsikon());
+        });
+        while (s.hseon() && !RCC.cr().read().hserdy())
+            || (s.hsion() && !RCC.cr().read().hsirdy())
+            || (s.hsidiv3on() && !RCC.cr().read().hsidiv3rdy())
+            || (s.hsikon() && !RCC.cr().read().hsikrdy())
+        {}
+
+        RCC.cr().modify(|w| {
+            w.set_psion(w.psion() | s.psion());
+            w.set_psidiv3on(w.psidiv3on() | s.psidiv3on());
+            w.set_psikon(w.psikon() | s.psikon());
+        });
+        while (s.psion() && !RCC.cr().read().psirdy())
+            || (s.psidiv3on() && !RCC.cr().read().psidiv3rdy())
+            || (s.psikon() && !RCC.cr().read().psikrdy())
+        {}
+
+        if RCC.cfgr().read().sws() != self.sw {
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            FLASH.acr().modify(|w| {
+                w.set_wrhighfreq(self.latency.1);
+                w.set_latency(self.latency.0);
+            });
+            while FLASH.acr().read().latency() != self.latency.0 {}
+        }
+
+        if !s.hsion() || !s.hsidiv3on() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_hsidiv3on(w.hsidiv3on() & s.hsidiv3on());
+            });
+        }
+    }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion() || s.hsidiv3on() || s.hsikon(),
+            pll: s.psion() || s.psidiv3on() || s.psikon(),
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Ensure flash remains safe for every possible incoming clock configuration.
     const MAX_FLASH_LATENCY: u8 = 4;

@@ -172,7 +172,7 @@ impl SealedInstance for crate::peripherals::RTC {
         any(stm32g0, stm32u0) => {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
         }
-        any(stm32l5, stm32h5, stm32u3, stm32u5, stm32wba) => {
+        any(stm32c5, stm32l5, stm32h5, stm32u3, stm32u5, stm32wba) => {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
         _ => {}
