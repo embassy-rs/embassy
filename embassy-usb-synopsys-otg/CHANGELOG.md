@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- Fixed: USB host pipes now return `Disconnected` when their device is removed from a hub, including pending transfers.
+
 - Implement `IsoEndpointIn` with borrowing `IsoSlot`. `ready()` waits until the previous packet has been sent or dropped and the next service interval is one tick away, then `IsoSlot::write()` arms that packet synchronously. For intervals greater than 1, the host polling phase is locked on the first completed IN transfer. Uncollected packets are dropped at the end of their interval.
 
 - Fixed: the host waits for a connection to be stable for 100 ms before it resets the port (USB 2.0 §7.1.7.3). Before, it reset on the first connect event, so a device that bounced while plugged in could be reset mid-bounce. A device that goes away during that 100 ms is reported as disconnected, so transfers in flight are woken.

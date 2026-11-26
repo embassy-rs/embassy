@@ -8,7 +8,8 @@ use core::task::Poll;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+    AddressSet, DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe,
+    pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
@@ -68,6 +69,7 @@ struct HostStateFields {
     port_waker: AtomicWaker,
     port_event: AtomicU8,
     port_speed: AtomicU8,
+    device_generation: [AtomicU8; 128],
 }
 
 /// Storage object for USB host driver state. Create one per OTG instance.
@@ -101,6 +103,7 @@ where
                 port_waker: AtomicWaker::new(),
                 port_event: AtomicU8::new(0),
                 port_speed: AtomicU8::new(0),
+                device_generation: [const { AtomicU8::new(0) }; 128],
             },
             mutex,
         }
@@ -664,6 +667,17 @@ where
 {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, M>;
 
+    fn device_removed(&self, addrs: AddressSet) {
+        for addr in addrs {
+            self.state.fields.device_generation[addr as usize].fetch_add(1, Ordering::AcqRel);
+        }
+        for ch in self.state.channels {
+            if ch.allocated.load(Ordering::Acquire) {
+                ch.waker.wake();
+            }
+        }
+    }
+
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
@@ -709,6 +723,7 @@ where
                     state: self.state.clone(),
                     index: i,
                     device_address: addr,
+                    device_generation: self.state.fields.device_generation[addr as usize].load(Ordering::Acquire),
                     ep_number,
                     max_packet_size,
                     is_low_speed,
@@ -944,6 +959,7 @@ where
     state: HostState<'d, M>,
     index: usize,
     device_address: u8,
+    device_generation: u8,
     ep_number: u8,
     max_packet_size: u16,
     is_low_speed: bool,
@@ -1005,6 +1021,11 @@ where
     D: pipe::Direction,
     M: SharedRawMutex,
 {
+    fn is_removed(&self) -> bool {
+        self.state.fields.device_generation[self.device_address as usize].load(Ordering::Acquire)
+            != self.device_generation
+    }
+
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
@@ -1176,6 +1197,17 @@ where
             let ch_state = &self.state.channels[self.index];
             ch_state.waker.register(cx.waker());
 
+            if self.is_removed() {
+                let hcchar = self.regs.hcchar(self.index).read();
+                if hcchar.chena() {
+                    self.regs.hcchar(self.index).modify(|w| {
+                        w.set_chena(true);
+                        w.set_chdis(true);
+                    });
+                }
+                return Poll::Ready(EV_DISCONNECT);
+            }
+
             let events = ch_state.result.swap(0, Ordering::AcqRel);
             if events != 0 {
                 Poll::Ready(events)
@@ -1224,6 +1256,9 @@ where
     /// chunk; HCTSIZ then holds how many packets went through and the next PID, and the
     /// transfer resumes from the first packet that was not acknowledged.
     async fn do_out_transfer(&mut self, ep_type: EndpointType, data: &[u8], dpid: u8) -> Result<(), PipeError> {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         let r = self.regs;
         let ch = self.index;
         let mps = self.max_packet_size as usize;
@@ -1236,6 +1271,9 @@ where
         // rewrites HCTSIZ each iteration so we re-assert it here.
         let mut do_ping = false;
         loop {
+            if self.is_removed() {
+                return Err(PipeError::Disconnected);
+            }
             self.halt_channel().await?;
 
             let (free_words, free_requests) = if is_periodic {
@@ -1298,6 +1336,9 @@ where
     /// deadline if one is needed. Disconnect is still surfaced via
     /// [`PipeError::Disconnected`].
     async fn do_in_transfer(&mut self, ep_type: EndpointType, buf: &mut [u8], dpid: u8) -> Result<usize, PipeError> {
+        if self.is_removed() {
+            return Err(PipeError::Disconnected);
+        }
         // For interrupt/isochronous endpoints, only request one packet per transfer.
         // The device sends at most one packet per (micro)frame.
         let is_periodic = matches!(ep_type, EndpointType::Interrupt | EndpointType::Isochronous);
@@ -1332,6 +1373,9 @@ where
                         break Err(e);
                     }
                     yield_now().await;
+                    if self.is_removed() {
+                        break Err(PipeError::Disconnected);
+                    }
                     if is_periodic {
                         self.setup_rx_buffer(&mut buf[..xfer_size as usize]);
                         self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);

@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RTC: add the `jiff` feature, with `Rtc::read` and `Rtc::set` taking and returning `jiff::civil::DateTime`.
 - AON timer: remove `set_datetime`, `now_as_datetime` and `set_alarm_at_datetime`, the `DateTime`, `DayOfWeek` and `DateTimeError` re-exports, and `Error::DateTime`.
 - Remove the `chrono` feature.
+- USB host: implement `UsbHostAllocator::device_removed` to fail pending transfers of removed devices.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
