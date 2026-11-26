@@ -26,12 +26,14 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        #[cfg(all(feature = "low-power", stm32l4))]
+        clear_wakeup_exti::<T>();
         let r = T::regs();
         on_interrupt_impl(r, &T::state());
     }
 }
 
-#[cfg(all(feature = "low-power", feature = "rt"))]
+#[cfg(all(feature = "low-power", feature = "rt", any(stm32f4, stm32f7)))]
 foreach_interrupt! {
     (USB_OTG_FS, otg, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -49,10 +51,8 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(all(feature = "low-power", feature = "rt"))]
-#[allow(dead_code)]
+#[cfg(all(feature = "low-power", any(all(feature = "rt", any(stm32f4, stm32f7)), stm32l4)))]
 fn clear_wakeup_exti<T: Instance>() {
-    #[cfg(any(stm32f4, stm32f7, stm32l4))]
     if let Some(line) = wakeup_exti_line::<T>() {
         crate::pac::EXTI.pr(0).write(|w| w.set_line(line, true));
     }
@@ -318,6 +318,7 @@ fn set_wakeup_line<T: Instance>(enable: bool) {
         });
     }
 
+    #[cfg(any(stm32f4, stm32f7))]
     foreach_interrupt! {
         (USB_OTG_FS, otg, $block:ident, WKUP, $irq:ident) => {
             if !T::HIGH_SPEED {
