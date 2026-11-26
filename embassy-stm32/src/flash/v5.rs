@@ -203,25 +203,13 @@ pub(super) fn finish() -> Result<(), Error> {
 
         let sr = sr.read();
         ccr.write(|w| {
-            // stm32-data names the G5's CCR clear fields without the `clr_` prefix.
-            #[cfg(flash_v5_g5)]
-            {
-                w.set_eop(true);
-                w.set_wrperr(true);
-                w.set_pgserr(true);
-                w.set_strberr(true);
-                w.set_incerr(true);
-            }
-            #[cfg(not(flash_v5_g5))]
-            {
-                w.set_clr_eop(true);
-                w.set_clr_wrperr(true);
-                w.set_clr_pgserr(true);
-                w.set_clr_strberr(true);
-                w.set_clr_incerr(true);
-                #[cfg(flash_v5_h7)]
-                w.set_clr_operr(true);
-            }
+            w.set_clr_eop(true);
+            w.set_clr_wrperr(true);
+            w.set_clr_pgserr(true);
+            w.set_clr_strberr(true);
+            w.set_clr_incerr(true);
+            #[cfg(flash_v5_h7)]
+            w.set_clr_operr(true);
         });
 
         reg!(set, cr).modify(|w| {

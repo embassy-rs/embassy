@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode, TempCalibration,
 };
 
 #[path = "./build_common.rs"]
@@ -772,7 +772,7 @@ fn main() {
         clock_gen.chained_muxes.insert(
             "PER",
             &PeripheralRccRegister {
-                register: "AHBPERCKSELR",
+                register: "CCIPR1",
                 field: "PERSEL",
             },
         );
@@ -2999,6 +2999,69 @@ fn main() {
 
         let row = vec![regs.kind.to_string(), p.name.to_string()];
         peripherals_table.push(row);
+    }
+
+    cfgs.declare_all(&[
+        "adc_vrefint_cal",
+        "adc_temp_cal",
+        "adc_temp_two_point",
+        "adc_temp_one_point",
+        "adc_temp_nominal",
+    ]);
+
+    if let Some(cal) = METADATA.adc_calibration {
+        if let Some(vref) = cal.vrefint {
+            cfgs.enable("adc_vrefint_cal");
+            let vref_mv = vref.vref_mv as u32;
+            let cal_bits = vref.cal_bits;
+            g.extend(quote! {
+                pub(crate) const ADC_VREF_CAL_MV: u32 = #vref_mv;
+                pub(crate) const ADC_VREF_CAL_BITS: u8 = #cal_bits;
+            });
+        }
+        if let Some(temp) = cal.temp {
+            match temp {
+                TempCalibration::TwoPoint(t) => {
+                    cfgs.enable("adc_temp_cal");
+                    cfgs.enable("adc_temp_two_point");
+                    let vref_mv = t.vref_mv as u32;
+                    let cal_bits = t.cal_bits;
+                    let cal1_temp_c = t.cal1_temp_c as i32;
+                    let cal2_temp_c = t.cal2_temp_c as i32;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_CAL_MV: u32 = #vref_mv;
+                        pub(crate) const ADC_TEMP_CAL_BITS: u8 = #cal_bits;
+                        pub(crate) const ADC_TEMP_CAL1_C: i32 = #cal1_temp_c;
+                        pub(crate) const ADC_TEMP_CAL2_C: i32 = #cal2_temp_c;
+                    });
+                }
+                TempCalibration::OnePoint(t) => {
+                    cfgs.enable("adc_temp_cal");
+                    cfgs.enable("adc_temp_one_point");
+                    let vref_mv = t.vref_mv as u32;
+                    let cal_bits = t.cal_bits;
+                    let cal1_temp_c = t.cal1_temp_c as i32;
+                    let avg_slope_uv_per_c = t.avg_slope_uv_per_c;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_CAL_MV: u32 = #vref_mv;
+                        pub(crate) const ADC_TEMP_CAL_BITS: u8 = #cal_bits;
+                        pub(crate) const ADC_TEMP_CAL1_C: i32 = #cal1_temp_c;
+                        pub(crate) const ADC_TEMP_AVG_SLOPE_UV_PER_C: i32 = #avg_slope_uv_per_c;
+                    });
+                }
+                TempCalibration::Nominal(t) => {
+                    cfgs.enable("adc_temp_nominal");
+                    let ref_temp_c = t.ref_temp_c as i32;
+                    let v_ref_mv = t.v_ref_mv as u32;
+                    let avg_slope_uv_per_c = t.avg_slope_uv_per_c;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_REF_C: i32 = #ref_temp_c;
+                        pub(crate) const ADC_TEMP_VREF_MV: u32 = #v_ref_mv;
+                        pub(crate) const ADC_TEMP_AVG_SLOPE_UV_PER_C: i32 = #avg_slope_uv_per_c;
+                    });
+                }
+            }
+        }
     }
 
     g.extend(dfsdm_codegen::gen_shapes());

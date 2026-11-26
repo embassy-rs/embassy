@@ -485,8 +485,8 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7rs)]
     {
         // Switch the XSPI clock source so it will use HSI
-        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::Hclk5));
-        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::Hclk5));
+        RCC.ccipr1().modify(|w| w.set_xspi1sel(Xspisel::Hclk5));
+        RCC.ccipr1().modify(|w| w.set_xspi2sel(Xspisel::Hclk5));
     };
 
     // Use the HSI clock as system clock during the actual clock setup
@@ -702,7 +702,7 @@ pub(crate) unsafe fn init(config: Config) {
         });
 
         #[cfg(peri_usb_otg_hs)]
-        RCC.ahbperckselr().modify(|w| {
+        RCC.ccipr1().modify(|w| {
             w.set_usbrefcksel(usb_refck_sel);
         });
     }
