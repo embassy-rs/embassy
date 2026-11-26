@@ -1,24 +1,29 @@
 //! Shared mocks for device-side tests.
+#![allow(missing_docs)]
 
 extern crate std;
 
-use core::cell::Cell;
-use core::future::pending;
+use core::cell::{Cell, RefCell};
+use core::future::{pending, poll_fn};
+use core::task::{Poll, Waker};
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::vec::Vec;
 
 use crate::driver::{
     Bus, Direction, Driver, Endpoint, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError,
-    EndpointError, EndpointIn, EndpointInfo, EndpointOut, EndpointType, Event, Unsupported,
+    EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, Unsupported,
 };
 
 #[derive(Default)]
-pub(crate) struct TestDriver {
+pub struct TestDriver {
     bus: TestBus,
 }
 
-pub(crate) struct TestEndpoint {
+pub struct TestEndpoint {
     info: EndpointInfo,
     stalled: Rc<Cell<bool>>,
+    io: TestIo,
 }
 
 impl<'d> Driver<'d> for TestDriver {
@@ -56,15 +61,16 @@ impl Endpoint for TestEndpoint {
     }
 
     async fn wait_enabled(&mut self) {
-        unreachable!()
+        self.io.wait_enabled(self.info.addr).await
     }
 
     fn is_enabled(&self) -> bool {
-        true
+        self.io.is_enabled(self.info.addr)
     }
 
     async fn set_stalled(&mut self, stalled: bool) {
         self.stalled.set(stalled);
+        self.io.stall(self.info.addr, stalled);
     }
 
     fn is_stalled(&self) -> bool {
@@ -73,18 +79,18 @@ impl Endpoint for TestEndpoint {
 }
 
 impl EndpointIn for TestEndpoint {
-    async fn write_transfer(&mut self, _buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        unreachable!()
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        self.io.write(self.info.addr, buf, needs_zlp)
     }
 }
 
 impl EndpointOut for TestEndpoint {
-    async fn read_transfer(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
-        unreachable!()
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.io.read(self.info.addr, buf)
     }
 }
 
-pub(crate) struct TestBus {
+pub struct TestBus {
     /// The response to the last control request.
     pub(crate) response: Option<Response>,
     /// The control endpoint size passed to `Driver::start`.
@@ -95,10 +101,10 @@ pub(crate) struct TestBus {
     pub(crate) events: std::collections::VecDeque<Event>,
     pub(crate) endpoints: [Option<EndpointInfo>; 32],
     pub(crate) configs: [Option<EndpointConfig>; 32],
-    pub(crate) enabled: [bool; 32],
     /// Shared with the endpoint handles, so a class stall is visible on the bus.
     pub(crate) stalled: [Rc<Cell<bool>>; 32],
     pub(crate) halt_calls: usize,
+    pub(crate) io: TestIo,
 }
 
 impl Default for TestBus {
@@ -110,9 +116,9 @@ impl Default for TestBus {
             events: Default::default(),
             endpoints: [None; 32],
             configs: [None; 32],
-            enabled: [false; 32],
             stalled: core::array::from_fn(|_| Rc::new(Cell::new(false))),
             halt_calls: 0,
+            io: TestIo::default(),
         }
     }
 }
@@ -138,16 +144,18 @@ impl TestBus {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
         self.configs[slot] = Some(config);
+        self.io.set_enabled(addr, false);
         Ok(TestEndpoint {
             info,
             stalled: self.stalled[slot].clone(),
+            io: self.io.clone(),
         })
     }
 
     fn check_halt(&mut self, addr: EndpointAddress) -> usize {
         let slot = Self::slot(addr);
         let endpoint = self.endpoints[slot].unwrap();
-        assert!(self.enabled[slot]);
+        assert!(self.io.is_enabled(addr));
         assert!(matches!(endpoint.ep_type, EndpointType::Bulk | EndpointType::Interrupt));
         self.halt_calls += 1;
         slot
@@ -158,7 +166,9 @@ impl Bus for TestBus {
     async fn enable(&mut self) {}
 
     async fn disable(&mut self) {
-        self.enabled.fill(false);
+        for info in self.endpoints.iter().flatten() {
+            self.io.set_enabled(info.addr, false);
+        }
     }
 
     async fn poll(&mut self) -> Event {
@@ -209,12 +219,12 @@ impl Bus for TestBus {
     async fn endpoint_set_enabled(&mut self, addr: EndpointAddress, enabled: bool) {
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].is_some());
-        self.enabled[slot] = enabled;
+        self.io.set_enabled(addr, enabled);
     }
 
     fn endpoint_is_enabled(&mut self, addr: EndpointAddress) -> bool {
         let slot = Self::slot(addr);
-        self.enabled[slot]
+        self.endpoints[slot].is_some() && self.io.is_enabled(addr)
     }
 
     async fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
@@ -233,8 +243,157 @@ impl Bus for TestBus {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Response {
+pub enum Response {
     Accepted,
     Status(u16),
     Rejected,
+}
+
+impl TestDriver {
+    /// Shared endpoint state.
+    pub fn io(&self) -> TestIo {
+        self.bus.io.clone()
+    }
+
+    /// Marks `addr` as allocated.
+    pub fn reserve(mut self, addr: u8) -> Self {
+        let addr = EndpointAddress::from(addr);
+        let info = EndpointInfo::new(addr, EndpointType::Bulk, 0, EndpointInterval::NONE);
+        assert!(self.bus.endpoints[TestBus::slot(addr)].replace(info).is_none());
+        self
+    }
+}
+
+impl TestEndpoint {
+    /// A standalone endpoint.
+    pub fn new(io: &TestIo, addr: u8, ep_type: EndpointType, max_packet_size: u16) -> Self {
+        Self {
+            info: EndpointInfo::new(addr.into(), ep_type, max_packet_size, EndpointInterval::NONE),
+            stalled: Rc::default(),
+            io: io.clone(),
+        }
+    }
+}
+
+/// Scripted OUT reads, logged IN writes and stalls, per endpoint.
+#[derive(Clone, Default)]
+pub struct TestIo(Rc<TestIoInner>);
+
+#[derive(Default)]
+struct TestIoInner {
+    reads: RefCell<VecDeque<(EndpointAddress, Result<Vec<u8>, EndpointError>)>>,
+    read_count: Cell<usize>,
+    writes: RefCell<Vec<(EndpointAddress, Vec<u8>, bool)>>,
+    stalls: RefCell<Vec<(EndpointAddress, bool)>>,
+    disabled: RefCell<Vec<EndpointAddress>>,
+    enable_wakers: RefCell<Vec<Waker>>,
+}
+
+impl TestIo {
+    /// Queues one OUT transfer on `addr`.
+    pub fn push_read(&self, addr: u8, data: &[u8]) {
+        self.0.reads.borrow_mut().push_back((addr.into(), Ok(data.to_vec())));
+    }
+
+    /// Queues an OUT read error on `addr`.
+    pub fn push_read_error(&self, addr: u8, error: EndpointError) {
+        self.0.reads.borrow_mut().push_back((addr.into(), Err(error)));
+    }
+
+    /// Number of OUT reads so far.
+    pub fn read_count(&self) -> usize {
+        self.0.read_count.get()
+    }
+
+    /// IN transfers written to `addr`, with their `needs_zlp`.
+    pub fn writes(&self, addr: u8) -> Vec<(Vec<u8>, bool)> {
+        let addr = EndpointAddress::from(addr);
+        let writes = self.0.writes.borrow();
+        writes
+            .iter()
+            .filter(|w| w.0 == addr)
+            .map(|w| (w.1.clone(), w.2))
+            .collect()
+    }
+
+    /// Data of the IN transfers written to `addr`.
+    pub fn data(&self, addr: u8) -> Vec<Vec<u8>> {
+        self.writes(addr).into_iter().map(|(data, _)| data).collect()
+    }
+
+    /// Endpoints start enabled.
+    pub fn set_enabled(&self, addr: impl Into<EndpointAddress>, enabled: bool) {
+        let addr = addr.into();
+        let mut disabled = self.0.disabled.borrow_mut();
+        disabled.retain(|a| *a != addr);
+        if !enabled {
+            disabled.push(addr);
+        }
+        drop(disabled);
+        for waker in self.0.enable_wakers.take() {
+            waker.wake();
+        }
+    }
+
+    pub fn is_enabled(&self, addr: impl Into<EndpointAddress>) -> bool {
+        !self.0.disabled.borrow().contains(&addr.into())
+    }
+
+    /// Number of `set_stalled` calls on `addr`.
+    pub fn stall_calls(&self, addr: u8) -> usize {
+        let addr = EndpointAddress::from(addr);
+        self.0.stalls.borrow().iter().filter(|s| s.0 == addr).count()
+    }
+
+    /// Last `set_stalled` value on `addr`.
+    pub fn is_stalled(&self, addr: u8) -> bool {
+        let addr = EndpointAddress::from(addr);
+        self.0
+            .stalls
+            .borrow()
+            .iter()
+            .rev()
+            .find(|s| s.0 == addr)
+            .is_some_and(|s| s.1)
+    }
+
+    async fn wait_enabled(&self, addr: EndpointAddress) {
+        poll_fn(|cx| {
+            if self.is_enabled(addr) {
+                return Poll::Ready(());
+            }
+            let mut wakers = self.0.enable_wakers.borrow_mut();
+            if !wakers.iter().any(|w| w.will_wake(cx.waker())) {
+                wakers.push(cx.waker().clone());
+            }
+            Poll::Pending
+        })
+        .await
+    }
+
+    fn read(&self, addr: EndpointAddress, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        if !self.is_enabled(addr) {
+            return Err(EndpointError::Disabled);
+        }
+        let io = &self.0;
+        io.read_count.set(io.read_count.get() + 1);
+        let mut reads = io.reads.borrow_mut();
+        let i = reads.iter().position(|r| r.0 == addr).ok_or(EndpointError::Disabled)?;
+        let data = reads.remove(i).unwrap().1?;
+        let dst = buf.get_mut(..data.len()).ok_or(EndpointError::BufferOverflow)?;
+        dst.copy_from_slice(&data);
+        Ok(data.len())
+    }
+
+    fn write(&self, addr: EndpointAddress, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        if !self.is_enabled(addr) {
+            return Err(EndpointDisabledError);
+        }
+        self.0.writes.borrow_mut().push((addr, data.to_vec(), needs_zlp));
+        Ok(())
+    }
+
+    fn stall(&self, addr: EndpointAddress, stalled: bool) {
+        self.0.stalls.borrow_mut().push((addr, stalled));
+    }
 }

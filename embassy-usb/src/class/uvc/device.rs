@@ -2185,6 +2185,7 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use crate::device::test_utils::TestDriver;
 
     const INTERVALS: [u32; 2] = [333_333, 666_666];
     const FRAMES: [Frame; 2] = [Frame::new(160, 120, &INTERVALS), Frame::new(320, 240, &INTERVALS)];
@@ -2297,143 +2298,6 @@ mod tests {
         assert_eq!(n.rate_control_modes, 0x0001);
     }
 
-    mod bus {
-        extern crate std;
-
-        use core::cell::RefCell;
-        use std::rc::Rc;
-        use std::vec::Vec;
-
-        use crate::driver::*;
-
-        pub type Log = Rc<RefCell<Vec<(Vec<u8>, bool)>>>;
-
-        pub struct MockDriver(pub Log);
-
-        pub struct MockEndpoint(EndpointInfo, Log);
-
-        pub struct Unused;
-
-        impl<'a> Driver<'a> for MockDriver {
-            type EndpointOut = Unused;
-            type EndpointIn = MockEndpoint;
-            type Bus = Unused;
-
-            fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Unused, EndpointAllocError> {
-                unreachable!()
-            }
-
-            fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
-                let info = {
-                    let mut info = EndpointInfo::new(
-                        EndpointAddress::from_parts(3, Direction::In),
-                        config.ep_type,
-                        config.max_packet_size,
-                        config.interval,
-                    );
-                    info.max_burst = config.max_burst;
-                    info.additional_transactions = config.additional_transactions;
-                    info
-                };
-                Ok(MockEndpoint(info, self.0.clone()))
-            }
-
-            fn start(self, _: u16) -> Unused {
-                Unused
-            }
-        }
-
-        impl Endpoint for MockEndpoint {
-            fn info(&self) -> EndpointInfo {
-                self.0
-            }
-            async fn wait_enabled(&mut self) {}
-            fn is_enabled(&self) -> bool {
-                true
-            }
-            async fn set_stalled(&mut self, _stalled: bool) {}
-            fn is_stalled(&self) -> bool {
-                false
-            }
-        }
-
-        impl EndpointIn for MockEndpoint {
-            async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-                self.1.borrow_mut().push((buf.to_vec(), needs_zlp));
-                Ok(())
-            }
-        }
-
-        impl Endpoint for Unused {
-            fn info(&self) -> EndpointInfo {
-                unreachable!()
-            }
-            async fn wait_enabled(&mut self) {
-                unreachable!()
-            }
-            fn is_enabled(&self) -> bool {
-                unreachable!()
-            }
-            async fn set_stalled(&mut self, _stalled: bool) {
-                unreachable!()
-            }
-            fn is_stalled(&self) -> bool {
-                unreachable!()
-            }
-        }
-
-        impl EndpointOut for Unused {
-            async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-                unreachable!()
-            }
-        }
-
-        impl Bus for Unused {
-            fn control_max_packet_size(&self) -> usize {
-                unreachable!()
-            }
-            async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-                unreachable!()
-            }
-            async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-                unreachable!()
-            }
-            async fn control_accept(&mut self) {
-                unreachable!()
-            }
-            async fn control_reject(&mut self) {
-                unreachable!()
-            }
-            async fn control_accept_set_address(&mut self, _: u8) {
-                unreachable!()
-            }
-            async fn enable(&mut self) {
-                unreachable!()
-            }
-            async fn disable(&mut self) {
-                unreachable!()
-            }
-            async fn poll(&mut self) -> Event {
-                unreachable!()
-            }
-            async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
-                unreachable!()
-            }
-            fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
-                unreachable!()
-            }
-            async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
-                unreachable!()
-            }
-            fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
-                unreachable!()
-            }
-            async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-                unreachable!()
-            }
-        }
-    }
-
     fn descriptors(buf: &[u8]) -> std::vec::Vec<&[u8]> {
         let mut out = std::vec::Vec::new();
         let mut rest = buf;
@@ -2447,7 +2311,7 @@ mod tests {
 
     #[test]
     fn config_descriptor_assembly_uvc15_with_controls_and_still() {
-        let log = bus::Log::default();
+        let driver = TestDriver::default().reserve(0x81).reserve(0x82);
         let mut config_buf = [0u8; 512];
         let mut control_buf = [0u8; 64];
         let mut state = State::new();
@@ -2467,7 +2331,7 @@ mod tests {
 
         {
             let mut builder = Builder::new(
-                bus::MockDriver(log),
+                driver,
                 crate::Config::new(0x1234, 0x5678),
                 &mut config_buf,
                 &mut [],
@@ -2501,12 +2365,13 @@ mod tests {
 
     #[test]
     fn write_frame_streaming_timestamps_still_and_abort() {
-        let log = bus::Log::default();
+        let driver = TestDriver::default().reserve(0x81).reserve(0x82);
+        let mock = driver.io();
         let mut config_buf = [0u8; 512];
         let mut control_buf = [0u8; 64];
         let mut state = State::new();
         let mut builder = Builder::new(
-            bus::MockDriver(log.clone()),
+            driver,
             crate::Config::new(0x1234, 0x5678),
             &mut config_buf,
             &mut [],
@@ -2516,6 +2381,8 @@ mod tests {
         let mut config = Config::new(&FORMATS, UsbDeviceSpeed::Full);
         config.max_packet_size = 16;
         let mut camera = Camera::new(&mut builder, &mut state, config);
+        // Streaming alternate setting selected.
+        mock.set_enabled(0x83, true);
 
         let frame = [1, 2, 3, 4, 5];
         embassy_futures::block_on(camera.write_frame(&frame)).unwrap();
@@ -2534,7 +2401,7 @@ mod tests {
             w.abort().await.unwrap();
         });
 
-        let log = log.borrow();
+        let log = mock.writes(0x83);
         assert_eq!(log[0].0, &[2, 0x83, 1, 2, 3, 4, 5]);
         assert_eq!(
             log[1].0,

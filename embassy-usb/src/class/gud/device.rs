@@ -1216,165 +1216,23 @@ mod tests {
     use core::pin::{Pin, pin};
     use core::task::{Context, Poll, Waker};
 
-    use embassy_usb_driver::EndpointInterval;
-
     use super::*;
-    use crate::driver::{
-        Bus, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointIn, EndpointInfo,
-        Event, Unsupported,
-    };
-
-    struct ScriptedEndpoint<'a> {
-        packets: &'a [Result<&'a [u8], EndpointError>],
-        reads: &'a Cell<usize>,
-    }
-
-    impl Endpoint for ScriptedEndpoint<'_> {
-        fn info(&self) -> EndpointInfo {
-            EndpointInfo::new(
-                EndpointAddress::from_parts(1, crate::driver::Direction::Out),
-                crate::driver::EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            )
-        }
-
-        async fn wait_enabled(&mut self) {
-            unreachable!()
-        }
-
-        fn is_enabled(&self) -> bool {
-            true
-        }
-
-        async fn set_stalled(&mut self, _stalled: bool) {
-            unreachable!()
-        }
-
-        fn is_stalled(&self) -> bool {
-            unreachable!()
-        }
-    }
-
-    impl EndpointOut for ScriptedEndpoint<'_> {
-        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-            let index = self.reads.get();
-            self.reads.set(index + 1);
-            let packet = self.packets[index]?;
-            buf[..packet.len()].copy_from_slice(packet);
-            Ok(packet.len())
-        }
-    }
-
-    struct ScriptedDriver;
-
-    impl<'a> Driver<'a> for ScriptedDriver {
-        type EndpointOut = ScriptedEndpoint<'a>;
-        type EndpointIn = Unused;
-        type Bus = Unused;
-
-        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn start(self, _: u16) -> Self::Bus {
-            unreachable!()
-        }
-    }
-
-    struct Unused;
-
-    impl Endpoint for Unused {
-        fn info(&self) -> EndpointInfo {
-            unreachable!()
-        }
-
-        async fn wait_enabled(&mut self) {
-            unreachable!()
-        }
-
-        fn is_enabled(&self) -> bool {
-            unreachable!()
-        }
-
-        async fn set_stalled(&mut self, _stalled: bool) {
-            unreachable!()
-        }
-
-        fn is_stalled(&self) -> bool {
-            unreachable!()
-        }
-    }
-
-    impl EndpointIn for Unused {
-        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-    }
-
-    impl Bus for Unused {
-        fn control_max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-        async fn control_accept(&mut self) {
-            unreachable!()
-        }
-        async fn control_reject(&mut self) {
-            unreachable!()
-        }
-        async fn control_accept_set_address(&mut self, _: u8) {
-            unreachable!()
-        }
-        async fn enable(&mut self) {
-            unreachable!()
-        }
-
-        async fn disable(&mut self) {
-            unreachable!()
-        }
-
-        async fn poll(&mut self) -> Event {
-            unreachable!()
-        }
-
-        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            unreachable!()
-        }
-    }
+    use crate::device::test_utils::{TestDriver, TestEndpoint, TestIo};
+    use crate::driver::EndpointType;
 
     fn scripted_class<'a>(
         shared: &'a Shared,
-        packets: &'a [Result<&'a [u8], EndpointError>],
-        reads: &'a Cell<usize>,
-    ) -> GudClass<'a, ScriptedDriver> {
+        packets: &[Result<&[u8], EndpointError>],
+        reads: &TestIo,
+    ) -> GudClass<'a, TestDriver> {
+        for packet in packets {
+            match packet {
+                Ok(data) => reads.push_read(0x01, data),
+                Err(error) => reads.push_read_error(0x01, *error),
+            }
+        }
         GudClass {
-            read_ep: ScriptedEndpoint { packets, reads },
+            read_ep: TestEndpoint::new(reads, 0x01, EndpointType::Bulk, 64),
             shared,
         }
     }
@@ -1399,7 +1257,7 @@ mod tests {
     fn read_buffer_distinguishes_error_sources_and_stops_reading() {
         for first in [Err(EndpointError::Disabled), Ok(&[1, 2][..])] {
             let state = State::new();
-            let reads = Cell::new(0);
+            let reads = TestIo::default();
             let packets = [first, Ok(&[7, 8][..])];
             let mut class = scripted_class(&state.shared, &packets, &reads);
             let info = buffer_info(4);
@@ -1418,7 +1276,7 @@ mod tests {
             })));
             assert_eq!(result, Poll::Ready(Err(expected)));
             assert_eq!(calls, usize::from(first.is_ok()));
-            assert_eq!(reads.get(), 1);
+            assert_eq!(reads.read_count(), 1);
             assert_eq!(poll_once(pin!(class.read_packet(&mut chunk))), Poll::Ready(Ok(2)));
             assert_eq!(&chunk[..2], &[7, 8]);
         }
@@ -1427,7 +1285,7 @@ mod tests {
     #[test]
     fn read_buffer_waits_for_borrowing_callback_and_sums_consumed_counts() {
         let state = State::new();
-        let reads = Cell::new(0);
+        let reads = TestIo::default();
         let packets: &[Result<&[u8], EndpointError>] = &[Ok(&[1, 2, 3]), Ok(&[4, 5]), Ok(&[9])];
         let mut class = scripted_class(&state.shared, packets, &reads);
         let info = buffer_info(5);
@@ -1449,17 +1307,17 @@ mod tests {
             ));
 
             assert_eq!(poll_once(transfer.as_mut()), Poll::Pending);
-            assert_eq!(reads.get(), 1);
+            assert_eq!(reads.read_count(), 1);
 
             ready.set(true);
             assert_eq!(poll_once(transfer.as_mut()), Poll::Pending);
-            assert_eq!(reads.get(), 2);
+            assert_eq!(reads.read_count(), 2);
 
             ready.set(true);
             assert_eq!(poll_once(transfer.as_mut()), Poll::Ready(Ok(3)));
         }
         assert_eq!(sum, 15);
-        assert_eq!(reads.get(), 2);
+        assert_eq!(reads.read_count(), 2);
     }
 
     fn mode() -> DisplayMode {

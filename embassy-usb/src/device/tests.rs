@@ -369,7 +369,7 @@ fn interface_requests_require_configured_state() {
         assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Rejected);
         assert_eq!(request(usb, 0x81, Request::GET_STATUS, 0, 0, 2), Response::Rejected);
         // The rejected SET_INTERFACE must not enable alternate setting 1.
-        assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+        assert!(!usb.bus.io.is_enabled(0x83));
 
         assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
         assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
@@ -644,8 +644,8 @@ fn set_configuration_resets_alt_settings() {
     assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
     assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
     assert_eq!(seen.get(), Some((0, 0)));
-    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
-    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+    assert!(usb.bus.io.is_enabled(0x01));
+    assert!(!usb.bus.io.is_enabled(0x83));
 
     // Deconfiguring and configuring again also starts from alternate setting zero.
     assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
@@ -653,8 +653,8 @@ fn set_configuration_resets_alt_settings() {
     assert_eq!(seen.get(), Some((0, 0)));
     assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
     assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
-    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
-    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+    assert!(usb.bus.io.is_enabled(0x01));
+    assert!(!usb.bus.io.is_enabled(0x83));
 }
 
 #[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
@@ -1893,22 +1893,21 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
     drop(function);
     let mut usb = builder.build();
 
-    let slot = |addr: EndpointAddress| addr.index() * 2 + usize::from(addr.is_in());
     let in_addr = shared_in.info().addr;
     let out_addr = alt1_out.info().addr;
 
     // Enumeration selects alternate setting 0: only the shared endpoint is enabled.
     configure(&mut usb);
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(!usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(!usb.bus.io.is_enabled(out_addr));
 
     // Selecting alternate setting 1 enables both endpoints.
     assert_eq!(
         request(&mut usb, 1, Request::SET_INTERFACE, 1, 0, 0),
         Response::Accepted
     );
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(usb.bus.io.is_enabled(out_addr));
 
     // Going back to alternate setting 0 must keep the shared endpoint enabled and
     // disable the endpoint that only exists in alternate setting 1.
@@ -1916,8 +1915,8 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
         request(&mut usb, 1, Request::SET_INTERFACE, 0, 0, 0),
         Response::Accepted
     );
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(!usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(!usb.bus.io.is_enabled(out_addr));
 }
 
 #[cfg(feature = "class-midi")]
@@ -2083,12 +2082,8 @@ fn test_midi2_device_enumeration_and_control() {
         OutResponse::Accepted
     );
 
-    let slot = |addr: u8| {
-        let addr = EndpointAddress::from(addr);
-        addr.index() * 2 + usize::from(addr.is_in())
-    };
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switch interface 1 to Alternate Setting 1 (MIDI 2.0)
     let set_alt_req = Request {
@@ -2104,8 +2099,8 @@ fn test_midi2_device_enumeration_and_control() {
         block_on(usb.inner.handle_control_out(&mut usb.bus, set_alt_req, &[])),
         OutResponse::Accepted
     );
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switching back to MIDI 1.0 must not disable the shared endpoints.
     let set_alt0_req = Request {
@@ -2116,8 +2111,8 @@ fn test_midi2_device_enumeration_and_control() {
         block_on(usb.inner.handle_control_out(&mut usb.bus, set_alt0_req, &[])),
         OutResponse::Accepted
     );
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switch interface 1 to invalid Alternate Setting 2
     let set_alt_invalid = Request {

@@ -4,8 +4,8 @@ mod builder;
 mod descriptor_reader;
 pub mod msos;
 
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, all(feature = "test-utils", not(target_os = "none"))))]
+pub mod test_utils;
 #[cfg(test)]
 mod tests;
 

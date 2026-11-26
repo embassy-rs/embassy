@@ -614,96 +614,11 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
 
 #[cfg(test)]
 mod tests {
-    use core::cell::RefCell;
-
     use embassy_futures::block_on;
-    use embassy_usb_driver::EndpointInterval;
 
     use super::*;
-    use crate::driver::{
-        Bus, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-        EndpointInfo, EndpointOut, Event, Unsupported,
-    };
-
-    /// An enabled interrupt endpoint that keeps what the class writes to it.
-    struct Notifications<'a>(&'a RefCell<[u8; 8]>);
-
-    impl Endpoint for Notifications<'_> {
-        fn info(&self) -> EndpointInfo {
-            EndpointInfo::new(
-                EndpointAddress::from_parts(1, crate::driver::Direction::In),
-                crate::driver::EndpointType::Interrupt,
-                16,
-                EndpointInterval::from_ms(10),
-            )
-        }
-
-        async fn wait_enabled(&mut self) {}
-
-        fn is_enabled(&self) -> bool {
-            true
-        }
-
-        async fn set_stalled(&mut self, _: bool) {}
-
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointIn for Notifications<'_> {
-        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            self.0.borrow_mut().copy_from_slice(buf);
-            Ok(())
-        }
-    }
-
-    /// An enabled bulk OUT endpoint that is never read here.
-    struct Enabled;
-
-    impl Endpoint for Enabled {
-        fn info(&self) -> EndpointInfo {
-            unreachable!()
-        }
-
-        async fn wait_enabled(&mut self) {}
-
-        fn is_enabled(&self) -> bool {
-            true
-        }
-
-        async fn set_stalled(&mut self, _: bool) {}
-
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointOut for Enabled {
-        async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-    }
-
-    struct TestDriver;
-
-    impl<'a> Driver<'a> for TestDriver {
-        type EndpointOut = Enabled;
-        type EndpointIn = Notifications<'a>;
-        type Bus = Unused;
-
-        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn start(self, _: u16) -> Self::Bus {
-            unreachable!()
-        }
-    }
+    use crate::device::test_utils::{TestDriver, TestEndpoint, TestIo};
+    use crate::driver::{EndpointError, EndpointType};
 
     /// One NTB16 with a single datagram of `len` bytes, as a host sends it.
     fn ntb(len: usize) -> ([u8; 128], usize) {
@@ -723,159 +638,22 @@ mod tests {
         (ntb, block)
     }
 
-    /// The host's NTBs, one per transfer, in order.
-    struct Transfers<const N: usize> {
-        ntbs: [([u8; 128], usize); N],
-        next: usize,
-    }
-
-    impl<const N: usize> Endpoint for Transfers<N> {
-        fn info(&self) -> EndpointInfo {
-            unreachable!()
-        }
-
-        async fn wait_enabled(&mut self) {
-            unreachable!()
-        }
-
-        fn is_enabled(&self) -> bool {
-            true
-        }
-
-        async fn set_stalled(&mut self, _: bool) {}
-
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl<const N: usize> EndpointOut for Transfers<N> {
-        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-            let (ntb, len) = self.ntbs[self.next];
-            self.next += 1;
-            buf[..len].copy_from_slice(&ntb[..len]);
-            Ok(len)
-        }
-    }
-
-    struct NtbDriver<const N: usize>;
-
-    impl<'a, const N: usize> Driver<'a> for NtbDriver<N> {
-        type EndpointOut = Transfers<N>;
-        type EndpointIn = Unused;
-        type Bus = Unused;
-
-        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn start(self, _: u16) -> Self::Bus {
-            unreachable!()
-        }
-    }
-
-    struct Unused;
-
-    impl Endpoint for Unused {
-        fn info(&self) -> EndpointInfo {
-            unreachable!()
-        }
-
-        async fn wait_enabled(&mut self) {
-            unreachable!()
-        }
-
-        fn is_enabled(&self) -> bool {
-            unreachable!()
-        }
-
-        async fn set_stalled(&mut self, _: bool) {
-            unreachable!()
-        }
-
-        fn is_stalled(&self) -> bool {
-            unreachable!()
-        }
-    }
-
-    impl EndpointIn for Unused {
-        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-    }
-
-    impl Bus for Unused {
-        fn control_max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-        async fn control_accept(&mut self) {
-            unreachable!()
-        }
-        async fn control_reject(&mut self) {
-            unreachable!()
-        }
-        async fn control_accept_set_address(&mut self, _: u8) {
-            unreachable!()
-        }
-        async fn enable(&mut self) {
-            unreachable!()
-        }
-
-        async fn disable(&mut self) {
-            unreachable!()
-        }
-
-        async fn poll(&mut self) -> Event {
-            unreachable!()
-        }
-
-        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            unreachable!()
-        }
-    }
-
     #[test]
     fn network_connection_names_the_communication_interface() {
         // Communication interface 2 (its data interface would be 3), as in a composite device.
-        let sent = RefCell::new([0; 8]);
+        let state = TestIo::default();
         let (_, mut receiver) = CdcNcmClass::<TestDriver> {
             comm_if: InterfaceNumber(2),
-            comm_ep: Notifications(&sent),
-            read_ep: Enabled,
-            write_ep: Notifications(&sent),
+            comm_ep: TestEndpoint::new(&state, 0x81, EndpointType::Interrupt, 16),
+            read_ep: TestEndpoint::new(&state, 0x02, EndpointType::Bulk, 64),
+            write_ep: TestEndpoint::new(&state, 0x82, EndpointType::Bulk, 64),
             _control: &ControlShared { mac_addr: [0; 6] },
             max_packet_size: 64,
         }
         .split();
         block_on(receiver.wait_connection()).unwrap();
         // NetworkConnection, connected: wIndex is the communication interface (CDC 1.2 §6.3.1).
-        assert_eq!(*sent.borrow(), [0xa1, 0x00, 0x01, 0x00, 2, 0x00, 0x00, 0x00]);
+        assert_eq!(state.writes(0x81)[0].0, [0xa1, 0x00, 0x01, 0x00, 2, 0x00, 0x00, 0x00]);
     }
 
     fn control<'a>(shared: &'a ControlShared) -> Control<'a> {
@@ -945,13 +723,14 @@ mod tests {
 
     /// `read_packet` into `buf`, the host sending one NTB per datagram length.
     fn receive<const N: usize>(datagram_lens: [usize; N], buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let mut receiver = Receiver::<NtbDriver<N>> {
+        let state = TestIo::default();
+        for (ntb, len) in datagram_lens.map(ntb) {
+            state.push_read(0x02, &ntb[..len]);
+        }
+        let mut receiver = Receiver::<TestDriver> {
             comm_if: InterfaceNumber(0),
-            comm_ep: Unused,
-            read_ep: Transfers {
-                ntbs: datagram_lens.map(ntb),
-                next: 0,
-            },
+            comm_ep: TestEndpoint::new(&state, 0x81, EndpointType::Interrupt, 16),
+            read_ep: TestEndpoint::new(&state, 0x02, EndpointType::Bulk, 64),
         };
         block_on(receiver.read_packet(buf))
     }

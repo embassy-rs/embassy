@@ -960,7 +960,6 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
 mod tests {
     extern crate std;
 
-    use core::cell::{Cell, RefCell};
     use core::pin::pin;
     use core::task::{Context, Waker};
     use std::sync::Arc;
@@ -971,7 +970,8 @@ mod tests {
 
     use super::*;
     use crate::class::cdc_acm::{ParityType, StopBits};
-    use crate::driver::{Direction, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
+    use crate::device::test_utils::{TestEndpoint, TestIo};
+    use crate::driver::EndpointType;
 
     const COMM_IF: InterfaceNumber = InterfaceNumber(0);
 
@@ -1189,58 +1189,16 @@ mod tests {
         assert_eq!(acm_capabilities(&config), 0x06);
     }
 
-    /// Interrupt endpoint that records every notification written by this class.
-    struct Recorder<'a> {
-        sent: &'a RefCell<Vec<Vec<u8>>>,
-        enabled: Cell<bool>,
-    }
-
-    impl Endpoint for Recorder<'_> {
-        fn info(&self) -> EndpointInfo {
-            EndpointInfo::new(
-                EndpointAddress::from_parts(1, Direction::In),
-                EndpointType::Interrupt,
-                16,
-                EndpointInterval::from_ms(255),
-            )
-        }
-
-        async fn wait_enabled(&mut self) {}
-
-        fn is_enabled(&self) -> bool {
-            self.enabled.get()
-        }
-
-        async fn set_stalled(&mut self, _: bool) {}
-
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointIn for Recorder<'_> {
-        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            if !self.enabled.get() {
-                return Err(EndpointDisabledError);
-            }
-            self.sent.borrow_mut().push(buf.to_vec());
-            Ok(())
-        }
-    }
-
     /// A writer on interface 2, as in a composite device. On interface 0 the tests could not tell
     /// `wIndex` from `wValue`, since both would be 0.
-    fn writer(sent: &RefCell<Vec<Vec<u8>>>) -> SerialStateWriter<Recorder<'_>> {
-        let recorder = Recorder {
-            sent,
-            enabled: Cell::new(true),
-        };
-        SerialStateWriter::new(recorder, InterfaceNumber(2))
+    fn writer(sent: &TestIo) -> SerialStateWriter<TestEndpoint> {
+        let ep = TestEndpoint::new(sent, 0x81, EndpointType::Interrupt, 16);
+        SerialStateWriter::new(ep, InterfaceNumber(2))
     }
 
     #[test]
     fn set_lines_sends_dcd_and_dsr() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
 
         block_on(writer.set_lines(true, false)).unwrap();
@@ -1250,7 +1208,7 @@ mod tests {
 
         // Header: SERIAL_STATE for interface 2, wLength 2. Then the two bytes of UART state.
         assert_eq!(
-            *sent.borrow(),
+            sent.data(0x81),
             [
                 [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x01, 0x00],
                 [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x03, 0x00],
@@ -1261,58 +1219,58 @@ mod tests {
 
     #[test]
     fn report_sends_events_once_with_the_lines() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
         block_on(writer.set_lines(false, true)).unwrap();
 
         block_on(writer.report(SerialEvents::OVERRUN)).unwrap();
         block_on(writer.set_lines(true, true)).unwrap();
 
-        let sent = sent.borrow();
+        let sent = sent.data(0x81);
         assert_eq!(sent[1][8..], [0x42, 0x00]);
         assert_eq!(sent[2][8..], [0x03, 0x00]);
     }
 
     #[test]
     fn report_does_not_repeat_the_previous_events() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
 
         block_on(writer.report(SerialEvents::PARITY)).unwrap();
         block_on(writer.report(SerialEvents::BREAK)).unwrap();
 
-        assert_eq!(sent.borrow()[1][8..], [0x04, 0x00]);
+        assert_eq!(sent.data(0x81)[1][8..], [0x04, 0x00]);
     }
 
     #[test]
     fn report_sends_several_events_in_one_notification() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
         block_on(writer.set_lines(true, false)).unwrap();
 
         block_on(writer.report(SerialEvents::BREAK | SerialEvents::FRAMING | SerialEvents::OVERRUN)).unwrap();
 
-        let sent = sent.borrow();
+        let sent = sent.data(0x81);
         assert_eq!(sent.len(), 2);
         assert_eq!(sent[1][8..], [0x55, 0x00]);
     }
 
     #[test]
     fn set_lines_keeps_the_levels_when_sending_fails() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
-        writer.ep.enabled.set(false);
+        sent.set_enabled(0x81, false);
 
         assert!(block_on(writer.set_lines(true, false)).is_err());
 
-        writer.ep.enabled.set(true);
+        sent.set_enabled(0x81, true);
         block_on(writer.report(SerialEvents::BREAK)).unwrap();
-        assert_eq!(*sent.borrow(), [[0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x05, 0x00]]);
+        assert_eq!(sent.data(0x81), [[0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x05, 0x00]]);
     }
 
     #[test]
     fn report_uses_the_event_bits_from_the_spec() {
-        let sent = RefCell::new(Vec::new());
+        let sent = TestIo::default();
         let mut writer = writer(&sent);
 
         for events in [
@@ -1325,7 +1283,7 @@ mod tests {
             block_on(writer.report(events)).unwrap();
         }
 
-        let bits: Vec<u8> = sent.borrow().iter().map(|n| n[8]).collect();
+        let bits: Vec<u8> = sent.data(0x81).iter().map(|n| n[8]).collect();
         assert_eq!(bits, [0x04, 0x08, 0x10, 0x20, 0x40]);
     }
 }
