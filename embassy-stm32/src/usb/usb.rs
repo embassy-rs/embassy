@@ -1386,17 +1386,17 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let stage = self.control.data_out_transfer(buf);
-        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
+        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         let stage = self.control.data_in_transfer(data, needs_zlp);
-        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
+        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
     }
 
     async fn control_accept(&mut self) {
         let stage = self.control.accept();
-        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
+        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn control_reject(&mut self) {
@@ -1405,7 +1405,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_accept_set_address(&mut self, addr: u8) {
         let stage = self.control.accept_set_address(addr);
-        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
+        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -2079,22 +2079,6 @@ fn control_aborted() -> bool {
 /// suspend, this means that a status stage that completed before it did not count.
 fn control_restarted() -> bool {
     EP0_SETUP.load(Ordering::Relaxed) || IRQ_RESET.load(Ordering::Acquire)
-}
-
-/// Runs a control stage until it completes, or until VBUS is removed, which gives `aborted`.
-/// Leaves the level of VBUS alone, so that `Bus::poll` reports the removal.
-async fn abort_on_vbus_removed<R>(
-    vbus: &mut Option<ExtiInput<'_, Async>>,
-    stage: impl core::future::Future<Output = R>,
-    aborted: R,
-) -> R {
-    match vbus {
-        Some(vbus) => match embassy_futures::select::select(stage, vbus.wait_for_low()).await {
-            embassy_futures::select::Either::First(r) => r,
-            embassy_futures::select::Either::Second(()) => aborted,
-        },
-        None => stage.await,
-    }
 }
 
 /// Wake on the stage completing, a new SETUP, or a bus event.
