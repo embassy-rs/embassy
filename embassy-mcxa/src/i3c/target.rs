@@ -467,6 +467,11 @@ impl<'d> I3c<'d> {
         });
     }
 
+    fn flush_tx_fifo(&self) {
+        // `modify` preserves SDATACTRL.TXTRIG/RXTRIG; see `flush_fifos`.
+        self.info.regs().sdatactrl().modify(|w| w.set_flushtb(true));
+    }
+
     fn set_configuration(&self, config: &Config) {
         self.info.regs().mconfig().write(|w| w.set_mstena(Mstena::MasterOff));
 
@@ -960,8 +965,8 @@ impl<'d> I3c<'d> {
     /// # Cancellation safety
     ///
     /// Dropping the future aborts the DMA transfer, disables target TX DMA,
-    /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already queued or
-    /// transmitted cannot be recalled.
+    /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already transmitted
+    /// cannot be recalled.
     pub async fn dma_respond_to_read_with_ibi(
         &mut self,
         ibi_payload: &[u8],
@@ -1019,6 +1024,10 @@ impl<'d> I3c<'d> {
         // end-of-chain, but if the caller skipped that step we'd race the
         // controller's Stop emission and corrupt this IBI.
         self.wait_for_end_of_chain().await?;
+
+        // Discard bytes left in the TX FIFO by a previous response that was
+        // cancelled or failed.
+        self.flush_tx_fifo();
 
         let info = self.info;
         let bbq_state = self.bbq_state;
