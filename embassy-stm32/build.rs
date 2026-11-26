@@ -10,8 +10,71 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode, TempCalibration,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, TempCalibration,
 };
+
+fn single_digit(s: &str, prefix: &str) -> bool {
+    s.strip_prefix(prefix)
+        .is_some_and(|rest| rest.len() == 1 && rest.as_bytes()[0].is_ascii_digit())
+}
+
+/// Preserve legacy `crate::rcc::StopMode` assignments on `main` until the
+/// capability-driven low-power engine (`#7647` / `#7213`) lands.
+fn legacy_stop_mode(chip_name: &str, peri_name: &str) -> Ident {
+    let variant = if peri_name == "RTC" {
+        "Standby"
+    } else if chip_name.starts_with("stm32wb55") {
+        match peri_name {
+            "LPTIM1" | "LPUART1" | "I2C3" => "Standby",
+            "USART1" | "I2C1" => "Stop2",
+            _ if peri_name.starts_with("LP") => "Stop2",
+            _ => "Stop1",
+        }
+    } else if chip_name.starts_with("stm32wle5") {
+        match peri_name {
+            "LPUART1" | "I2C3" | "LPTIM1" => "Standby",
+            "I2C1" | "I2C2" | "SUBGHZSPI" | "ADC1" => "Stop2",
+            _ if peri_name.starts_with("LP") => "Stop2",
+            _ => "Stop1",
+        }
+    } else if chip_name.starts_with("stm32wl55") {
+        match peri_name {
+            "LPUART1" | "I2C3" | "LPTIM1" | "IPCC" => "Standby",
+            "I2C1" | "I2C2" | "SUBGHZSPI" | "ADC1" | "HSEM" => "Stop2",
+            _ if peri_name.starts_with("LP") => "Stop2",
+            _ => "Stop1",
+        }
+    } else if chip_name.starts_with("stm32wba") {
+        if matches!(peri_name, "LPUART1" | "LPTIM1" | "I2C3" | "SPI3") {
+            "Standby"
+        } else if peri_name == "ADC4"
+            || single_digit(peri_name, "USART")
+            || single_digit(peri_name, "I2C")
+            || single_digit(peri_name, "SPI")
+            || single_digit(peri_name, "COMP")
+            || peri_name.starts_with("LP")
+        {
+            "Stop2"
+        } else {
+            "Stop1"
+        }
+    } else if chip_name.starts_with("stm32u3") || chip_name.starts_with("stm32u5") {
+        if peri_name.starts_with("LPDMA") {
+            "Standby"
+        } else if peri_name.starts_with("GPDMA") || peri_name.starts_with("LP") {
+            "Stop2"
+        } else {
+            "Stop1"
+        }
+    } else if chip_name.starts_with("stm32u0") && single_digit(peri_name, "LPTIM") {
+        "Standby"
+    } else if peri_name.starts_with("LP") {
+        "Stop2"
+    } else {
+        "Stop1"
+    };
+    format_ident!("{variant}")
+}
 
 #[path = "./build_common.rs"]
 mod common;
@@ -1132,11 +1195,8 @@ fn main() {
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
-            let stop_mode = match rcc.stop_mode {
-                StopMode::Standby => quote! { crate::rcc::StopMode::Standby },
-                StopMode::Stop2 => quote! { crate::rcc::StopMode::Stop2 },
-                StopMode::Stop1 => quote! { crate::rcc::StopMode::Stop1 },
-            };
+            let stop_mode = legacy_stop_mode(&chip_name, p.name);
+            let stop_mode = quote! { crate::rcc::StopMode::#stop_mode };
 
             g.extend(quote! {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
@@ -3117,14 +3177,8 @@ fn main() {
         let stop_mode = dma_peri
             .rcc
             .as_ref()
-            .map(|rcc| rcc.stop_mode.clone())
-            .unwrap_or_default();
-
-        let stop_mode = match stop_mode {
-            StopMode::Standby => quote! { Standby },
-            StopMode::Stop2 => quote! { Stop2 },
-            StopMode::Stop1 => quote! { Stop1 },
-        };
+            .map(|_| legacy_stop_mode(&chip_name, dma_peri.name))
+            .unwrap_or_else(|| format_ident!("Stop1"));
 
         let name = format_ident!("{}", ch.name);
 
