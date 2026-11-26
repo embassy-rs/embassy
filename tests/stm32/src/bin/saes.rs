@@ -27,6 +27,9 @@ use embassy_stm32::saes::{AesCbc, AesEcb, Cipher, CipherSized, Direction, IVSize
 use embassy_stm32::saes::{AesCcm, AesCtr, AesGcm, CipherAuthenticated};
 use embassy_stm32::{bind_interrupts, peripherals, rng, saes};
 
+// The known-answer suites take a while to run.
+teleprobe_meta::timeout!(60);
+
 bind_interrupts!(struct Irqs {
     SAES => saes::InterruptHandler<peripherals::SAES>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
