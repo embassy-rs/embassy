@@ -896,7 +896,10 @@ fn main() {
             })
         }
 
-        fn gen_mux(&mut self, peripheral: &str, mux: &PeripheralRccRegister) -> TokenStream {
+        fn resolve_mux(
+            &self,
+            mux: &PeripheralRccRegister,
+        ) -> (proc_macro2::Ident, proc_macro2::Ident, proc_macro2::Ident, Vec<String>) {
             let ir = &self.rcc_registers.ir;
             let fieldset_name = mux.register.to_ascii_lowercase();
             let fieldset = ir
@@ -908,21 +911,40 @@ fn main() {
             let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
             let enum_name = field.enumm.unwrap();
             let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+            let variants = enumm
+                .variants
+                .iter()
+                .filter(|v| v.name != "Disable")
+                .map(|v| v.name.to_string())
+                .collect();
 
-            let fieldset_name = format_ident!("{}", fieldset_name);
-            let field_name = format_ident!("{}", field_name);
-            let enum_name = format_ident!("{}", enum_name);
+            (
+                format_ident!("{}", fieldset_name),
+                format_ident!("{}", field_name),
+                format_ident!("{}", enum_name),
+                variants,
+            )
+        }
+
+        fn is_stop_clock(name: &str) -> bool {
+            let lower = name.to_ascii_lowercase();
+            let (base, _) = Self::parse_mul_div(&lower);
+            matches!(base, "hsi" | "hsi16" | "hsi_ker" | "hsik" | "hsiker" | "lse" | "lsi")
+        }
+
+        fn gen_mux(&mut self, peripheral: &str, mux: &PeripheralRccRegister) -> TokenStream {
+            let (fieldset_name, field_name, enum_name, variants) = self.resolve_mux(mux);
 
             self.muxes
                 .insert((fieldset_name.clone(), field_name.clone(), enum_name.clone()));
 
             let mut match_arms = TokenStream::new();
 
-            for v in enumm.variants.iter().filter(|v| v.name != "Disable") {
-                let variant_name = format_ident!("{}", v.name);
-                let upper_snake = pascal_to_upper_snake(v.name);
-                let expr = if let Some(mux) = self.chained_muxes.get(upper_snake.as_str()) {
-                    self.gen_mux(peripheral, mux)
+            for v_name in variants {
+                let variant_name = format_ident!("{}", v_name);
+                let upper_snake = pascal_to_upper_snake(&v_name);
+                let expr = if let Some(mux) = self.chained_muxes.get(upper_snake.as_str()).cloned() {
+                    self.gen_mux(peripheral, &mux)
                 } else {
                     self.gen_clock(peripheral, &upper_snake)
                 };
@@ -940,6 +962,53 @@ fn main() {
                          clock. Change 'config.rcc.mux' to another clock.",
                         #peripheral
                     )
+                }
+            }
+        }
+
+        fn gen_mux_survives_stop(&self, mux: &PeripheralRccRegister) -> TokenStream {
+            let (fieldset_name, field_name, enum_name, variants) = self.resolve_mux(mux);
+
+            let mut match_arms = TokenStream::new();
+
+            for v_name in variants {
+                let variant_name = format_ident!("{}", v_name);
+                let upper_snake = pascal_to_upper_snake(&v_name);
+                let expr = if let Some(mux) = self.chained_muxes.get(upper_snake.as_str()) {
+                    self.gen_mux_survives_stop(mux)
+                } else {
+                    let survives = Self::is_stop_clock(&upper_snake);
+                    quote! { #survives }
+                };
+                match_arms.extend(quote! {
+                    crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
+                });
+            }
+
+            quote! {
+                match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                    #match_arms
+                    #[allow(unreachable_patterns)]
+                    _ => false,
+                }
+            }
+        }
+
+        fn gen_kernel_survives_stop(&self, kernel_clock: &PeripheralRccKernelClock) -> TokenStream {
+            match kernel_clock {
+                PeripheralRccKernelClock::Clock(clock) => {
+                    let survives = Self::is_stop_clock(clock);
+                    quote! { #survives }
+                }
+                PeripheralRccKernelClock::Mux(mux) => {
+                    if let (Some(register), Some(field)) = (mux.register, mux.field) {
+                        self.gen_mux_survives_stop(&PeripheralRccRegister { register, field })
+                    } else if let Some(clock) = mux.clock {
+                        let survives = Self::is_stop_clock(clock);
+                        quote! { #survives }
+                    } else {
+                        quote! { false }
+                    }
                 }
             }
         }
@@ -1129,6 +1198,17 @@ fn main() {
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
+            let kernel_survives_stop_impl = if p.name.contains("UART") {
+                let survives = clock_gen.gen_kernel_survives_stop(&rcc.kernel_clock);
+                quote! {
+                    #[cfg(feature = "low-power")]
+                    fn kernel_clock_survives_stop() -> bool {
+                        #survives
+                    }
+                }
+            } else {
+                quote!()
+            };
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
@@ -1146,6 +1226,7 @@ fn main() {
                     fn bus_frequency() -> crate::time::Hertz {
                         #bus_clock_frequency
                     }
+                    #kernel_survives_stop_impl
 
                     const RCC_INFO: crate::rcc::RccInfo = unsafe {
                         crate::rcc::RccInfo::new(

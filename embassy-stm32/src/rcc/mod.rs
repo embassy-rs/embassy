@@ -235,6 +235,11 @@ pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
     #[allow(dead_code)]
     fn bus_frequency() -> Hertz;
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    fn kernel_clock_survives_stop() -> bool {
+        false
+    }
     const RCC_INFO: RccInfo;
 }
 
