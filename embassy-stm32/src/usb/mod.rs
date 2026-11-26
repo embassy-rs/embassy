@@ -5,26 +5,8 @@
 mod _version;
 pub use _version::*;
 
-use crate::exti::ExtiInput;
 use crate::interrupt::typelevel::Interrupt;
-use crate::mode::Async;
 use crate::rcc;
-
-/// Runs a control stage until it completes, or until VBUS is removed, which gives `aborted`.
-/// Leaves the level of VBUS alone, so that `Bus::poll` reports the removal.
-pub(super) async fn abort_on_vbus_removed<R>(
-    vbus: &mut Option<ExtiInput<'_, Async>>,
-    stage: impl core::future::Future<Output = R>,
-    aborted: R,
-) -> R {
-    match vbus {
-        Some(vbus) => match embassy_futures::select::select(stage, vbus.wait_for_low()).await {
-            embassy_futures::select::Either::First(r) => r,
-            embassy_futures::select::Either::Second(()) => aborted,
-        },
-        None => stage.await,
-    }
-}
 
 /// clock, power initialization stuff that's common for USB and OTG.
 fn common_init<T: Instance>() {

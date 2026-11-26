@@ -3,7 +3,8 @@ use core::marker::PhantomData;
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{
-    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+    Bus as _, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event,
+    Unsupported,
 };
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
@@ -74,14 +75,185 @@ macro_rules! config_ulpi_pins {
 // The following numbers are pessimistic and were figured out empirically.
 const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
 
-/// USB driver.
-pub struct Driver<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    inner: OtgDriver<'d>,
-    vbus: Option<ExtiInput<'d, Async>>,
+/// VBUS detection strategy for [`Driver`].
+///
+/// Defaults to `()`, which assumes VBUS is always present with zero runtime or code-size overhead.
+/// Calling [`Driver::with_vbus`] switches the driver to `ExtiInput<'d, Async>`.
+pub trait VbusDetect: Sized {
+    #[doc(hidden)]
+    fn poll_bus<'a, 'd: 'a, T: Instance>(
+        bus: &'a mut Bus<'d, T, Self>,
+    ) -> impl core::future::Future<Output = Event> + 'a;
+    #[doc(hidden)]
+    fn enable_bus<'a, 'd: 'a, T: Instance>(
+        bus: &'a mut Bus<'d, T, Self>,
+    ) -> impl core::future::Future<Output = ()> + 'a;
+    #[doc(hidden)]
+    fn control_data_out<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        buf: &'b mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, EndpointError>> + use<'a, 'b, 'd, Self>;
+    #[doc(hidden)]
+    fn control_data_in<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        data: &'b [u8],
+        needs_zlp: bool,
+    ) -> impl core::future::Future<Output = Result<(), EndpointDisabledError>> + use<'a, 'b, 'd, Self>;
+    #[doc(hidden)]
+    fn control_accept<'a, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+    ) -> impl core::future::Future<Output = ()> + 'a;
+    #[doc(hidden)]
+    fn control_accept_set_address<'a, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        addr: u8,
+    ) -> impl core::future::Future<Output = ()> + 'a;
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
+impl VbusDetect for () {
+    fn poll_bus<'a, 'd: 'a, T: Instance>(
+        bus: &'a mut Bus<'d, T, Self>,
+    ) -> impl core::future::Future<Output = Event> + 'a {
+        if !bus.inited {
+            bus.init();
+        }
+        #[cfg(feature = "low-power")]
+        return async move {
+            let event = bus.inner.poll().await;
+            bus.handle_event(&event);
+            event
+        };
+        #[cfg(not(feature = "low-power"))]
+        bus.inner.poll()
+    }
+
+    fn enable_bus<'a, 'd: 'a, T: Instance>(
+        bus: &'a mut Bus<'d, T, Self>,
+    ) -> impl core::future::Future<Output = ()> + 'a {
+        if !bus.inited {
+            bus.init();
+        }
+        #[cfg(feature = "low-power")]
+        bus.enter_active();
+        bus.inner.enable()
+    }
+
+    fn control_data_out<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        buf: &'b mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, EndpointError>> + use<'a, 'b, 'd> {
+        inner.control_data_out(buf)
+    }
+
+    fn control_data_in<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        data: &'b [u8],
+        needs_zlp: bool,
+    ) -> impl core::future::Future<Output = Result<(), EndpointDisabledError>> + use<'a, 'b, 'd> {
+        inner.control_data_in(data, needs_zlp)
+    }
+
+    fn control_accept<'a, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+    ) -> impl core::future::Future<Output = ()> + 'a {
+        inner.control_accept()
+    }
+
+    fn control_accept_set_address<'a, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        addr: u8,
+    ) -> impl core::future::Future<Output = ()> + 'a {
+        inner.control_accept_set_address(addr)
+    }
+}
+
+impl VbusDetect for ExtiInput<'_, Async> {
+    async fn poll_bus<'a, 'd: 'a, T: Instance>(bus: &'a mut Bus<'d, T, Self>) -> Event {
+        if !bus.power_present {
+            Bus::disable(bus);
+            if bus.vbus.is_low() {
+                bus.vbus.wait_for_high().await;
+            }
+            bus.power_present = true;
+            bus.init();
+            bus.inner.init_device();
+            trace!("VBUS detected");
+            return Event::PowerDetected;
+        }
+
+        if bus.vbus.is_low() {
+            return bus.handle_vbus_removed();
+        }
+
+        match select(bus.inner.poll(), bus.vbus.wait_for_low()).await {
+            Either::First(event) => {
+                #[cfg(feature = "low-power")]
+                bus.handle_event(&event);
+                event
+            }
+            Either::Second(()) => bus.handle_vbus_removed(),
+        }
+    }
+
+    async fn enable_bus<'a, 'd: 'a, T: Instance>(bus: &'a mut Bus<'d, T, Self>) {
+        if bus.power_present {
+            if !bus.inited {
+                bus.init();
+            }
+            #[cfg(feature = "low-power")]
+            bus.enter_active();
+            bus.inner.enable().await;
+        }
+    }
+
+    async fn control_data_out<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        buf: &'b mut [u8],
+    ) -> Result<usize, EndpointError> {
+        match select(inner.control_data_out(buf), self.wait_for_low()).await {
+            Either::First(r) => r,
+            Either::Second(()) => Err(EndpointError::Disabled),
+        }
+    }
+
+    async fn control_data_in<'a, 'b, 'd: 'a>(
+        &'a mut self,
+        inner: &'a mut OtgBus<'d>,
+        data: &'b [u8],
+        needs_zlp: bool,
+    ) -> Result<(), EndpointDisabledError> {
+        match select(inner.control_data_in(data, needs_zlp), self.wait_for_low()).await {
+            Either::First(r) => r,
+            Either::Second(()) => Err(EndpointDisabledError),
+        }
+    }
+
+    async fn control_accept<'a, 'd: 'a>(&'a mut self, inner: &'a mut OtgBus<'d>) {
+        let _ = select(inner.control_accept(), self.wait_for_low()).await;
+    }
+
+    async fn control_accept_set_address<'a, 'd: 'a>(&'a mut self, inner: &'a mut OtgBus<'d>, addr: u8) {
+        let _ = select(inner.control_accept_set_address(addr), self.wait_for_low()).await;
+    }
+}
+
+/// USB driver.
+pub struct Driver<'d, T: Instance, V: VbusDetect = ()> {
+    phantom: PhantomData<&'d mut T>,
+    inner: OtgDriver<'d>,
+    vbus: V,
+}
+
+impl<'d, T: Instance> Driver<'d, T, ()> {
     fn new_inner(phy_type: PhyType, ep_out_buffer: &'d mut [u8], config: Config) -> Self {
         let instance = OtgInstance {
             regs: T::regs(),
@@ -95,7 +267,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         Self {
             inner: OtgDriver::new(ep_out_buffer, instance, config),
-            vbus: None,
+            vbus: (),
             phantom: PhantomData,
         }
     }
@@ -252,16 +424,19 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// chip can enter deep Stop modes (e.g. Stop 2). When `vbus` goes high, the core is
     /// initialized and `Event::PowerDetected` is emitted; when `vbus` goes low, active
     /// transfers are aborted, OTG is powered down, and `Event::PowerRemoved` is emitted.
-    pub fn with_vbus(mut self, vbus: ExtiInput<'d, Async>) -> Self {
-        self.vbus = Some(vbus);
-        self
+    pub fn with_vbus(self, vbus: ExtiInput<'d, Async>) -> Driver<'d, T, ExtiInput<'d, Async>> {
+        Driver {
+            phantom: self.phantom,
+            inner: self.inner,
+            vbus,
+        }
     }
 }
 
-impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
+impl<'d, T: Instance, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, T, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type Bus = Bus<'d, T>;
+    type Bus = Bus<'d, T, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
         self.inner.alloc_endpoint_in(config)
@@ -345,30 +520,31 @@ fn set_wakeup_line<T: Instance>(enable: bool) {
 }
 
 /// USB bus.
-pub struct Bus<'d, T: Instance> {
+pub struct Bus<'d, T: Instance, V: VbusDetect = ()> {
     phantom: PhantomData<&'d mut T>,
     inner: OtgBus<'d>,
     inited: bool,
-    vbus: Option<ExtiInput<'d, Async>>,
+    vbus: V,
     power_present: bool,
     active_wake_guard: crate::rcc::MaybeWakeGuard,
 }
 
-impl<'d, T: Instance> Bus<'d, T> {
+impl<'d, T: Instance, V: VbusDetect> Bus<'d, T, V> {
+    #[cfg(feature = "low-power")]
     fn enter_active(&mut self) {
-        #[cfg(feature = "low-power")]
         set_wakeup_line::<T>(false);
         self.active_wake_guard.enable();
     }
 
+    #[cfg(feature = "low-power")]
     fn enter_suspend(&mut self) {
-        #[cfg(feature = "low-power")]
         if supports_stop1_suspend::<T>(self.inner.phy_type()) {
             set_wakeup_line::<T>(true);
             self.active_wake_guard.disable();
         }
     }
 
+    #[cfg(feature = "low-power")]
     fn handle_event(&mut self, event: &Event) {
         match event {
             Event::Suspend => self.enter_suspend(),
@@ -386,6 +562,7 @@ impl<'d, T: Instance> Bus<'d, T> {
     }
 
     fn init(&mut self) {
+        #[cfg(feature = "low-power")]
         self.enter_active();
         super::common_init::<T>();
 
@@ -491,97 +668,68 @@ impl<'d, T: Instance> Bus<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
-    async fn poll(&mut self) -> Event {
-        if self.vbus.is_some() {
-            if !self.power_present {
-                Bus::disable(self);
-                let vbus = self.vbus.as_mut().unwrap();
-                if vbus.is_low() {
-                    vbus.wait_for_high().await;
-                }
-                self.power_present = true;
-                self.init();
-                self.inner.init_device();
-                trace!("VBUS detected");
-                return Event::PowerDetected;
-            }
-
-            if self.vbus.as_ref().unwrap().is_low() {
-                return self.handle_vbus_removed();
-            }
-
-            let vbus = self.vbus.as_mut().unwrap();
-            return match select(self.inner.poll(), vbus.wait_for_low()).await {
-                Either::First(event) => {
-                    self.handle_event(&event);
-                    event
-                }
-                Either::Second(()) => self.handle_vbus_removed(),
-            };
-        }
-
-        if !self.inited {
-            self.init();
-        }
-
-        let event = self.inner.poll().await;
-        self.handle_event(&event);
-        event
+impl<'d, T: Instance, V: VbusDetect> embassy_usb_driver::Bus for Bus<'d, T, V> {
+    fn poll(&mut self) -> impl core::future::Future<Output = Event> {
+        V::poll_bus(self)
     }
 
     fn control_max_packet_size(&self) -> usize {
         self.inner.control_max_packet_size()
     }
 
-    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let stage = self.inner.control_data_out(buf);
-        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
+    fn control_data_out<'s, 'b>(
+        &'s mut self,
+        buf: &'b mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize, EndpointError>> + use<'s, 'b, 'd, T, V> {
+        self.vbus.control_data_out(&mut self.inner, buf)
     }
 
-    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        let stage = self.inner.control_data_in(data, needs_zlp);
-        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
+    fn control_data_in<'s, 'b>(
+        &'s mut self,
+        data: &'b [u8],
+        needs_zlp: bool,
+    ) -> impl core::future::Future<Output = Result<(), EndpointDisabledError>> + use<'s, 'b, 'd, T, V> {
+        self.vbus.control_data_in(&mut self.inner, data, needs_zlp)
     }
 
-    async fn control_accept(&mut self) {
-        let stage = self.inner.control_accept();
-        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
+    fn control_accept(&mut self) -> impl core::future::Future<Output = ()> {
+        self.vbus.control_accept(&mut self.inner)
     }
 
-    async fn control_reject(&mut self) {
-        self.inner.control_reject().await
+    fn control_reject(&mut self) -> impl core::future::Future<Output = ()> {
+        self.inner.control_reject()
     }
 
-    async fn control_accept_set_address(&mut self, addr: u8) {
-        let stage = self.inner.control_accept_set_address(addr);
-        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
+    fn control_accept_set_address(&mut self, addr: u8) -> impl core::future::Future<Output = ()> {
+        self.vbus.control_accept_set_address(&mut self.inner, addr)
     }
 
-    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        self.inner.endpoint_set_stalled(ep_addr, stalled).await
+    fn endpoint_set_stalled(
+        &mut self,
+        ep_addr: EndpointAddress,
+        stalled: bool,
+    ) -> impl core::future::Future<Output = ()> {
+        self.inner.endpoint_set_stalled(ep_addr, stalled)
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         self.inner.endpoint_is_stalled(ep_addr)
     }
 
-    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        self.inner.endpoint_set_enabled(ep_addr, enabled).await
+    fn endpoint_set_enabled(
+        &mut self,
+        ep_addr: EndpointAddress,
+        enabled: bool,
+    ) -> impl core::future::Future<Output = ()> {
+        self.inner.endpoint_set_enabled(ep_addr, enabled)
     }
 
     fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
         self.inner.endpoint_is_enabled(ep_addr)
     }
 
-    async fn enable(&mut self) {
-        if self.vbus.is_none() || self.power_present {
-            if !self.inited {
-                self.init();
-            }
-            self.enter_active();
-            self.inner.enable().await;
-        }
+    fn enable(&mut self) -> impl core::future::Future<Output = ()> {
+        V::enable_bus(self)
     }
 
     async fn disable(&mut self) {
@@ -589,13 +737,14 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
         Bus::disable(self);
     }
 
-    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+    fn remote_wakeup(&mut self) -> impl core::future::Future<Output = Result<(), Unsupported>> {
+        #[cfg(feature = "low-power")]
         self.enter_active();
-        self.inner.remote_wakeup().await
+        self.inner.remote_wakeup()
     }
 }
 
-impl<'d, T: Instance> Drop for Bus<'d, T> {
+impl<'d, T: Instance, V: VbusDetect> Drop for Bus<'d, T, V> {
     fn drop(&mut self) {
         Bus::disable(self);
     }

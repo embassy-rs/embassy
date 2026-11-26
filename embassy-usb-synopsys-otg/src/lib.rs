@@ -1425,6 +1425,7 @@ where
     /// Gate or ungate the OTG PHY clock (and HCLK on high-speed cores) via `PCGCCTL`.
     ///
     /// See RM0368 §22.8 / RM0515 §44.4 (`STPPCLK` and `GATEHCLK`).
+    #[inline(never)]
     fn set_clock_gating(&self, gated: bool) {
         self.instance.regs.pcgcctl().modify(|w| {
             w.set_stppclk(gated);
