@@ -5,6 +5,8 @@ mod descriptor_reader;
 pub mod msos;
 
 #[cfg(test)]
+mod test_utils;
+#[cfg(test)]
 mod tests;
 
 use heapless::Vec;
