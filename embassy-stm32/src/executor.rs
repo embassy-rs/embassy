@@ -1,6 +1,7 @@
 //! STM32-specific `embassy-executor` platform.
 //!
-//! This module provides an `embassy-executor` platform specific for STM32 chips that integrates [`low_power::sleep()`](crate::low_power::sleep) in the main loop.
+//! This module provides an `embassy-executor` platform specific for STM32 chips that integrates [`low_power::sleep()`](crate::low_power::sleep) in the main thread-mode loop.
+//! Tasks running in an [`InterruptExecutor`] share the same [`WakeGuard`](crate::rcc::WakeGuard) and [`WakeSource`](crate::low_power::WakeSource) state, and thread-mode [`Executor::run`] enters `sleep()` once all executors are idle.
 //! Read the `embassy-executor` README for information about what "executor platforms" are and how they work.
 //!
 //! The implementation of the executor platform is equivalent to `platform-cortex-m` in `embassy-executor` other than low-power support.
@@ -19,8 +20,9 @@
 //! async fn main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
-//!     // the default value, but can be adjusted
-//!     config.min_stop_pause = Duration::from_millis(250);
+//!     // optional extra minimum sleep floor before entering Stop (defaults to 0 ms; per-mode
+//!     // residency and RCC clock-restoration latency are enforced automatically)
+//!     config.min_stop_pause = Duration::from_millis(20);
 //!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
 //!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);

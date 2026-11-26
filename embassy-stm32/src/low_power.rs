@@ -8,20 +8,20 @@
 //! order to start with all GPIOs set to analog input as recommended by STs low-power guidance
 //! AN4899 chapter 7.1
 //!
-//! `sleep()` determines which peripherals are active by their RCC state; consequently,
-//! low-power states can only be entered if peripherals which block stop have been `drop`'d and if
-//! peripherals that do not block stop are busy. Peripherals which never block stop include:
+//! `sleep()` coordinates Stop-mode entry using three mechanisms:
 //!
-//!  * `GPIO`
-//!  * `RTC`
-//!
-//! Other peripherals which block stop when busy include (this list may be stale):
-//!
-//!  * `I2C`
-//!  * `USART`
-//!
-//! Since entering and leaving low-power modes typically incurs a significant latency, `sleep()`
-//! will only attempt to enter when the next timer event is at least [`config.min_stop_pause`] in the future.
+//!  * **Capabilities & per-transaction [`WakeGuard`](crate::rcc::WakeGuard)s:** constructed-but-idle
+//!    peripherals do not block Stop modes. Active operations hold `WakeGuard`s over the Stop modes
+//!    they cannot survive (`Stop0..Stop3`), while peripherals running from a Stop-surviving clock
+//!    (such as `RTC`, `LPTIM`, or Stop-capable `USART`/`LPUART`) remain eligible for Stop.
+//!  * **Armed [`WakeSource`]s:** async waiters (`ExtiInput`, time-driver alarms, and Stop-capable
+//!    peripherals) register a `WakeSource`. If neither a `WakeSource` nor a timer alarm is armed,
+//!    `sleep()` falls back to plain `WFI`.
+//!  * **Per-mode residency & exit latency:** `sleep()` evaluates each mode's `min_residency_us` and
+//!    `exit_latency_us` plus the runtime RCC clock-restoration latency (e.g. `HSE` crystal startup
+//!    and `PLL` relock) and time-driver overhead, selecting the deepest Stop mode that fits before
+//!    the next deadline (with [`Config::min_stop_pause`](crate::Config::min_stop_pause), defaulting
+//!    to `0 ms`, as an optional minimum floor) and waking timed alarms early by the exit latency.
 //!
 //! `embassy-stm32` also provides an `embassy-executor` platform implementation that integrates `sleep()` into the main loop. It is available
 //! in the `embassy_stm32::executor` module, and is enabled by the `executor-thread` or `executor-interrupt` features. This stm32-specific
