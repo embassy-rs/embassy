@@ -131,8 +131,9 @@ impl TestBus {
     fn allocate(&mut self, addr: EndpointAddress, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
         let info = {
             let mut info = EndpointInfo::new(addr, config.ep_type, config.max_packet_size, config.interval);
-            info.max_burst = config.max_burst;
             info.additional_transactions = config.additional_transactions;
+            info.bytes_per_interval = config.bytes_per_interval;
+            info.companion = config.companion;
             info
         };
         let slot = Self::slot(addr);
@@ -1675,7 +1676,7 @@ fn test_superspeed_descriptors() {
         // companion descriptor.
         assert_eq!(
             superspeed_fields(usb, [0x01, 0x82, 0x83, 0x04]),
-            [(15, 0), (15, 0), (0, 64), (0, 64)]
+            [(Some(15), 0), (Some(15), 0), (Some(0), 64), (Some(0), 64)]
         );
     });
 
@@ -1719,11 +1720,15 @@ fn allocated<'d, D: Driver<'d, Bus = TestBus>, const N: usize>(
     endpoints.map(|addr| usb.bus.configs[TestBus::slot(addr.into())].unwrap())
 }
 
-/// `max_burst` and `bytes_per_interval` of the configuration the driver allocated each endpoint with.
-fn superspeed_fields<const N: usize>(usb: &UsbDevice<'_, TestDriver>, endpoints: [u8; N]) -> [(u8, u32); N] {
+/// `max_burst`, if SuperSpeed, and `bytes_per_interval` of the configuration the driver allocated
+/// each endpoint with.
+fn superspeed_fields<const N: usize>(usb: &UsbDevice<'_, TestDriver>, endpoints: [u8; N]) -> [(Option<u8>, u32); N] {
     allocated(usb, endpoints).map(|config| {
-        assert_eq!((config.max_streams, config.mult), (0, 0));
-        (config.max_burst, config.bytes_per_interval)
+        let max_burst = config.companion.map(|companion| {
+            assert_eq!((companion.max_streams, companion.mult), (0, 0));
+            companion.max_burst
+        });
+        (max_burst, config.bytes_per_interval)
     })
 }
 
@@ -1748,7 +1753,7 @@ fn test_superspeed_endpoint_config() {
     with_config_burst(Config::new(0x1234, 0x5678), 15, |usb| {
         // 63 bytes without the four 6-byte companion descriptors.
         assert_eq!(usb.inner.config_descriptor.len(), 63);
-        assert_eq!(superspeed_fields(usb, [0x01, 0x82, 0x83, 0x04]), [(0, 0); 4]);
+        assert_eq!(superspeed_fields(usb, [0x01, 0x82, 0x83, 0x04]), [(None, 0); 4]);
     });
 
     // Every way to allocate a bulk endpoint gives the driver the requested burst.
@@ -1783,7 +1788,7 @@ fn test_superspeed_endpoint_config() {
         drop(function);
         let usb = builder.build();
         assert_eq!(companion_bursts(usb.inner.config_descriptor), [max_burst; 3]);
-        assert_eq!(superspeed_fields(&usb, [0x01, 0x81, 0x02]), [(max_burst, 0); 3]);
+        assert_eq!(superspeed_fields(&usb, [0x01, 0x81, 0x02]), [(Some(max_burst), 0); 3]);
     }
 }
 
@@ -1824,7 +1829,8 @@ fn test_endpoint_options() {
     let usb = builder.build();
     // Each endpoint gets its own options. `max_burst` only applies to bulk endpoints.
     assert_eq!(
-        allocated(&usb, [0x01, 0x81, 0x82, 0x83, 0x84]).map(|config| (config.buffers, config.max_burst)),
+        allocated(&usb, [0x01, 0x81, 0x82, 0x83, 0x84])
+            .map(|config| (config.buffers, config.companion.unwrap().max_burst)),
         [(2, 3), (4, 15), (1, 0), (1, 0), (2, 0)]
     );
     assert_eq!(companion_bursts(usb.inner.config_descriptor), [3, 15, 0, 0, 0]);
@@ -1897,21 +1903,27 @@ fn test_bulk_max_packet_size_high_speed() {
 #[derive(Default)]
 struct BurstLimitDriver(TestDriver);
 
+impl BurstLimitDriver {
+    fn limit(config: &EndpointConfig) -> EndpointConfig {
+        let mut config = *config;
+        if let Some(companion) = &mut config.companion {
+            companion.max_burst = companion.max_burst.min(3);
+        }
+        config
+    }
+}
+
 impl<'d> Driver<'d> for BurstLimitDriver {
     type EndpointOut = TestEndpoint;
     type EndpointIn = TestEndpoint;
     type Bus = TestBus;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = *config;
-        config.max_burst = config.max_burst.min(3);
-        self.0.alloc_endpoint_in(&config)
+        self.0.alloc_endpoint_in(&Self::limit(config))
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        let mut config = *config;
-        config.max_burst = config.max_burst.min(3);
-        self.0.alloc_endpoint_out(&config)
+        self.0.alloc_endpoint_out(&Self::limit(config))
     }
 
     fn start(self, control_max_packet_size: u16) -> TestBus {

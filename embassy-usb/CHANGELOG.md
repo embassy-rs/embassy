@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed: a control request without a data stage, such as `SET_ADDRESS`, no longer calls the driver's `control_data_out()`. Drivers wait there for a packet the host never sends, so enumeration did not complete.
 - Device: `UsbDevice` handles a control request when the driver's `Bus::poll()` returns `Event::Setup`, instead of selecting between `Bus::poll()` and `ControlPipe::setup()`.
+- Host: support SuperSpeed devices.
 - Device: standard Chapter 9 requests follow USB 2.0. Remote wakeup is refused unless the configuration supports it, `GET_STATUS` reports `Config::self_powered`, interface requests stall until the device is configured, device and configuration descriptors reject a non-zero index, `SET_ADDRESS(0)` returns an addressed device to the default state, and `SET_CONFIGURATION` / `SET_INTERFACE` clear endpoint halt
 - Fixed: the hub descriptor bitmaps have a bit per port plus the reserved bit 0, so a hub with 8, 16 or 24 ports was rejected as an invalid descriptor.
 - Fixed: the UAC host reads the sampling frequency from the Clock Source behind the output terminal's clock, following Clock Selectors, and addresses the request to the AudioControl interface instead of interface 0. Before, a device with a Clock Selector failed in `UacHandler::output()`.

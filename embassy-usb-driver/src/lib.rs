@@ -37,6 +37,17 @@ impl Speed {
             Speed::Super | Speed::SuperPlus => 512, // USB 3.0 spec requires 512 for SuperSpeed control EP0
         }
     }
+
+    /// Whether this is SuperSpeed or SuperSpeedPlus.
+    pub const fn is_super(self) -> bool {
+        matches!(self, Speed::Super | Speed::SuperPlus)
+    }
+
+    /// Whether periodic endpoints are serviced in 125 us bus intervals
+    /// rather than 1 ms frames.
+    pub const fn uses_microframes(self) -> bool {
+        matches!(self, Speed::High | Speed::Super | Speed::SuperPlus)
+    }
 }
 
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
@@ -145,16 +156,20 @@ pub struct EndpointInfo {
     pub max_packet_size: u16,
     /// Polling interval.
     pub interval: EndpointInterval,
-    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets. 0 below
-    /// SuperSpeed.
-    pub max_burst: u8,
     /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
     /// 12..11, `0..=2`) for isochronous and interrupt endpoints. 0 otherwise.
     pub additional_transactions: u8,
+    /// Bytes a periodic endpoint moves per service interval: SuperSpeed `wBytesPerInterval`, or
+    /// the `dwBytesPerInterval` of a SuperSpeedPlus or high-speed eUSB2 isochronous endpoint. 0
+    /// for an endpoint without any of them.
+    pub bytes_per_interval: u32,
+    /// SuperSpeed Endpoint Companion fields. `None` below SuperSpeed.
+    pub companion: Option<SuperSpeedEndpointCompanionInfo>,
 }
 
 impl EndpointInfo {
-    /// An endpoint with `max_burst` and `additional_transactions` 0.
+    /// An endpoint with `additional_transactions` and `bytes_per_interval` 0, and without
+    /// SuperSpeed Endpoint Companion fields.
     pub const fn new(
         addr: EndpointAddress,
         ep_type: EndpointType,
@@ -166,10 +181,23 @@ impl EndpointInfo {
             ep_type,
             max_packet_size,
             interval,
-            max_burst: 0,
             additional_transactions: 0,
+            bytes_per_interval: 0,
+            companion: None,
         }
     }
+}
+
+/// The fields of an endpoint's SuperSpeed Endpoint Companion descriptor (USB 3.2).
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SuperSpeedEndpointCompanionInfo {
+    /// `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
+    pub max_burst: u8,
+    /// Bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
+    pub max_streams: u8,
+    /// Isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service interval.
+    pub mult: u8,
 }
 
 /// Configuration to allocate an endpoint with.
@@ -177,9 +205,6 @@ impl EndpointInfo {
 /// The driver must allocate an endpoint with exactly the given `addr` (if any), `ep_type`,
 /// `max_packet_size` and `interval`, or fail. The docs of the other fields say whether the
 /// driver may deviate from them.
-///
-/// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
-/// for an endpoint that has none.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -200,18 +225,6 @@ pub struct EndpointConfig {
     /// This is just a best-effort hint for the driver. Drivers may use a lower value
     /// if there is not enough packet memory, or completely ignore it.
     pub buffers: u8,
-    /// SuperSpeed `bMaxBurst`: the endpoint bursts up to `max_burst + 1` packets.
-    ///
-    /// Drivers may use a lower value, and report it in [`EndpointInfo::max_burst`].
-    pub max_burst: u8,
-    /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
-    pub max_streams: u8,
-    /// SuperSpeed isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service
-    /// interval.
-    pub mult: u8,
-    /// SuperSpeed periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
-    /// isochronous endpoint: the bytes the endpoint moves per service interval.
-    pub bytes_per_interval: u32,
     /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
     /// 12..11, `0..=2`) for isochronous and interrupt endpoints.
     ///
@@ -219,10 +232,19 @@ pub struct EndpointConfig {
     /// [`EndpointAllocError`] or use 0, and report the allocated value in
     /// [`EndpointInfo::additional_transactions`].
     pub additional_transactions: u8,
+    /// Bytes a periodic endpoint moves per service interval: SuperSpeed `wBytesPerInterval`, or
+    /// the `dwBytesPerInterval` of a SuperSpeedPlus or high-speed eUSB2 isochronous endpoint. 0
+    /// for an endpoint without any of them.
+    pub bytes_per_interval: u32,
+    /// SuperSpeed Endpoint Companion fields. `None` below SuperSpeed.
+    ///
+    /// Drivers may use a lower `max_burst`, and report it in [`EndpointInfo::companion`].
+    pub companion: Option<SuperSpeedEndpointCompanionInfo>,
 }
 
 impl EndpointConfig {
-    /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
+    /// An endpoint with one buffer, `additional_transactions` and `bytes_per_interval` 0, and
+    /// without SuperSpeed Endpoint Companion fields.
     pub const fn new(
         addr: Option<EndpointAddress>,
         ep_type: EndpointType,
@@ -235,11 +257,9 @@ impl EndpointConfig {
             max_packet_size,
             interval,
             buffers: 1,
-            max_burst: 0,
-            max_streams: 0,
-            mult: 0,
-            bytes_per_interval: 0,
             additional_transactions: 0,
+            bytes_per_interval: 0,
+            companion: None,
         }
     }
 }

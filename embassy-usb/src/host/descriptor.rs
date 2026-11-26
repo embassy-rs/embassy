@@ -2,7 +2,9 @@
 #![allow(missing_docs)]
 
 use embassy_usb_driver::host::HostError;
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointInterval, EndpointType, Speed};
+use embassy_usb_driver::{
+    Direction, EndpointInfo, EndpointInterval, EndpointType, Speed, SuperSpeedEndpointCompanionInfo,
+};
 use heapless::{String, Vec};
 
 /// Standard descriptor type constants.
@@ -12,10 +14,17 @@ pub mod descriptor_type {
     pub const STRING: u8 = 0x03;
     pub const INTERFACE: u8 = 0x04;
     pub const ENDPOINT: u8 = 0x05;
-
+    pub const INTERFACE_POWER: u8 = 0x08;
+    pub const OTG: u8 = 0x09;
+    pub const DEBUG: u8 = 0x0A;
     pub const INTERFACE_ASSOCIATION: u8 = 0x0B;
+    pub const BOS: u8 = 0x0F;
+    pub const DEVICE_CAPABILITY: u8 = 0x10;
+    pub const EUSB2_ISOCHRONOUS_ENDPOINT_COMPANION: u8 = 0x12;
     pub const CS_INTERFACE: u8 = 0x24;
     pub const CS_ENDPOINT: u8 = 0x25;
+    pub const SUPERSPEED_ENDPOINT_COMPANION: u8 = 0x30;
+    pub const SUPERSPEEDPLUS_ISOCHRONOUS_ENDPOINT_COMPANION: u8 = 0x31;
 }
 
 /// Language Identifiers (USB Language Identifiers 1.0)
@@ -637,7 +646,8 @@ impl<'a> ConfigurationDescriptorChain<'a> {
             return Ok(());
         }
         let mut current_iface: Option<InterfaceDescriptorChain<'a>> = None;
-        for (_, bytes) in self.iter_descriptors() {
+        let mut descriptors = self.iter_descriptors();
+        while let Some((_, bytes)) = descriptors.next() {
             if bytes.len() < 2 {
                 continue;
             }
@@ -651,7 +661,8 @@ impl<'a> ConfigurationDescriptorChain<'a> {
                     }
                 }
                 descriptor_type::ENDPOINT => {
-                    let ep = EndpointDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
+                    let mut ep = EndpointDescriptor::try_from_bytes(bytes).map_err(|_| VisitError::BadDescriptor)?;
+                    ep.take_companions(&mut descriptors);
                     if let Some(iface) = current_iface.as_ref()
                         && !visitor.on_endpoint(iface, &ep)
                     {
@@ -693,7 +704,8 @@ pub trait DescriptorVisitor<'a> {
         true
     }
 
-    /// Catches every sub-descriptor that isn't an interface or endpoint:
+    /// Catches every sub-descriptor that isn't an interface, an endpoint or an endpoint's
+    /// SuperSpeed or SuperSpeedPlus companion (which [`EndpointDescriptor`] holds):
     /// CS_INTERFACE, CS_ENDPOINT, HID, vendor-specific, etc.
     /// Return `Ok(false)` to stop iteration early without an error, or `Err(e)` to stop with one.
     fn on_other(&mut self, _iface: Option<&InterfaceDescriptorChain<'a>>, _raw: &[u8]) -> Result<bool, Self::Error> {
@@ -919,8 +931,8 @@ impl<'a> InterfaceDescriptorChain<'a> {
     /// Iterate over endpoint descriptors inside this interface.
     pub fn iter_endpoints(&'a self) -> EndpointIterator<'a> {
         EndpointIterator {
+            descriptors: self.iter_descriptors(),
             index: 0,
-            buffer_idx: 0,
             iface_desc: self,
         }
     }
@@ -953,6 +965,7 @@ impl<'a> Iterator for InterfaceIterator<'a> {
 }
 
 /// Iterates over raw descriptors, yielding `(byte_offset, &[u8])`.
+#[derive(Clone)]
 pub struct RawDescriptorIterator<'a> {
     buf: &'a [u8],
     offset: usize,
@@ -961,6 +974,15 @@ pub struct RawDescriptorIterator<'a> {
 impl<'a> RawDescriptorIterator<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
         Self { buf, offset: 0 }
+    }
+
+    /// Returns the next descriptor, and advances past it, only if it is a valid `D`.
+    pub fn next_if_descriptor<D: USBDescriptor>(&mut self) -> Option<D> {
+        let mut ahead = self.clone();
+        let (_, bytes) = ahead.next()?;
+        let descriptor = D::try_from_bytes(bytes).ok()?;
+        *self = ahead;
+        Some(descriptor)
     }
 }
 
@@ -983,7 +1005,7 @@ impl<'a> Iterator for RawDescriptorIterator<'a> {
 
 /// Iterates over the endpoint descriptors of an interface.
 pub struct EndpointIterator<'a> {
-    buffer_idx: usize,
+    descriptors: RawDescriptorIterator<'a>,
     index: usize,
     iface_desc: &'a InterfaceDescriptorChain<'a>,
 }
@@ -995,13 +1017,9 @@ impl Iterator for EndpointIterator<'_> {
         if self.index >= self.iface_desc.num_endpoints as usize {
             return None;
         }
-        while self.buffer_idx + 7 <= self.iface_desc.buffer.len() {
-            let working = &self.iface_desc.buffer[self.buffer_idx..];
-            if working[0] == 0 {
-                return None;
-            }
-            self.buffer_idx += working[0] as usize;
-            if let Ok(d) = EndpointDescriptor::try_from_bytes(working) {
+        while let Some((_, bytes)) = self.descriptors.next() {
+            if let Ok(mut d) = EndpointDescriptor::try_from_bytes(bytes) {
+                d.take_companions(&mut self.descriptors);
                 self.index += 1;
                 return Some(d);
             }
@@ -1031,6 +1049,19 @@ pub struct EndpointDescriptor {
     ///
     /// The meaning of this value depends on the transfer type and speed.
     pub interval: u8,
+    /// The SuperSpeed endpoint companion descriptor that follows this one.
+    ///
+    /// Not part of the endpoint descriptor's own bytes.
+    pub companion: Option<SuperSpeedEndpointCompanionDescriptor>,
+    /// The SuperSpeedPlus isochronous endpoint companion descriptor that follows `companion`.
+    ///
+    /// Not part of the endpoint descriptor's own bytes.
+    pub ssp_isochronous_companion: Option<SuperSpeedPlusIsochronousEndpointCompanionDescriptor>,
+    /// The eUSB2 isochronous endpoint companion descriptor of a high-speed isochronous IN endpoint
+    /// whose `max_packet_size` is 0.
+    ///
+    /// Not part of the endpoint descriptor's own bytes.
+    pub eusb2_isochronous_companion: Option<Eusb2IsochronousEndpointCompanionDescriptor>,
 }
 
 impl EndpointDescriptor {
@@ -1052,6 +1083,24 @@ impl EndpointDescriptor {
             EndpointInterval::from_b_interval(speed, ep_type, self.interval),
         );
         info.additional_transactions = additional_transactions;
+        info.bytes_per_interval = self
+            .ssp_isochronous_companion
+            .map(|c| c.bytes_per_interval)
+            .or(self.eusb2_isochronous_companion.map(|c| c.bytes_per_interval))
+            .or(self.companion.map(|c| c.bytes_per_interval.into()))
+            .unwrap_or(0);
+        info.companion = self.companion.map(|c| {
+            let (max_streams, mult) = match ep_type {
+                EndpointType::Bulk => (c.attributes & 0x1f, 0),
+                EndpointType::Isochronous => (0, c.attributes & 0x03),
+                _ => (0, 0),
+            };
+            SuperSpeedEndpointCompanionInfo {
+                max_burst: c.max_burst,
+                max_streams,
+                mult,
+            }
+        });
         info
     }
 
@@ -1099,6 +1148,30 @@ impl EndpointDescriptor {
     pub const fn additional_transactions(&self) -> u8 {
         ((self.max_packet_size >> 11) & 0x03) as u8
     }
+
+    /// Reads this endpoint's companions from the `descriptors` after it, advancing past the
+    /// SuperSpeed and SuperSpeedPlus ones.
+    fn take_companions(&mut self, descriptors: &mut RawDescriptorIterator<'_>) {
+        self.companion = descriptors.next_if_descriptor();
+        if self.ep_type() != EndpointType::Isochronous {
+            return;
+        }
+        if self.companion.is_some_and(|c| c.has_ssp_isochronous_companion()) {
+            self.ssp_isochronous_companion = descriptors.next_if_descriptor();
+        }
+        // Unlike the others, it may be anywhere before the next endpoint or interface.
+        if self.is_in() && self.max_packet_size == 0 {
+            self.eusb2_isochronous_companion = descriptors
+                .clone()
+                .take_while(|(_, bytes)| {
+                    !matches!(
+                        bytes.get(1),
+                        Some(&descriptor_type::ENDPOINT | &descriptor_type::INTERFACE)
+                    )
+                })
+                .find_map(|(_, bytes)| Eusb2IsochronousEndpointCompanionDescriptor::try_from_bytes(bytes).ok());
+        }
+    }
 }
 
 impl ExtendableDescriptor for EndpointDescriptor {
@@ -1117,6 +1190,9 @@ impl USBDescriptor for EndpointDescriptor {
             attributes: bytes[3],
             max_packet_size: u16::from_le_bytes([bytes[4], bytes[5]]),
             interval: bytes[6],
+            companion: None,
+            ssp_isochronous_companion: None,
+            eusb2_isochronous_companion: None,
         })
     }
 }
@@ -1129,6 +1205,113 @@ impl WritableDescriptor for EndpointDescriptor {
         [bytes[4], bytes[5]] = self.max_packet_size.to_le_bytes();
         bytes[6] = self.interval;
         Ok(bytes[0] as usize)
+    }
+}
+
+/// SuperSpeed Endpoint Companion descriptor (USB 3.2).
+///
+/// Follows each endpoint descriptor of a SuperSpeed device.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SuperSpeedEndpointCompanionDescriptor {
+    /// The endpoint bursts up to `max_burst + 1` packets.
+    pub max_burst: u8,
+    /// Attribute bitmap: `MaxStreams` for a bulk endpoint, `Mult` and whether a SuperSpeedPlus
+    /// companion follows for an isochronous one.
+    pub attributes: u8,
+    /// Bytes per service interval of a periodic endpoint.
+    pub bytes_per_interval: u16,
+}
+
+impl SuperSpeedEndpointCompanionDescriptor {
+    /// Whether a SuperSpeedPlus isochronous endpoint companion follows the companion of an
+    /// isochronous endpoint (bit 7 of `bmAttributes`).
+    pub const fn has_ssp_isochronous_companion(&self) -> bool {
+        self.attributes & 0x80 != 0
+    }
+}
+
+impl ExtendableDescriptor for SuperSpeedEndpointCompanionDescriptor {
+    const MIN_LEN: u8 = 6;
+}
+
+impl USBDescriptor for SuperSpeedEndpointCompanionDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
+    const DESC_TYPE: u8 = descriptor_type::SUPERSPEED_ENDPOINT_COMPANION;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
+        Ok(Self {
+            max_burst: bytes[2],
+            attributes: bytes[3],
+            bytes_per_interval: u16::from_le_bytes([bytes[4], bytes[5]]),
+        })
+    }
+}
+
+impl WritableDescriptor for SuperSpeedEndpointCompanionDescriptor {
+    fn write_to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
+        Self::prepare_bytes(bytes, Self::MIN_LEN)?;
+        bytes[2] = self.max_burst;
+        bytes[3] = self.attributes;
+        [bytes[4], bytes[5]] = self.bytes_per_interval.to_le_bytes();
+        Ok(bytes[0] as usize)
+    }
+}
+
+/// SuperSpeedPlus Isochronous Endpoint Companion descriptor (USB 3.2).
+///
+/// Follows the SuperSpeed Endpoint Companion descriptor that announces it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SuperSpeedPlusIsochronousEndpointCompanionDescriptor {
+    /// Bytes per service interval.
+    pub bytes_per_interval: u32,
+}
+
+impl ExtendableDescriptor for SuperSpeedPlusIsochronousEndpointCompanionDescriptor {
+    const MIN_LEN: u8 = 8;
+}
+
+impl USBDescriptor for SuperSpeedPlusIsochronousEndpointCompanionDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
+    const DESC_TYPE: u8 = descriptor_type::SUPERSPEEDPLUS_ISOCHRONOUS_ENDPOINT_COMPANION;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
+        Ok(Self {
+            bytes_per_interval: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        })
+    }
+}
+
+/// eUSB2 Isochronous Endpoint Companion descriptor (USB 2.0 Double Isochronous IN Bandwidth ECN).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Eusb2IsochronousEndpointCompanionDescriptor {
+    /// Maximum packet size, in place of the endpoint descriptor's 0.
+    pub max_packet_size: u16,
+    /// Bytes per service interval.
+    pub bytes_per_interval: u32,
+}
+
+impl ExtendableDescriptor for Eusb2IsochronousEndpointCompanionDescriptor {
+    const MIN_LEN: u8 = 8;
+}
+
+impl USBDescriptor for Eusb2IsochronousEndpointCompanionDescriptor {
+    const BUF_SIZE: usize = Self::MIN_LEN as usize;
+    const DESC_TYPE: u8 = descriptor_type::EUSB2_ISOCHRONOUS_ENDPOINT_COMPANION;
+    type Error = DescriptorError;
+
+    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::match_bytes(bytes)?;
+        Ok(Self {
+            max_packet_size: u16::from_le_bytes([bytes[2], bytes[3]]),
+            bytes_per_interval: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        })
     }
 }
 
@@ -1617,6 +1800,9 @@ mod test {
             attributes: 0x22,
             max_packet_size: 0x3344,
             interval: 0x55,
+            companion: None,
+            ssp_isochronous_companion: None,
+            eusb2_isochronous_companion: None,
         };
         let mut bytes = [0u8; EndpointDescriptor::BUF_SIZE];
         assert_eq!(
@@ -1634,6 +1820,9 @@ mod test {
             attributes: 0x05,
             max_packet_size: (2 << 11) | 1024,
             interval: 1,
+            companion: None,
+            ssp_isochronous_companion: None,
+            eusb2_isochronous_companion: None,
         };
         assert_eq!(iso.packet_size(), 1024);
         assert_eq!(iso.additional_transactions(), 2);
@@ -1647,6 +1836,9 @@ mod test {
             attributes: 0x02,
             max_packet_size: (1 << 11) | 512,
             interval: 0,
+            companion: None,
+            ssp_isochronous_companion: None,
+            eusb2_isochronous_companion: None,
         };
         let bulk_info = bulk.endpoint_info(Speed::High);
         assert_eq!(bulk_info.max_packet_size, 512);
@@ -1766,5 +1958,213 @@ mod test {
         let cfg = ConfigurationDescriptorChain::try_from_slice(&BUF).expect("configuration parses");
         let iface = cfg.iter_interface().next().expect("one interface");
         assert_eq!(iface.iter_endpoints().count(), 0);
+    }
+
+    /// An endpoint takes the SuperSpeed companion that follows it, on both
+    /// walks.
+    #[test]
+    fn endpoints_take_their_companion() {
+        const BUF: [u8; 38] = [
+            9, 2, 38, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 2, 0xff, 0, 0, 0, // interface with two endpoints
+            7, 5, 0x81, 2, 0, 4, 0, // bulk IN, 1024 bytes
+            6, 0x30, 15, 4, 0, 0, // companion, bMaxBurst 15, MaxStreams 4
+            7, 5, 0x02, 2, 0, 4, 0, // bulk OUT without a companion
+        ];
+        let cfg = ConfigurationDescriptorChain::try_from_slice(&BUF).expect("configuration parses");
+        let iface = cfg.iter_interface().next().expect("one interface");
+        let companion = SuperSpeedEndpointCompanionDescriptor {
+            max_burst: 15,
+            attributes: 4,
+            bytes_per_interval: 0,
+        };
+        let companions: Vec<_, 2> = iface.iter_endpoints().map(|e| e.companion).collect();
+        assert_eq!(companions.as_slice(), &[Some(companion), None]);
+        let info = iface
+            .iter_endpoints()
+            .next()
+            .expect("bulk IN")
+            .endpoint_info(Speed::Super);
+        let expected = SuperSpeedEndpointCompanionInfo {
+            max_burst: 15,
+            max_streams: 4,
+            mult: 0,
+        };
+        assert_eq!(info.companion, Some(expected));
+
+        // The companion belongs to its endpoint, so `on_other` never sees it.
+        struct Companions(Vec<Option<SuperSpeedEndpointCompanionDescriptor>, 2>);
+        impl<'a> DescriptorVisitor<'a> for Companions {
+            type Error = ();
+            fn on_endpoint(&mut self, _: &InterfaceDescriptorChain<'a>, e: &EndpointDescriptor) -> bool {
+                self.0.push(e.companion).is_ok()
+            }
+            fn on_other(&mut self, _: Option<&InterfaceDescriptorChain<'a>>, raw: &[u8]) -> Result<bool, ()> {
+                if raw[1] == descriptor_type::SUPERSPEED_ENDPOINT_COMPANION {
+                    Err(())
+                } else {
+                    Ok(true)
+                }
+            }
+        }
+        let mut visitor = Companions(Vec::new());
+        assert!(cfg.visit_descriptors(&mut visitor).is_ok());
+        assert_eq!(visitor.0.as_slice(), &[Some(companion), None]);
+    }
+
+    /// A periodic endpoint reports its companion's `wBytesPerInterval`, and 0 without a companion.
+    #[test]
+    fn endpoint_info_reports_bytes_per_interval() {
+        const ISO_IN: [u8; 7] = [7, 5, 0x83, 5, 0, 4, 1];
+        let mut endpoint = EndpointDescriptor::try_from_bytes(&ISO_IN).expect("endpoint parses");
+        assert_eq!(endpoint.endpoint_info(Speed::High).bytes_per_interval, 0);
+
+        endpoint.companion = Some(SuperSpeedEndpointCompanionDescriptor {
+            max_burst: 2,
+            attributes: 1,
+            bytes_per_interval: 6 * 1024,
+        });
+        let info = endpoint.endpoint_info(Speed::Super);
+        assert_eq!(info.bytes_per_interval, 6 * 1024);
+        let expected = SuperSpeedEndpointCompanionInfo {
+            max_burst: 2,
+            max_streams: 0,
+            mult: 1,
+        };
+        assert_eq!(info.companion, Some(expected));
+    }
+
+    /// The companions of each endpoint, on both walks, which must agree.
+    fn companions<const N: usize>(buf: &[u8]) -> ([EndpointDescriptor; N], Vec<u8, 8>) {
+        struct Visitor(Vec<EndpointDescriptor, 4>, Vec<u8, 8>);
+        impl<'a> DescriptorVisitor<'a> for Visitor {
+            type Error = ();
+            fn on_endpoint(&mut self, _: &InterfaceDescriptorChain<'a>, e: &EndpointDescriptor) -> bool {
+                self.0.push(*e).is_ok()
+            }
+            fn on_other(&mut self, _: Option<&InterfaceDescriptorChain<'a>>, raw: &[u8]) -> Result<bool, ()> {
+                self.1.push(raw[1]).map_err(|_| ())?;
+                Ok(true)
+            }
+        }
+        let cfg = ConfigurationDescriptorChain::try_from_slice(buf).expect("configuration parses");
+        let mut visitor = Visitor(Vec::new(), Vec::new());
+        assert!(cfg.visit_descriptors(&mut visitor).is_ok());
+        let iface = cfg.iter_interface().next().expect("one interface");
+        let walked: Vec<_, 4> = iface.iter_endpoints().collect();
+        assert_eq!(walked, visitor.0);
+        (walked.as_slice().try_into().expect("endpoint count"), visitor.1)
+    }
+
+    /// An isochronous endpoint takes the SuperSpeedPlus companion that its SuperSpeed companion
+    /// announces, and reports its 32-bit `dwBytesPerInterval`.
+    #[test]
+    fn isochronous_endpoints_take_their_ssp_companion() {
+        const BUF: [u8; 86] = [
+            9, 2, 86, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 4, 0xff, 0, 0, 0, // interface with four endpoints
+            7, 5, 0x81, 1, 0, 4, 1, // isochronous IN
+            6, 0x30, 15, 0x80, 1, 0, // companion, announces a SuperSpeedPlus one
+            8, 0x31, 0, 0, 0x00, 0x80, 0x01, 0x00, // 98304 bytes per interval
+            7, 5, 0x82, 1, 0, 4, 1, // isochronous IN
+            6, 0x30, 15, 0x80, 0, 4, // companion, announces one that is missing
+            7, 5, 0x83, 1, 0, 4, 1, // isochronous IN
+            6, 0x30, 15, 0x00, 0, 4, // companion, announces none
+            7, 5, 0x04, 2, 0, 4, 0, // bulk OUT
+            6, 0x30, 15, 0x80, 0, 0, // companion with the flag, reserved on bulk
+            8, 0x31, 0, 0, 0x00, 0x80, 0x01, 0x00, // not for a bulk endpoint
+        ];
+        let (eps, other) = companions::<4>(&BUF);
+        let ssp = SuperSpeedPlusIsochronousEndpointCompanionDescriptor {
+            bytes_per_interval: 98304,
+        };
+        assert_eq!(
+            eps.map(|ep| ep.ssp_isochronous_companion),
+            [Some(ssp), None, None, None]
+        );
+        assert_eq!(
+            eps.map(|ep| ep.endpoint_info(Speed::SuperPlus).bytes_per_interval),
+            [98304, 1024, 1024, 0]
+        );
+        assert_eq!(
+            other.as_slice(),
+            &[descriptor_type::SUPERSPEEDPLUS_ISOCHRONOUS_ENDPOINT_COMPANION]
+        );
+    }
+
+    /// A SuperSpeedPlus companion that isn't announced is left to `on_other`.
+    #[test]
+    fn unannounced_ssp_companion_is_not_taken() {
+        const BUF: [u8; 39] = [
+            9, 2, 39, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 1, 0xff, 0, 0, 0, // interface with one endpoint
+            7, 5, 0x81, 1, 0, 4, 1, // isochronous IN
+            6, 0x30, 15, 0x00, 0, 4, // companion, announces none
+            8, 0x31, 0, 0, 0x00, 0x80, 0x01, 0x00, // 98304 bytes per interval
+        ];
+        let ([ep], other) = companions::<1>(&BUF);
+        assert_eq!(ep.ssp_isochronous_companion, None);
+        assert_eq!(ep.endpoint_info(Speed::SuperPlus).bytes_per_interval, 1024);
+        assert_eq!(
+            other.as_slice(),
+            &[descriptor_type::SUPERSPEEDPLUS_ISOCHRONOUS_ENDPOINT_COMPANION]
+        );
+    }
+
+    /// A high-speed isochronous IN endpoint without a packet size takes the eUSB2 companion before
+    /// the next endpoint, and reports its `dwBytesPerInterval`.
+    #[test]
+    fn isochronous_endpoints_take_their_eusb2_companion() {
+        const BUF: [u8; 75] = [
+            9, 2, 75, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 4, 0xff, 0, 0, 0, // interface with four endpoints
+            7, 5, 0x81, 1, 0, 0, 1, // isochronous IN, wMaxPacketSize 0, without a companion
+            7, 5, 0x82, 1, 0, 0, 1, // isochronous IN, wMaxPacketSize 0
+            5, 0x25, 1, 0, 0, // class-specific endpoint descriptor
+            8, 0x12, 0, 4, 0x00, 0x18, 0x00, 0x00, // 1024 bytes, 6144 bytes per interval
+            7, 5, 0x83, 1, 0, 4, 1, // isochronous IN, 1024 bytes
+            8, 0x12, 0, 4, 0x00, 0x18, 0x00, 0x00, // not for an endpoint with a packet size
+            7, 5, 0x04, 1, 0, 0, 1, // isochronous OUT, wMaxPacketSize 0
+            8, 0x12, 0, 4, 0x00, 0x18, 0x00, 0x00, // not for an OUT endpoint
+        ];
+        let (eps, other) = companions::<4>(&BUF);
+        let eusb2 = Eusb2IsochronousEndpointCompanionDescriptor {
+            max_packet_size: 1024,
+            bytes_per_interval: 6144,
+        };
+        assert_eq!(
+            eps.map(|ep| ep.eusb2_isochronous_companion),
+            [None, Some(eusb2), None, None]
+        );
+        let infos = eps.map(|ep| ep.endpoint_info(Speed::High));
+        assert_eq!(infos.map(|info| info.bytes_per_interval), [0, 6144, 0, 0]);
+        // The endpoint's own packet size stays 0, so drivers without support refuse it.
+        assert_eq!(infos.map(|info| info.max_packet_size), [0, 0, 1024, 0]);
+        assert!(infos.iter().all(|info| info.companion.is_none()));
+        // Nothing else is consumed while looking for it.
+        assert_eq!(other.as_slice(), &[0x25, 0x12, 0x12, 0x12]);
+    }
+
+    /// `next_if_descriptor` takes the next descriptor only when it is a valid one of that type.
+    #[test]
+    fn next_if_descriptor_takes_only_a_match() {
+        const BUF: [u8; 17] = [
+            7, 5, 0x81, 2, 0, 4, 0, // endpoint
+            6, 0x30, 15, 4, 0, 0, // companion
+            4, 0x30, 15, 4, // companion that is too short
+        ];
+        type Companion = SuperSpeedEndpointCompanionDescriptor;
+        let mut descriptors = RawDescriptorIterator::new(&BUF);
+        assert_eq!(descriptors.next_if_descriptor::<Companion>(), None);
+        let endpoint = descriptors.next_if_descriptor::<EndpointDescriptor>();
+        assert_eq!(endpoint.map(|endpoint| endpoint.endpoint_address), Some(0x81));
+        let companion = Companion {
+            max_burst: 15,
+            attributes: 4,
+            bytes_per_interval: 0,
+        };
+        assert_eq!(descriptors.next_if_descriptor(), Some(companion));
+        assert_eq!(descriptors.next_if_descriptor::<Companion>(), None);
+        assert_eq!(descriptors.next(), Some((13, &BUF[13..])));
     }
 }
