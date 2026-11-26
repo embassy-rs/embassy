@@ -31,6 +31,7 @@ hashtime save /ci/cache/filetime.json
 # when bumping these you must increment the version, otherwise the new version will not be installed
 
 cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
+cargo install --git https://github.com/embassy-rs/teleprobe --locked --rev 20f318435b7f7091e276a271f410ca166ba4ea74 teleprobe
 
 ./ci.sh
 
