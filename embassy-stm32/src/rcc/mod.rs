@@ -257,13 +257,24 @@ pub(crate) fn get_power_mode(_cs: CriticalSection) -> Option<&'static crate::_ge
 }
 
 #[cfg(feature = "low-power")]
+#[allow(dead_code)]
 pub(crate) fn select_power_mode(
-    _cs: CriticalSection,
+    cs: CriticalSection,
     time_until_next_alarm_us: Option<u64>,
     driver_overhead_us: u32,
 ) -> Option<(&'static crate::_generated::power::PowerModeEntry, u32)> {
+    select_power_mode_within(cs, time_until_next_alarm_us, driver_overhead_us, StopModes::ALL)
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn select_power_mode_within(
+    _cs: CriticalSection,
+    time_until_next_alarm_us: Option<u64>,
+    driver_overhead_us: u32,
+    allowed: StopModes,
+) -> Option<(&'static crate::_generated::power::PowerModeEntry, u32)> {
     unsafe { get_stop_restore()? };
-    if !crate::_generated::power::HAS_POWER {
+    if !crate::_generated::power::HAS_POWER || allowed.is_empty() {
         return None;
     }
 
@@ -273,6 +284,9 @@ pub(crate) fn select_power_mode(
     while i > 0 {
         i -= 1;
         let m = &modes[i];
+        if (allowed.0 & m.bit) == 0 {
+            continue;
+        }
         let idx = m.kind.depth() as usize;
         if unsafe { STOP_BLOCKERS[idx] } == 0 {
             let exit_us = m.exit_latency_us.saturating_add(clock_us);
@@ -764,6 +778,26 @@ pub struct MaybeWakeGuard {
 }
 
 impl MaybeWakeGuard {
+    #[doc(hidden)]
+    pub const fn const_no_stop() -> Self {
+        Self {
+            #[cfg(feature = "low-power")]
+            blocked: StopModes::ALL,
+            #[cfg(feature = "low-power")]
+            enabled: false,
+        }
+    }
+
+    #[doc(hidden)]
+    pub const fn const_stop0_only() -> Self {
+        Self {
+            #[cfg(feature = "low-power")]
+            blocked: StopModes::ALL.without(StopModes::STOP0),
+            #[cfg(feature = "low-power")]
+            enabled: false,
+        }
+    }
+
     pub fn enable(&mut self) {
         #[cfg(feature = "low-power")]
         if !core::mem::replace(&mut self.enabled, true) {

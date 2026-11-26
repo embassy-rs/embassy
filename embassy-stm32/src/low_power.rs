@@ -73,7 +73,7 @@ use critical_section::CriticalSection;
 use crate::interrupt;
 use crate::_generated::power::{DIALECT, Dialect, PowerModeEntry};
 pub use crate::rcc::StopMode;
-use crate::rcc::{StopModes, select_power_mode};
+use crate::rcc::{StopModes, select_power_mode_within};
 use crate::time_driver::{LPTimeDriver, get_driver};
 
 /// Classification of an armed wake-up source that can bring the core out of Stop mode.
@@ -513,10 +513,26 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         return false;
     }
 
-    let available_us = has_alarm.then(|| time_until_next_alarm.as_micros());
-    let Some((entry, exit_latency_us)) = select_power_mode(cs, available_us, driver.driver_overhead_us()) else {
+    #[cfg(stm32wba)]
+    let Some(radio_allowed) = crate::rcc::radio_allowed_stop_modes(cs) else {
+        trace!("low_power: radio busy, using WFI");
         return false;
     };
+    #[cfg(not(stm32wba))]
+    let radio_allowed = StopModes::ALL;
+
+    let available_us = has_alarm.then(|| time_until_next_alarm.as_micros());
+    let Some((entry, exit_latency_us)) =
+        select_power_mode_within(cs, available_us, driver.driver_overhead_us(), radio_allowed)
+    else {
+        return false;
+    };
+
+    #[cfg(stm32wba)]
+    if crate::rcc::radio_before_stop(cs, entry.kind.at_least(StopMode::Stop1), exit_latency_us).is_err() {
+        trace!("low_power: radio vetoed stop, using WFI");
+        return false;
+    }
 
     let exit_latency = embassy_time::Duration::from_micros(exit_latency_us as u64);
     if driver.pause_time(cs, exit_latency).is_err() {
@@ -589,6 +605,9 @@ pub unsafe fn sleep(cs: CriticalSection) {
         defmt::flush();
     }
 
+    #[cfg(stm32wba)]
+    crate::rcc::radio_before_wfi(cs);
+
     cortex_m::asm::dsb();
     #[cfg(not(any(stm32u0, stm32g0)))]
     cortex_m::asm::wfi();
@@ -602,4 +621,7 @@ pub unsafe fn sleep(cs: CriticalSection) {
     if stop {
         exit_stop(cs);
     }
+
+    #[cfg(stm32wba)]
+    crate::rcc::radio_after_wfi(cs, stop);
 }

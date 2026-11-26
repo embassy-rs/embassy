@@ -549,6 +549,12 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
+    // RM0515 §12.4.13: LSI must only be used as the 2.4 GHz RADIO sleep timer source when LSI2 is active.
+    if config.ls.lsi && matches!(config.mux.radiostsel, mux::Radiostsel::Lsi) {
+        RCC.bdcr().modify(|w| w.set_lsi2on(true));
+        while !RCC.bdcr().read().lsi2rdy() {}
+    }
+
     config.mux.init();
 
     set_clocks!(
@@ -682,4 +688,91 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
     pll_enable(true);
 
     PllOutput { p, q, r }
+}
+
+/// RAII wake-source handle for the 2.4 GHz RADIO subsystem so `low_power::sleep`
+/// remains eligible for Stop modes when only the hardware radio sleep timer is armed.
+#[doc(hidden)]
+pub struct RadioWakeSource {
+    #[cfg(feature = "low-power")]
+    _source: crate::low_power::WakeSource,
+}
+
+impl RadioWakeSource {
+    #[doc(hidden)]
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "low-power")]
+            _source: crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral),
+        }
+    }
+}
+
+/// Hooks registered by `embassy-stm32-wpan` to coordinate 2.4 GHz RADIO deep-sleep
+/// transitions and AHB5 clock resynchronization with `low_power::sleep`.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct RadioSleepHooks {
+    /// Returns `None` to prevent Stop (stay in `WFI`), `Some(false)` to cap Stop at `Stop0`,
+    /// or `Some(true)` to permit deeper Stop modes (`Stop1` / `Stop2`).
+    pub check_stop: fn() -> Option<bool>,
+    /// Called before Stop entry (`deep_stop` is `true` for Stop 1/2). Returning `Err(())`
+    /// aborts Stop entry and falls back to plain `WFI`.
+    pub before_stop: fn(deep_stop: bool, exit_latency_us: u32) -> Result<(), ()>,
+    /// Called immediately before `WFI`.
+    pub before_wfi: fn(),
+    /// Called immediately after `WFI` (and after `stop_exit` when Stop was entered).
+    pub after_wfi: fn(exited_stop: bool),
+}
+
+#[cfg(feature = "low-power")]
+static mut RADIO_SLEEP_HOOKS: Option<RadioSleepHooks> = None;
+
+/// Register (or clear) the 2.4 GHz RADIO low-power sleep hooks.
+#[doc(hidden)]
+pub fn set_radio_sleep_hooks(hooks: Option<RadioSleepHooks>) {
+    #[cfg(not(feature = "low-power"))]
+    let _ = hooks;
+    #[cfg(feature = "low-power")]
+    critical_section::with(|_| unsafe {
+        RADIO_SLEEP_HOOKS = hooks;
+    });
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn radio_allowed_stop_modes(_cs: critical_section::CriticalSection) -> Option<crate::rcc::StopModes> {
+    let Some(hooks) = (unsafe { RADIO_SLEEP_HOOKS }) else {
+        return Some(crate::rcc::StopModes::ALL);
+    };
+    match (hooks.check_stop)() {
+        None => None,
+        Some(false) => Some(crate::rcc::StopModes::STOP0),
+        Some(true) => Some(crate::rcc::StopModes::ALL),
+    }
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn radio_before_stop(
+    _cs: critical_section::CriticalSection,
+    deep_stop: bool,
+    exit_latency_us: u32,
+) -> Result<(), ()> {
+    let Some(hooks) = (unsafe { RADIO_SLEEP_HOOKS }) else {
+        return Ok(());
+    };
+    (hooks.before_stop)(deep_stop, exit_latency_us)
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn radio_before_wfi(_cs: critical_section::CriticalSection) {
+    if let Some(hooks) = unsafe { RADIO_SLEEP_HOOKS } {
+        (hooks.before_wfi)();
+    }
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn radio_after_wfi(_cs: critical_section::CriticalSection, exited_stop: bool) {
+    if let Some(hooks) = unsafe { RADIO_SLEEP_HOOKS } {
+        (hooks.after_wfi)(exited_stop);
+    }
 }
