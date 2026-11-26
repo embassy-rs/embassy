@@ -12,7 +12,8 @@ use std::vec::Vec;
 
 use crate::driver::{
     Bus, Direction, Driver, Endpoint, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError,
-    EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, Unsupported,
+    EndpointError, EndpointIn, EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointConfig,
+    IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, TransferKind, Unsupported,
 };
 
 #[derive(Default)]
@@ -29,6 +30,8 @@ pub struct TestEndpoint {
 impl<'d> Driver<'d> for TestDriver {
     type EndpointOut = TestEndpoint;
     type EndpointIn = TestEndpoint;
+    type IsoEndpointOut = TestEndpoint;
+    type IsoEndpointIn = TestEndpoint;
     type Bus = TestBus;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
@@ -47,6 +50,16 @@ impl<'d> Driver<'d> for TestDriver {
         });
         assert!(addr.is_out());
         self.bus.allocate(addr, *config)
+    }
+
+    fn alloc_iso_endpoint_out(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        let ep = self.alloc_endpoint_out(&iso_as_config(config))?;
+        Ok(self.bus.set_iso(ep, config))
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
+        let ep = self.alloc_endpoint_in(&iso_as_config(config))?;
+        Ok(self.bus.set_iso(ep, config))
     }
 
     fn start(mut self, control_max_packet_size: u16) -> TestBus {
@@ -88,6 +101,45 @@ impl EndpointOut for TestEndpoint {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         self.io.read(self.info.addr, buf)
     }
+}
+
+pub struct TestSlot<'a>(&'a TestEndpoint);
+
+impl IsoInSlot for TestSlot<'_> {
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.0
+            .io
+            .write(self.0.info.addr, data, false)
+            .map_err(|_| IsoWriteError::TooLate)
+    }
+}
+
+impl IsoEndpointIn for TestEndpoint {
+    type Slot<'a> = TestSlot<'a>;
+
+    async fn ready(&mut self) -> Result<(Option<core::num::NonZeroU32>, TestSlot<'_>), EndpointDisabledError> {
+        if !self.io.is_enabled(self.info.addr) {
+            return Err(EndpointDisabledError);
+        }
+        Ok((None, TestSlot(self)))
+    }
+}
+
+impl IsoEndpointOut for TestEndpoint {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        self.io.read(self.info.addr, buf)
+    }
+}
+
+/// An isochronous config stored as an interrupt one.
+fn iso_as_config(iso: &IsoEndpointConfig) -> EndpointConfig {
+    assert_eq!(iso.mult, 0);
+    let mut config = EndpointConfig::new(iso.addr, TransferKind::Interrupt(iso.interval), iso.max_packet_size);
+    config.buffers = iso.buffers;
+    config.max_burst = iso.max_burst;
+    config.bytes_per_interval = iso.bytes_per_interval;
+    config.additional_transactions = iso.additional_transactions;
+    config
 }
 
 pub struct TestBus {
@@ -135,12 +187,7 @@ impl TestBus {
         addr: EndpointAddress,
         config: EndpointConfig,
     ) -> Result<TestEndpoint, EndpointAllocError> {
-        let info = {
-            let mut info = EndpointInfo::new(addr, config.ep_type, config.max_packet_size, config.interval);
-            info.max_burst = config.max_burst;
-            info.additional_transactions = config.additional_transactions;
-            info
-        };
+        let info = EndpointInfo::from_config(addr, &config);
         let slot = Self::slot(addr);
         assert!(self.endpoints[slot].replace(info).is_none());
         self.configs[slot] = Some(config);
@@ -150,6 +197,13 @@ impl TestBus {
             stalled: self.stalled[slot].clone(),
             io: self.io.clone(),
         })
+    }
+
+    /// Gives `ep` the info of an isochronous endpoint.
+    fn set_iso(&mut self, mut ep: TestEndpoint, config: &IsoEndpointConfig) -> TestEndpoint {
+        ep.info = EndpointInfo::from_iso_config(ep.info.addr, config);
+        self.endpoints[Self::slot(ep.info.addr)] = Some(ep.info);
+        ep
     }
 
     fn check_halt(&mut self, addr: EndpointAddress) -> usize {

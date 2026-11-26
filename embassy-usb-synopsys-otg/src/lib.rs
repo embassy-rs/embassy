@@ -27,8 +27,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed,
-    Unsupported,
+    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointConfig, IsoEndpointIn, IsoEndpointOut,
+    IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -857,6 +857,21 @@ where
                 max_packet_size,
                 interval,
             ),
+        })
+    }
+
+    fn alloc_iso_endpoint<D: Dir>(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<IsoEndpoint<'d, D, M>, EndpointAllocError> {
+        let ep = self.alloc_endpoint(
+            EndpointType::Isochronous,
+            config.addr,
+            config.max_packet_size,
+            config.interval,
+        )?;
+        Ok(IsoEndpoint {
+            ep,
             schedule: IsoSchedule::new(),
         })
     }
@@ -868,14 +883,27 @@ where
 {
     type EndpointOut = Endpoint<'d, Out, M>;
     type EndpointIn = Endpoint<'d, In, M>;
+    type IsoEndpointOut = IsoEndpoint<'d, Out, M>;
+    type IsoEndpointIn = IsoEndpoint<'d, In, M>;
     type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
     }
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(config.ep_type, config.addr, config.max_packet_size, config.interval)
+        self.alloc_endpoint(config.ep_type(), config.addr, config.max_packet_size, config.interval())
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError> {
+        self.alloc_iso_endpoint(config)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError> {
+        self.alloc_iso_endpoint(config)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> Self::Bus {
@@ -1929,8 +1957,42 @@ where
     /// Every endpoint of this device, so a finished arm-wait can see if another is still waiting.
     endpoints: &'d [EpState],
     mutex: M,
+}
+
+/// Isochronous USB endpoint.
+pub struct IsoEndpoint<'d, D, M = CriticalSectionRawMutex>
+where
+    M: SharedRawMutex,
+{
+    ep: Endpoint<'d, D, M>,
     /// Next isochronous IN slot.
     schedule: IsoSchedule,
+}
+
+impl<'d, D, M> embassy_usb_driver::Endpoint for IsoEndpoint<'d, D, M>
+where
+    M: SharedRawMutex,
+    Endpoint<'d, D, M>: embassy_usb_driver::Endpoint,
+{
+    fn info(&self) -> EndpointInfo {
+        self.ep.info()
+    }
+
+    async fn wait_enabled(&mut self) {
+        self.ep.wait_enabled().await
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.ep.is_enabled()
+    }
+
+    async fn set_stalled(&mut self, stalled: bool) {
+        self.ep.set_stalled(stalled).await
+    }
+
+    fn is_stalled(&self) -> bool {
+        self.ep.is_stalled()
+    }
 }
 
 impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, In, M>
@@ -2401,6 +2463,7 @@ where
     M: SharedRawMutex,
 {
     ep: &'a mut Endpoint<'d, In, M>,
+    schedule: &'a mut IsoSchedule,
     frame: u32,
 }
 
@@ -2409,7 +2472,7 @@ where
     M: SharedRawMutex,
 {
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
-        self.ep.schedule.accept();
+        self.schedule.accept();
         if data.len() > usize::from(self.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
         }
@@ -2449,7 +2512,7 @@ where
     }
 }
 
-impl<'d, M> IsoEndpointIn for Endpoint<'d, In, M>
+impl<'d, M> IsoEndpointIn for IsoEndpoint<'d, In, M>
 where
     M: SharedRawMutex,
 {
@@ -2459,27 +2522,22 @@ where
         Self: 'a;
 
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
-        assert_eq!(
-            self.info.ep_type,
-            EndpointType::Isochronous,
-            "IsoEndpointIn requires an isochronous endpoint"
-        );
-        if !self.state.in_enabled.load(Ordering::Acquire) {
+        if !self.ep.state.in_enabled.load(Ordering::Acquire) {
             return Err(EndpointDisabledError);
         }
 
         // Wait until the previous packet (and any unlocked-phase ZLP probes) finished or dropped.
-        self.wait_iso_idle().await?;
+        self.ep.wait_iso_idle().await?;
         // Ensure the TX FIFO can hold a full packet so synchronous `IsoSlot::write` never waits.
-        let mps = usize::from(self.info.max_packet_size);
+        let mps = usize::from(self.ep.info.max_packet_size);
         if mps > 0 {
-            self.wait_fifo_space(mps).await?;
+            self.ep.wait_fifo_space(mps).await?;
         }
 
-        let reset = self.mutex.lock(|| {
-            let r = self.state.iso_reset.load(Ordering::Acquire);
+        let reset = self.ep.mutex.lock(|| {
+            let r = self.ep.state.iso_reset.load(Ordering::Acquire);
             if r {
-                self.state.iso_reset.store(false, Ordering::Release);
+                self.ep.state.iso_reset.store(false, Ordering::Release);
             }
             r
         });
@@ -2487,30 +2545,42 @@ where
             self.schedule.reset();
         }
 
-        let span = self.frame_span();
-        let interval = self.service_interval();
-        let phase = self.state.iso_phase.load(Ordering::Acquire);
+        let span = self.ep.frame_span();
+        let interval = self.ep.service_interval();
+        let phase = self.ep.state.iso_phase.load(Ordering::Acquire);
         if phase != ISO_PHASE_UNLOCKED {
             self.schedule.lock_phase(u32::from(phase), interval);
         }
 
         loop {
-            if !self.state.in_enabled.load(Ordering::Acquire) {
+            if !self.ep.state.in_enabled.load(Ordering::Acquire) {
                 return Err(EndpointDisabledError);
             }
-            let offer = self.schedule.offer(self.fnsof(), interval, span);
+            let offer = self.schedule.offer(self.ep.fnsof(), interval, span);
             let skipped = offer.skipped;
             // The even/odd bit can only name the next tick, so wait until `offer.frame` is that tick.
-            if self.wait_until_arm_point(offer.frame, interval, span).await? {
+            if self.ep.wait_until_arm_point(offer.frame, interval, span).await? {
                 return Ok((
                     skipped,
                     IsoSlot {
-                        ep: self,
+                        ep: &mut self.ep,
+                        schedule: &mut self.schedule,
                         frame: offer.frame,
                     },
                 ));
             }
         }
+    }
+}
+
+impl<'d, M> IsoEndpointOut for IsoEndpoint<'d, Out, M>
+where
+    M: SharedRawMutex,
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        // One packet per service interval.
+        let len = buf.len().min(usize::from(self.ep.info.max_packet_size));
+        self.ep.read_transfer(&mut buf[..len]).await
     }
 }
 
@@ -2988,7 +3058,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use embassy_usb_driver::Driver as _;
+    use embassy_usb_driver::{Driver as _, TransferKind};
 
     use super::*;
 
@@ -3032,20 +3102,10 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         driver
-            .alloc_endpoint_out(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_out(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         driver
-            .alloc_endpoint_in(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_in(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         let _ = driver.start(64);
         state.ep_states[0].in_enabled.store(true, Ordering::Release);
@@ -3059,12 +3119,7 @@ mod tests {
         let mut buf = [0; 256];
         let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         let ep = driver
-            .alloc_endpoint_out(&EndpointConfig::new(
-                None,
-                EndpointType::Bulk,
-                64,
-                EndpointInterval::NONE,
-            ))
+            .alloc_endpoint_out(&EndpointConfig::new(None, TransferKind::Bulk, 64))
             .unwrap();
         assert_eq!(ep.info.addr.index(), 1);
         assert!(!state.ep_states[0].in_enabled.load(Ordering::Acquire));

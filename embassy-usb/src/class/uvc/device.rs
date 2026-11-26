@@ -13,7 +13,7 @@
 //!   auto-focus, zoom)
 //! - Method 2 still image capture ([`StillConfig`], [`Camera::take_still_trigger`],
 //!   [`Camera::write_still_frame`])
-//! - Bulk streaming transport ([`Config::bulk`] / [`StreamTransport::Bulk`])
+//! - Bulk streaming transport ([`Config::bulk`])
 
 use core::cell::Cell;
 
@@ -25,7 +25,9 @@ use heapless::Vec;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
+use crate::driver::{
+    Driver, Endpoint, EndpointError, EndpointIn, EndpointInfo, IsoEndpointIn, IsoInSlot, IsoWriteError,
+};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceHandler, UsbDeviceSpeed};
 
@@ -1642,12 +1644,56 @@ impl<'d> InterfaceHandler for Control<'d> {
     }
 }
 
+enum StreamEndpoint<'d, D: Driver<'d>> {
+    Iso(D::IsoEndpointIn),
+    Bulk(D::EndpointIn),
+}
+
+impl<'d, D: Driver<'d>> StreamEndpoint<'d, D> {
+    fn info(&self) -> EndpointInfo {
+        match self {
+            Self::Iso(ep) => ep.info(),
+            Self::Bulk(ep) => ep.info(),
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        match self {
+            Self::Iso(ep) => ep.is_enabled(),
+            Self::Bulk(ep) => ep.is_enabled(),
+        }
+    }
+
+    async fn wait_enabled(&mut self) {
+        match self {
+            Self::Iso(ep) => ep.wait_enabled().await,
+            Self::Bulk(ep) => ep.wait_enabled().await,
+        }
+    }
+
+    async fn send(&mut self, packet: &[u8], last: bool) -> Result<(), EndpointError> {
+        match self {
+            Self::Iso(ep) => {
+                let (_skipped, slot) = ep.ready().await?;
+                match slot.write(packet) {
+                    // Late packets are dropped.
+                    Ok(()) | Err(IsoWriteError::TooLate) => Ok(()),
+                    Err(_) => Err(EndpointError::BufferOverflow),
+                }
+            }
+            Self::Bulk(ep) => {
+                ep.write_transfer(packet, last).await?;
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Implementation of the USB Video Class 1.5, camera side.
 pub struct Camera<'d, D: Driver<'d>> {
-    endpoint: D::EndpointIn,
+    endpoint: StreamEndpoint<'d, D>,
     shared: &'d Shared<'d>,
     max_packet_size: usize,
-    transport: StreamTransport,
     /// The frame ID bit of the frame being sent.
     frame_id: bool,
 }
@@ -1750,14 +1796,13 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
         assert_eq!(vs.interface_number(), vs_number);
         let mut alt0 = vs.alt_setting(USB_CLASS_VIDEO, SC_VIDEOSTREAMING, PC_PROTOCOL_15, None);
         let endpoint = match transport {
-            StreamTransport::Isochronous => alt0.alloc_endpoint_in(
-                EndpointType::Isochronous,
+            StreamTransport::Isochronous => StreamEndpoint::Iso(alt0.alloc_iso_endpoint_in(
                 None,
                 max_packet_size,
                 EndpointInterval::NONE,
                 EndpointOptions::new(),
-            ),
-            StreamTransport::Bulk => alt0.endpoint_bulk_in(None, EndpointOptions::new()),
+            )),
+            StreamTransport::Bulk => StreamEndpoint::Bulk(alt0.endpoint_bulk_in(None, EndpointOptions::new())),
         };
         let endpoint_address = endpoint.info().addr.into();
         alt0.descriptors_then_patch(
@@ -1832,7 +1877,6 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             endpoint,
             shared,
             max_packet_size: max_packet_size as usize,
-            transport,
             frame_id: false,
         }
     }
@@ -1977,19 +2021,17 @@ impl<'d, D: Driver<'d>> Camera<'d, D> {
             header_len,
             filled: header_len,
             max_packet_size: self.max_packet_size,
-            is_bulk: self.transport == StreamTransport::Bulk,
         }
     }
 }
 
 /// Streaming writer for a single UVC video or still image frame.
 pub struct FrameWriter<'a, 'd, D: Driver<'d>> {
-    endpoint: &'a mut D::EndpointIn,
+    endpoint: &'a mut StreamEndpoint<'d, D>,
     packet: [u8; MAX_PACKET_SIZE_HIGH_SPEED as usize],
     header_len: usize,
     filled: usize,
     max_packet_size: usize,
-    is_bulk: bool,
 }
 
 impl<'a, 'd, D: Driver<'d>> FrameWriter<'a, 'd, D> {
@@ -2004,9 +2046,7 @@ impl<'a, 'd, D: Driver<'d>> FrameWriter<'a, 'd, D> {
 
             // Only flush when more bytes remain so `finish` can attach EOF to the final packet.
             if self.filled == self.max_packet_size && !chunk.is_empty() {
-                self.endpoint
-                    .write_transfer(&self.packet[..self.max_packet_size], false)
-                    .await?;
+                self.endpoint.send(&self.packet[..self.max_packet_size], false).await?;
                 self.filled = self.header_len;
             }
         }
@@ -2016,18 +2056,14 @@ impl<'a, 'd, D: Driver<'d>> FrameWriter<'a, 'd, D> {
     /// Finishes the frame by sending the final packet with `EOF` set (and a ZLP for Bulk if needed).
     pub async fn finish(mut self) -> Result<(), EndpointError> {
         self.packet[1] |= HEADER_EOF;
-        self.endpoint
-            .write_transfer(&self.packet[..self.filled], self.is_bulk)
-            .await?;
+        self.endpoint.send(&self.packet[..self.filled], true).await?;
         Ok(())
     }
 
     /// Aborts the frame by sending the final packet with `ERR | EOF` set so the host discards it.
     pub async fn abort(mut self) -> Result<(), EndpointError> {
         self.packet[1] |= HEADER_ERR | HEADER_EOF;
-        self.endpoint
-            .write_transfer(&self.packet[..self.filled], self.is_bulk)
-            .await?;
+        self.endpoint.send(&self.packet[..self.filled], true).await?;
         Ok(())
     }
 }

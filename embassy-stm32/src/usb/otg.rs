@@ -2,14 +2,15 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{
-    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
+    EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event,
+    IsoEndpointConfig, Unsupported,
 };
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
     Bus as OtgBus, Driver as OtgDriver, OtgInstance, PhyType, State, on_interrupt as on_interrupt_impl,
 };
-pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, Out};
+pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, IsoEndpoint, IsoSlot, Out};
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
@@ -267,6 +268,8 @@ impl<'d, T: Instance> Driver<'d, T> {
 impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = IsoEndpoint<'d, Out>;
+    type IsoEndpointIn = IsoEndpoint<'d, In>;
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
@@ -275,6 +278,17 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 
     fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
         self.inner.alloc_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError> {
+        self.inner.alloc_iso_endpoint_out(config)
+    }
+
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError> {
+        self.inner.alloc_iso_endpoint_in(config)
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {

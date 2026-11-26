@@ -22,7 +22,7 @@ use crate::class::uac::terminal_type::TerminalType;
 use crate::class::uac::uac1_codes::*;
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointInfo, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointInfo};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceAltBuilder};
 
@@ -554,7 +554,7 @@ impl<'d> AudioFunction<'d> {
         max_packet_size: u16,
         feedback_refresh: Option<FeedbackRefresh>,
         alloc_endpoint: impl FnOnce(&mut InterfaceAltBuilder<'_, 'd, D>, u16) -> E,
-    ) -> (E, Option<D::EndpointIn>, ControlMonitor<'d>) {
+    ) -> (E, Option<D::IsoEndpointIn>, ControlMonitor<'d>) {
         assert!(
             (1..=MAX_SAMPLE_RATE_COUNT).contains(&self.sample_rates_hz.len()),
             "between one and ten sample rates"
@@ -620,8 +620,7 @@ impl<'d> AudioFunction<'d> {
         );
         let feedback = feedback_refresh.map(|refresh| {
             (
-                alt.alloc_endpoint_in(
-                    EndpointType::Isochronous,
+                alt.alloc_iso_endpoint_in(
                     None,
                     4, // Feedback packets are 3 bytes (10.14 format) at full speed, 4 (16.16) at high speed.
                     EndpointInterval::from_ms(1),

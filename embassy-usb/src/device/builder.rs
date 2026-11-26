@@ -970,6 +970,44 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         )
     }
 
+    /// Allocate an isochronous IN endpoint, without writing its descriptor.
+    pub fn alloc_iso_endpoint_in(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+        options: EndpointOptions,
+    ) -> D::IsoEndpointIn {
+        options.check();
+        let config = self
+            .builder
+            .config_descriptor
+            .iso_endpoint_config(ep_addr, max_packet_size, interval, options);
+        self.builder
+            .driver
+            .alloc_iso_endpoint_in(&config)
+            .expect("alloc_iso_endpoint_in failed")
+    }
+
+    /// Allocate an isochronous OUT endpoint, without writing its descriptor.
+    pub fn alloc_iso_endpoint_out(
+        &mut self,
+        ep_addr: Option<EndpointAddress>,
+        max_packet_size: u16,
+        interval: EndpointInterval,
+        options: EndpointOptions,
+    ) -> D::IsoEndpointOut {
+        options.check();
+        let config = self
+            .builder
+            .config_descriptor
+            .iso_endpoint_config(ep_addr, max_packet_size, interval, options);
+        self.builder
+            .driver
+            .alloc_iso_endpoint_out(&config)
+            .expect("alloc_iso_endpoint_out failed")
+    }
+
     /// Allocate a BULK IN endpoint and write its descriptor.
     ///
     /// Its max packet size is [`EndpointOptions::max_packet_size`].
@@ -1094,17 +1132,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
         options: EndpointOptions,
-    ) -> D::EndpointIn {
-        self.endpoint_in_interval(
-            EndpointType::Isochronous,
-            ep_addr,
-            max_packet_size,
-            interval,
-            synchronization_type,
-            usage_type,
-            extra_fields,
-            options,
-        )
+    ) -> D::IsoEndpointIn {
+        let ep = self.alloc_iso_endpoint_in(ep_addr, max_packet_size, interval, options);
+        self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
+        ep
     }
 
     /// Allocate an ISOCHRONOUS IN endpoint and write its descriptor.
@@ -1121,7 +1152,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
         options: EndpointOptions,
-    ) -> D::EndpointIn {
+    ) -> D::IsoEndpointIn {
         self.endpoint_isochronous_in_interval(
             ep_addr,
             max_packet_size,
@@ -1147,17 +1178,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
         options: EndpointOptions,
-    ) -> D::EndpointOut {
-        self.endpoint_out_interval(
-            EndpointType::Isochronous,
-            ep_addr,
-            max_packet_size,
-            interval,
-            synchronization_type,
-            usage_type,
-            extra_fields,
-            options,
-        )
+    ) -> D::IsoEndpointOut {
+        let ep = self.alloc_iso_endpoint_out(ep_addr, max_packet_size, interval, options);
+        self.endpoint_descriptor_with_interval(&ep.info(), interval, synchronization_type, usage_type, extra_fields);
+        ep
     }
 
     /// Allocate an ISOCHRONOUS OUT endpoint and write its descriptor.
@@ -1174,7 +1198,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         usage_type: UsageType,
         extra_fields: &[u8],
         options: EndpointOptions,
-    ) -> D::EndpointOut {
+    ) -> D::IsoEndpointOut {
         self.endpoint_isochronous_out_interval(
             ep_addr,
             max_packet_size,

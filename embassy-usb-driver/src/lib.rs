@@ -8,7 +8,7 @@ mod interval;
 pub mod iso;
 
 pub use interval::EndpointInterval;
-pub use iso::{IsoEndpointIn, IsoInSlot, IsoWriteError};
+pub use iso::{IsoEndpointIn, IsoEndpointOut, IsoInSlot, IsoWriteError, NoIsoEndpoint};
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -170,12 +170,46 @@ impl EndpointInfo {
             additional_transactions: 0,
         }
     }
+
+    /// Info of a bulk or interrupt endpoint allocated at `addr`.
+    pub const fn from_config(addr: EndpointAddress, config: &EndpointConfig) -> Self {
+        Self {
+            addr,
+            ep_type: config.ep_type(),
+            max_packet_size: config.max_packet_size,
+            interval: config.interval(),
+            max_burst: config.max_burst,
+            additional_transactions: config.additional_transactions,
+        }
+    }
+
+    /// Info of an isochronous endpoint allocated at `addr`.
+    pub const fn from_iso_config(addr: EndpointAddress, config: &IsoEndpointConfig) -> Self {
+        Self {
+            addr,
+            ep_type: EndpointType::Isochronous,
+            max_packet_size: config.max_packet_size,
+            interval: config.interval,
+            max_burst: config.max_burst,
+            additional_transactions: config.additional_transactions,
+        }
+    }
 }
 
-/// Configuration to allocate an endpoint with.
+/// Bulk or interrupt.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferKind {
+    /// Bulk endpoint.
+    Bulk,
+    /// Interrupt endpoint with its polling interval.
+    Interrupt(EndpointInterval),
+}
+
+/// Configuration to allocate a bulk or interrupt endpoint with.
 ///
-/// The driver must allocate an endpoint with exactly the given `addr` (if any), `ep_type`,
-/// `max_packet_size` and `interval`, or fail. The docs of the other fields say whether the
+/// The driver must allocate an endpoint with exactly the given `addr` (if any), `kind` and
+/// `max_packet_size`, or fail. The docs of the other fields say whether the
 /// driver may deviate from them.
 ///
 /// The SuperSpeed fields are those of the endpoint's SuperSpeed Endpoint Companion descriptor, and 0
@@ -186,12 +220,10 @@ impl EndpointInfo {
 pub struct EndpointConfig {
     /// Endpoint's address, or `None` for the driver to pick one.
     pub addr: Option<EndpointAddress>,
-    /// Endpoint's type.
-    pub ep_type: EndpointType,
+    /// Bulk or interrupt.
+    pub kind: TransferKind,
     /// Max packet size per transaction, in bytes (0..=1024).
     pub max_packet_size: u16,
-    /// Polling interval.
-    pub interval: EndpointInterval,
     /// Number of packets the hardware may buffer for the endpoint.
     ///
     /// More buffers let the hardware move the next packet while software is still busy with the
@@ -206,14 +238,10 @@ pub struct EndpointConfig {
     pub max_burst: u8,
     /// SuperSpeed bulk `MaxStreams`: the endpoint has `2^max_streams` streams, or none when 0.
     pub max_streams: u8,
-    /// SuperSpeed isochronous `Mult`: the endpoint moves up to `mult + 1` bursts per service
-    /// interval.
-    pub mult: u8,
-    /// SuperSpeed periodic `wBytesPerInterval`, or the `dwBytesPerInterval` of a SuperSpeedPlus
-    /// isochronous endpoint: the bytes the endpoint moves per service interval.
+    /// SuperSpeed interrupt `wBytesPerInterval`: the bytes the endpoint moves per service interval.
     pub bytes_per_interval: u32,
     /// High-speed additional transaction opportunities per microframe (`wMaxPacketSize` bits
-    /// 12..11, `0..=2`) for isochronous and interrupt endpoints.
+    /// 12..11, `0..=2`) for interrupt endpoints.
     ///
     /// Drivers that do not support multi-transaction periodic endpoints may fail with
     /// [`EndpointAllocError`] or use 0, and report the allocated value in
@@ -223,20 +251,68 @@ pub struct EndpointConfig {
 
 impl EndpointConfig {
     /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
-    pub const fn new(
-        addr: Option<EndpointAddress>,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval: EndpointInterval,
-    ) -> Self {
+    pub const fn new(addr: Option<EndpointAddress>, kind: TransferKind, max_packet_size: u16) -> Self {
         Self {
             addr,
-            ep_type,
+            kind,
+            max_packet_size,
+            buffers: 1,
+            max_burst: 0,
+            max_streams: 0,
+            bytes_per_interval: 0,
+            additional_transactions: 0,
+        }
+    }
+
+    /// [`EndpointType::Bulk`] or [`EndpointType::Interrupt`].
+    pub const fn ep_type(&self) -> EndpointType {
+        match self.kind {
+            TransferKind::Bulk => EndpointType::Bulk,
+            TransferKind::Interrupt(_) => EndpointType::Interrupt,
+        }
+    }
+
+    /// Polling interval, [`EndpointInterval::NONE`] for bulk.
+    pub const fn interval(&self) -> EndpointInterval {
+        match self.kind {
+            TransferKind::Bulk => EndpointInterval::NONE,
+            TransferKind::Interrupt(interval) => interval,
+        }
+    }
+}
+
+/// Configuration to allocate an isochronous endpoint with. See [`EndpointConfig`] for the fields.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct IsoEndpointConfig {
+    /// Endpoint's address, or `None` for the driver to pick one.
+    pub addr: Option<EndpointAddress>,
+    /// Max packet size per transaction, in bytes (0..=1024).
+    pub max_packet_size: u16,
+    /// Service interval.
+    pub interval: EndpointInterval,
+    /// Number of packets the hardware may buffer for the endpoint.
+    pub buffers: u8,
+    /// SuperSpeed `bMaxBurst`.
+    pub max_burst: u8,
+    /// SuperSpeed `Mult`: the endpoint moves up to `mult + 1` bursts per service interval.
+    pub mult: u8,
+    /// SuperSpeed `wBytesPerInterval`, or SuperSpeedPlus `dwBytesPerInterval`.
+    pub bytes_per_interval: u32,
+    /// High-speed additional transaction opportunities per microframe.
+    pub additional_transactions: u8,
+}
+
+impl IsoEndpointConfig {
+    /// An endpoint with one buffer and all SuperSpeed/high-bandwidth fields 0.
+    pub const fn new(addr: Option<EndpointAddress>, max_packet_size: u16, interval: EndpointInterval) -> Self {
+        Self {
+            addr,
             max_packet_size,
             interval,
             buffers: 1,
             max_burst: 0,
-            max_streams: 0,
             mult: 0,
             bytes_per_interval: 0,
             additional_transactions: 0,
@@ -252,6 +328,10 @@ pub trait Driver<'a> {
     type EndpointOut: EndpointOut + 'a;
     /// Type of the IN endpoints for this driver.
     type EndpointIn: EndpointIn + 'a;
+    /// Type of the isochronous OUT endpoints, or [`NoIsoEndpoint`].
+    type IsoEndpointOut: IsoEndpointOut + 'a;
+    /// Type of the isochronous IN endpoints, or [`NoIsoEndpoint`].
+    type IsoEndpointIn: IsoEndpointIn + 'a;
     /// Type for bus control for this driver.
     type Bus: Bus + 'a;
 
@@ -266,6 +346,15 @@ pub trait Driver<'a> {
     /// This method is called by the USB stack to allocate endpoints.
     /// It can only be called before [`start`](Self::start) is called.
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError>;
+
+    /// Allocates an isochronous OUT endpoint, before [`start`](Self::start).
+    fn alloc_iso_endpoint_out(
+        &mut self,
+        config: &IsoEndpointConfig,
+    ) -> Result<Self::IsoEndpointOut, EndpointAllocError>;
+
+    /// Allocates an isochronous IN endpoint, before [`start`](Self::start).
+    fn alloc_iso_endpoint_in(&mut self, config: &IsoEndpointConfig) -> Result<Self::IsoEndpointIn, EndpointAllocError>;
 
     /// Start operation of the USB device.
     ///

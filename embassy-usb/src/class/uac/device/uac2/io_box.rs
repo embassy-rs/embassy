@@ -83,7 +83,7 @@ use crate::class::uac::uac2_codes::{
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn};
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, UsbDeviceSpeed};
 
@@ -292,11 +292,11 @@ impl<'d, const N: usize> State<'d, N> {
 /// USB Audio Class 2.0 I/O box: line out + line in with explicit feedback.
 pub struct IoBox<'d, D: Driver<'d>, const N: usize> {
     /// Line out stream (host to device).
-    pub line_out: D::EndpointOut,
+    pub line_out: D::IsoEndpointOut,
     /// Line in stream (device to host).
-    pub line_in: D::EndpointIn,
+    pub line_in: D::IsoEndpointIn,
     /// Line out's explicit feedback endpoint.
-    pub feedback: D::EndpointIn,
+    pub feedback: D::IsoEndpointIn,
     /// A helper to create feedback packets.
     pub feedback_packet_helper: FeedbackPacketHelper,
     /// The AudioControl interrupt endpoint, if [`Config::interrupt_endpoint`] is set.
@@ -486,8 +486,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         out_alt.descriptor(descriptor_type::CS_INTERFACE, &format_type_i(sample_width));
 
         // Every frame or microframe.
-        let out_ep = out_alt.alloc_endpoint_out(
-            EndpointType::Isochronous,
+        let out_ep = out_alt.alloc_iso_endpoint_out(
             None,
             line_out_max_packet_size,
             EndpointInterval::NONE,
@@ -495,8 +494,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         // Allocated before the feedback endpoint, so that drivers allocating in order don't
         // give the feedback endpoint line out's endpoint number.
-        let in_ep = out_alt.alloc_endpoint_in(
-            EndpointType::Isochronous,
+        let in_ep = out_alt.alloc_iso_endpoint_in(
             None,
             line_in_max_packet_size,
             EndpointInterval::NONE,
@@ -511,8 +509,7 @@ impl<'d, D: Driver<'d>, const N: usize> IoBox<'d, D, N> {
         );
         out_alt.descriptor(descriptor_type::CS_ENDPOINT, &iso_data_endpoint());
 
-        let feedback_ep = out_alt.alloc_endpoint_in(
-            EndpointType::Isochronous,
+        let feedback_ep = out_alt.alloc_iso_endpoint_in(
             None,
             feedback_len(speed) as u16,
             EndpointInterval::from_ms(1),

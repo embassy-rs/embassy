@@ -9,7 +9,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, EndpointType};
+use crate::driver::Driver;
 use crate::{Builder, EndpointOptions};
 
 /// Everything the audio source advertises to the host.
@@ -56,7 +56,7 @@ impl<'d> Config<'d> {
 /// Implementation of the USB audio class 1.0, source side.
 pub struct AudioSource<'d, D: Driver<'d>> {
     /// The audio stream toward the host.
-    pub stream: D::EndpointIn,
+    pub stream: D::IsoEndpointIn,
     /// Control Monitor
     pub control_monitor: ControlMonitor<'d>,
 }
@@ -112,8 +112,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
 
         let (stream, _, control_monitor) =
             function.build(builder, state, max_packet_size as u16, None, |alt, max_packet_size| {
-                alt.alloc_endpoint_in(
-                    EndpointType::Isochronous,
+                alt.alloc_iso_endpoint_in(
                     None,
                     max_packet_size,
                     EndpointInterval::from_ms(1),
