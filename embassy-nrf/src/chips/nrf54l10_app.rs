@@ -200,6 +200,11 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 #[allow(unused)]
 pub const FLASH_SIZE: usize = 1012 * 1024;
 
+#[allow(unused)]
+pub const GRTC_CC_COUNT: usize = 12;
+#[allow(unused)]
+pub const GRTC_IRQ_COUNT: usize = 4;
+
 embassy_hal_internal::peripherals! {
     // PPI
     PPI00_CH0,

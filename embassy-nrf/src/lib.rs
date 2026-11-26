@@ -651,6 +651,9 @@ pub mod config {
         /// FLPR (VPR coprocessor) startup behavior.
         #[cfg(all(feature = "_nrf54l", feature = "_s"))]
         pub flpr_reset: FlprReset,
+        /// Clear all GRTC compare interrupt enables and compare events at init.
+        #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+        pub grtc_reset_interrupts: bool,
     }
 
     impl Default for Config {
@@ -693,6 +696,8 @@ pub mod config {
                 clock_speed: ClockSpeed::CK64,
                 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
                 flpr_reset: FlprReset::Reset,
+                #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+                grtc_reset_interrupts: false,
             }
         }
     }
@@ -1335,6 +1340,16 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[cfg(all(feature = "_nrf54l", feature = "nfc-pins-as-gpio"))]
     pac::NFCT.padconfig().write(|w| w.set_enable(false));
+
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    if config.grtc_reset_interrupts {
+        for i in 0..chip::GRTC_IRQ_COUNT {
+            pac::GRTC.intenclr(i).write(|w| w.0 = 0xFFFF_FFFF);
+        }
+        for n in 0..chip::GRTC_CC_COUNT {
+            pac::GRTC.events_compare(n).write_value(0);
+        }
+    }
 
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
