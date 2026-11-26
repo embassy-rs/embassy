@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PA1;
 
     loop {
-        let v = adc.blocking_read(&mut pin, SampleTime::Cycles15);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles1_5);
         info!("--> {} ", v); //max 65520 = 0xFFF0
         Timer::after_millis(100).await;
     }

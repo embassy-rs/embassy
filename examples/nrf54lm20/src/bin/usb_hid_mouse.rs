@@ -52,8 +52,8 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 256];
-    let mut control_handler = MyRequestHandler {};
-    let mut out_handler = MyRequestHandler {};
+    let mut control_handler = MyRequestHandler;
+    let mut out_handler = MyRequestHandler;
     let mut device_handler = MyDeviceHandler;
     let mut state = State::new();
 
@@ -74,6 +74,7 @@ async fn main(_spawner: Spawner) {
         max_packet_size: 64,
         hid_subclass: HidSubclass::Boot,
         hid_boot_protocol: HidBootProtocol::Mouse,
+        interface_name: None,
     };
 
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
@@ -139,6 +140,11 @@ impl Handler for MyDeviceHandler {
 struct MyRequestHandler;
 
 impl RequestHandler for MyRequestHandler {
+    fn reset(&mut self) {
+        info!("Device reset, reverting to report HID protocol");
+        HID_PROTOCOL_MODE.store(HidProtocolMode::Report as u8, Ordering::Relaxed);
+    }
+
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         let _ = id;
         None

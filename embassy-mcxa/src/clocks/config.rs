@@ -638,6 +638,12 @@ pub struct Osc32KConfig {
     pub coarse_amp_gain: Osc32KCoarseGain,
     /// Select the LP supply detector setting for VBAT above 3.0 V.
     pub vbat_exceeds_3v0: bool,
+    /// Lock the oscillator controls (`OSCLCKA`) after setup.
+    ///
+    /// The lock clears only on a VBAT POR. While it is set, a later configuration
+    /// cannot change the oscillator settings; see `Clocks::osc32k_status`. The RM
+    /// requires the lock before the VBAT clock monitor is enabled.
+    pub lock: bool,
     /// Maximum status polls per LDO/startup/LP readiness stage, before the time driver exists.
     ///
     /// The reference default is 100,000,000 polls, not a wall-clock duration. Tune for
@@ -661,6 +667,7 @@ impl Default for Osc32KConfig {
             startup_extal_cap_sel: Osc32KCapSel::Cap12PicoF,
             coarse_amp_gain: Osc32KCoarseGain::EsrRange1,
             vbat_exceeds_3v0: true,
+            lock: false,
             readiness_poll_budget: core::num::NonZeroU32::new(100_000_000).unwrap(),
             vsys_domain_active: true,
             vdd_core_domain_active: true,

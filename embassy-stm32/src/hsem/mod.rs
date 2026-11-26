@@ -2,7 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::task::Poll;
 
 use critical_section::CriticalSection;
@@ -14,7 +14,7 @@ use interrupt::typelevel::Interrupt;
 // The nonsecure lock/listen flow used here is compatible with the common
 // semaphore interface and remains usable across WBA52/54/55/65 families.
 use crate::Peri;
-use crate::atomic::{ActiveInterrupt, InterruptRegister};
+use crate::atomic::{ActiveInterrupt, AtomicClear, InterruptRegister};
 use crate::cpu::CoreId;
 use crate::pac::common::{RW, Reg};
 use crate::peripherals::HSEM;
@@ -58,22 +58,31 @@ pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let core = CoreId::current();
-        // Get pending semaphore bits from masked ISR for the current core
+        // Get pending notification flags for the current core.
         let mut pending = T::regs().misr(core.to_index().into()).read().0;
 
-        T::regs().ier(core.to_index().into()).modify(|w| {
-            while pending != 0 {
-                // Index of lowest set bit
-                let n = pending.trailing_zeros() as u8;
+        // Consume the flags with HSEM_CnICR. The interrupt line follows the
+        // latched masked status, which only this clear releases: masking
+        // HSEM_CnIER does not deassert the line, so without this the handler
+        // would re-enter forever and starve the tasks that are supposed to
+        // consume the notification.
+        T::regs().icr(core.to_index().into()).write(|w| w.0 = pending);
 
-                // Clear lowest set bit.
-                // Safe when pending != 0 enforced by while predicate
-                pending &= pending - 1;
+        while pending != 0 {
+            // Index of lowest set bit
+            let n = pending.trailing_zeros() as u8;
 
-                w.set_ise(n.into(), false);
+            // Clear lowest set bit.
+            // Safe when pending != 0 enforced by while predicate
+            pending &= pending - 1;
+
+            if (n as usize) < CHANNELS {
+                // Latch the notification before waking: the wake is lost if the
+                // listener has not registered its waker yet.
+                T::state().flag_for(n).store(true, Ordering::Relaxed);
                 T::state().waker_for(n).wake();
             }
-        });
+        }
     }
 }
 
@@ -181,35 +190,46 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         self.unlock(0);
     }
 
-    /// Blocking poll for semaphore interrupt flag
+    /// Blocking wait for a notification on this semaphore channel.
+    ///
+    /// A notification sent by [`Self::blocking_notify`] or [`Self::unlock`] on the
+    /// other core is not lost if it was sent before this call: if one is already
+    /// pending it is consumed and this returns immediately. Otherwise this waits
+    /// for the next notification and consumes it.
     pub fn blocking_listen(&mut self) {
         let core = CoreId::current();
 
-        // Clear the interrupt
-        T::regs()
-            .icr(core.to_index().into())
-            .write(|w| w.set_isc(self.index.into(), true));
+        // Wait for a notification to be pending. It is only consumed once it has
+        // been observed: consuming it before waiting would drop a notification
+        // that was already pending (e.g. when this core starts after the other
+        // core has already notified).
+        while !self.take_notification(core) {}
 
-        // Wait for the semaphore interrupt flag
-        while !T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {}
+        cortex_m::asm::dmb();
     }
 
-    /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
+    /// Asynchronous wait for a notification on this semaphore channel.
+    ///
+    /// A notification sent by [`Self::blocking_notify`] or [`Self::unlock`] on the
+    /// other core is not lost if it was sent before this call: if one is already
+    /// pending it is consumed and this returns immediately. Otherwise this waits
+    /// for the next notification and consumes it.
     pub async fn listen(&mut self) {
         let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core = CoreId::current();
 
-        let _irq = self.clear_and_enable_interupt(core);
-        // Wait for the semaphore interrupt flag
+        // Enable the notification interrupt without clearing a pending
+        // notification first: the notification is consumed below when it is
+        // observed, so one that was already sent is not lost.
+        let _irq = self.enable_interupt(core);
+
         poll_fn(|cx| {
             T::state().waker_for(self.index).register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
-            if T::regs().misr(core.to_index().into()).read().misf(self.index.into()) {
-                T::regs()
-                    .icr(core.to_index().into())
-                    .write(|w| w.set_isc(self.index.into(), true));
+            if self.take_notification(core) {
+                cortex_m::asm::dmb();
 
                 Poll::Ready(())
             } else {
@@ -217,6 +237,55 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             }
         })
         .await;
+    }
+
+    /// Consume one pending notification on this semaphore channel, if any.
+    ///
+    /// A notification is either latched by [`HardwareSemaphoreInterruptHandler`]
+    /// (the interrupt handler consumes the hardware flag so that its line
+    /// deasserts) or still pending in the hardware flag when no interrupt handler
+    /// has run.
+    fn take_notification(&self, core: CoreId) -> bool {
+        if T::state().flag_for(self.index).clear() {
+            return true;
+        }
+
+        if T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {
+            T::regs()
+                .icr(core.to_index().into())
+                .write(|w| w.set_isc(self.index.into(), true));
+
+            return true;
+        }
+
+        false
+    }
+
+    /// Returns whether a notification is pending on this semaphore channel.
+    ///
+    /// Unlike [`Self::blocking_listen`] and [`Self::listen`], this does not consume
+    /// the notification: it stays pending until [`Self::clear_notification`] is
+    /// called. This makes it usable as a persistent "the other core has notified"
+    /// level, which survives restarting this core.
+    pub fn is_notified(&self) -> bool {
+        let core = CoreId::current();
+
+        T::state().flag_for(self.index).load(Ordering::Relaxed)
+            || T::regs().isr(core.to_index().into()).read().isf(self.index.into())
+    }
+
+    /// Clear a pending notification on this semaphore channel.
+    ///
+    /// A notification is broadcast: unlocking the channel latches the interrupt
+    /// flag in the status register of every core. This clears the flag for all
+    /// cores, discarding a pending notification even if the other core has not
+    /// observed it yet.
+    pub fn clear_notification(&mut self) {
+        T::state().flag_for(self.index).store(false, Ordering::Relaxed);
+
+        for bank in [0, 1] {
+            T::regs().icr(bank).write(|w| w.set_isc(self.index.into(), true));
+        }
     }
 
     /// Clear interrupts for this semaphore and return an active interrupt
@@ -229,6 +298,13 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             .icr(core.to_index().into())
             .write(|w| w.set_isc(self.index.into(), true));
 
+        self.enable_interupt(core)
+    }
+
+    /// Enable interrupts for this semaphore and return an active interrupt,
+    /// without clearing a pending notification
+    #[inline]
+    fn enable_interupt(&self, core: CoreId) -> ActiveInterrupt<Reg<pac::hsem::regs::Ier, RW>, pac::hsem::regs::Ier> {
         T::regs()
             .ier(core.to_index().into())
             .enable_interrupts(|w| w.set_ise(self.index.into(), true))
@@ -437,17 +513,23 @@ pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, c
 
 struct State {
     wakers: [AtomicWaker; CHANNELS],
+    flags: [AtomicBool; CHANNELS],
 }
 
 impl State {
     const fn new() -> Self {
         Self {
             wakers: [const { AtomicWaker::new() }; CHANNELS],
+            flags: [const { AtomicBool::new(false) }; CHANNELS],
         }
     }
 
     const fn waker_for(&self, index: u8) -> &AtomicWaker {
         &self.wakers[index as usize]
+    }
+
+    const fn flag_for(&self, index: u8) -> &AtomicBool {
+        &self.flags[index as usize]
     }
 }
 

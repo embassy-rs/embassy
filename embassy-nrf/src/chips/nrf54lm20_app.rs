@@ -203,9 +203,9 @@ pub mod pac {
 
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-// 2 MB NVM
+// 2036 KB usable RRAM
 #[allow(unused)]
-pub const FLASH_SIZE: usize = 2048 * 1024;
+pub const FLASH_SIZE: usize = 2036 * 1024;
 
 #[allow(unused)]
 pub const GRTC_CC_COUNT: usize = 12;

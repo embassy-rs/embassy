@@ -59,7 +59,7 @@ unsafe impl Sync for Info {}
 #[macro_export]
 macro_rules! impl_lpi2c_instance {
     ($n:literal) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::i2c::SealedInstance for $crate::peripherals::[<LPI2C $n>] {
                 fn info() -> &'static $crate::i2c::Info {
                     static INFO: $crate::i2c::Info = $crate::i2c::Info {

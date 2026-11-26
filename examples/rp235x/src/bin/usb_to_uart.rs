@@ -2,6 +2,8 @@
 //!
 //! This creates a USB serial port that sends/receives data on uart (USB-to-Uart).
 //!
+//! It also reports UART errors such as breaks and overruns to the host as `SERIAL_STATE` notifications.
+//!
 //! No specific hardware is specified in this example. If you connect pin 0 (TX) and 1 (RX) you should get the same data back.
 //! The Raspberry Pi Debug Probe (https://www.raspberrypi.com/products/debug-probe/) could be used
 //! with its UART port.
@@ -12,14 +14,16 @@
 use defmt::{Debug2Format, error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::join::join3;
+use embassy_futures::join::join4;
 use embassy_futures::select::{Either, select};
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{UART0, USB};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_usb::class::cdc_acm::LineCoding;
-use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, State};
+use embassy_usb::class::cdc_acm::device::{CdcAcmClass, Config as CdcAcmConfig, SerialEvents, State};
 use embedded_io_async::Write;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -68,7 +72,7 @@ async fn main(_spawner: Spawner) {
         CdcAcmClass::new(&mut builder, state, CdcAcmConfig::new())
     };
 
-    let (mut usb_tx, mut usb_rx, usb_control) = class.split_with_control();
+    let (mut usb_tx, mut usb_rx, usb_control, mut usb_notifier) = class.split_with_notifier();
 
     let (tx_pin, rx_pin, uart) = (p.PIN_0, p.PIN_1, p.UART0);
 
@@ -85,6 +89,9 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
+    // UART events that `usb_notify` has not sent to the host yet.
+    let uart_events: Signal<NoopRawMutex, SerialEvents> = Signal::new();
+
     let usb_tx_uart_rx = async {
         loop {
             usb_tx.wait_connection().await;
@@ -100,6 +107,13 @@ async fn main(_spawner: Spawner) {
                     },
                     Err(err) => {
                         error!("Uart read error: {:?}", Debug2Format(&err));
+                        // This only collects the event. `usb_notify` sends it, because that can block
+                        // until the host polls.
+                        let events = uart_events.try_take().unwrap_or(SerialEvents::empty())
+                            | serial_events_from_uart_error(err);
+                        if !events.is_empty() {
+                            uart_events.signal(events);
+                        }
                     }
                 }
             }
@@ -114,9 +128,11 @@ async fn main(_spawner: Spawner) {
             loop {
                 match select(usb_control.control_changed(), usb_rx.read_packet(&mut usb_buf)).await {
                     Either::First(_) => {
-                        let config = uart_config_from_line_coding(usb_rx.line_coding());
-                        info!("Setting line coding: {}", &config);
-                        uart_tx.set_config(config);
+                        if let Some(line_coding) = usb_rx.line_coding() {
+                            let config = uart_config_from_line_coding(line_coding);
+                            info!("Setting line coding: {}", &config);
+                            uart_tx.set_config(config);
+                        }
                     }
                     Either::Second(Err(err)) => {
                         error!("Usb read error: {:?}. Assume disconnection", Debug2Format(&err));
@@ -132,7 +148,20 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    join3(usb_fut, usb_rx_uart_tx, usb_tx_uart_rx).await;
+    let usb_notify = async {
+        loop {
+            usb_notifier.wait_connection().await;
+            loop {
+                let events = uart_events.wait().await;
+                if let Err(err) = usb_notifier.report(events).await {
+                    error!("Usb notify error: {:?}. Assume disconnection", Debug2Format(&err));
+                    break;
+                }
+            }
+        }
+    };
+
+    join4(usb_fut, usb_rx_uart_tx, usb_tx_uart_rx, usb_notify).await;
 }
 
 fn uart_config_from_line_coding(lc: LineCoding) -> Config {
@@ -155,4 +184,15 @@ fn uart_config_from_line_coding(lc: LineCoding) -> Config {
         _ => StopBits::STOP1,
     };
     config
+}
+
+fn serial_events_from_uart_error(err: embassy_rp::uart::Error) -> SerialEvents {
+    use embassy_rp::uart::Error;
+    match err {
+        Error::Overrun => SerialEvents::OVERRUN,
+        Error::Break => SerialEvents::BREAK,
+        Error::Parity => SerialEvents::PARITY,
+        Error::Framing => SerialEvents::FRAMING,
+        _ => SerialEvents::empty(),
+    }
 }

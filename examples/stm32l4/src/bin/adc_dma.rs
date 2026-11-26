@@ -33,8 +33,8 @@ async fn main(_spawner: Spawner) {
         &mut adc_dma_buf,
         Irqs,
         [
-            (p.PA0.reborrow_adc(), SampleTime::Cycles6405),
-            (p.PA1.reborrow_adc(), SampleTime::Cycles6405),
+            (p.PA0.reborrow_adc(), SampleTime::Cycles640_5),
+            (p.PA1.reborrow_adc(), SampleTime::Cycles640_5),
         ]
         .into_iter(),
         None,

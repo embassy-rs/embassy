@@ -5,21 +5,40 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 
 #[allow(dead_code)]
-impl super::Rtc {
-    /// Applies the RTC config
-    /// It this changes the RTC clock source the time will be reset
+impl super::Rtc<'_> {
+    /// Applies the RTC config.
+    ///
+    /// The date and time are kept. If the hour format or the prescalers have to change, the RTC
+    /// enters init mode to write them, which restarts the current second: the fraction of it
+    /// that already elapsed is lost. If they already hold the requested values, the calendar
+    /// keeps running undisturbed.
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
-        self.write(true, |rtc| {
+        // These bits can be written while the calendar is running.
+        self.write(false, |rtc| {
             rtc.cr().modify(|w| {
-                #[cfg(not(rtc_v2_f2))]
+                #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
                 w.set_bypshad(true);
-                #[cfg(rtc_v2_f2)]
-                w.set_fmt(false);
-                #[cfg(not(rtc_v2_f2))]
-                w.set_fmt(stm32_metapac::rtc::vals::Fmt::TwentyFourHour);
                 w.set_osel(Osel::Disabled);
                 w.set_pol(Pol::High);
             });
+        });
+
+        #[cfg(rtc_v2_f2)]
+        let fmt_24h = false;
+        #[cfg(not(rtc_v2_f2))]
+        let fmt_24h = stm32_metapac::rtc::vals::Fmt::TwentyFourHour;
+
+        // The hour format and the prescalers can only be written in init mode. Leaving init mode
+        // restarts the prescaler counters, which loses the elapsed fraction of the current second,
+        // so only enter it if these values have to change. This does not depend on INITS: a
+        // calendar that was never set (year 0) is running too.
+        let prer = RTC::regs().prer().read();
+        if prer.prediv_s() == sync_psc && prer.prediv_a() == async_psc && RTC::regs().cr().read().fmt() == fmt_24h {
+            return;
+        }
+
+        self.write(true, |rtc| {
+            rtc.cr().modify(|w| w.set_fmt(fmt_24h));
 
             rtc.prer().modify(|w| {
                 w.set_prediv_s(sync_psc);
@@ -36,7 +55,7 @@ impl super::Rtc {
     ///
     /// To perform a calibration when `async_prescaler` is less then 3, `sync_prescaler`
     /// has to be reduced accordingly (see RM0351 Rev 9, sec 38.3.12).
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     pub fn calibrate(&mut self, mut clock_drift: f32, period: super::RtcCalibrationCyclePeriod) {
         const RTC_CALR_MIN_PPM: f32 = -487.1;
         const RTC_CALR_MAX_PPM: f32 = 488.5;
@@ -126,31 +145,44 @@ impl super::Rtc {
 }
 
 impl SealedInstance for crate::peripherals::RTC {
+    // RM0360: the STM32F030/F070 RTC has no backup registers.
+    #[cfg(rtc_v2_f0_x0)]
+    const BACKUP_REGISTER_COUNT: usize = 0;
+    #[cfg(not(rtc_v2_f0_x0))]
     const BACKUP_REGISTER_COUNT: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32f4))]
-    const EXTI_WAKEUP_LINE: usize = 22;
+    #[cfg(feature = "low-power")]
+    #[cfg(not(feature = "_lp-time-driver"))]
+    cfg_select! {
+        any(stm32f4, stm32f7) => {
+            const EXTI_WAKEUP_LINE: usize = 22;
+        }
+        any(stm32f3, stm32l0, stm32l1, stm32l4) => {
+            const EXTI_WAKEUP_LINE: usize = 20;
+        }
+        stm32wb => {
+            const EXTI_WAKEUP_LINE: usize = 19;
+        }
+        _ => {}
+    }
 
-    #[cfg(all(feature = "low-power", stm32l4))]
-    const EXTI_WAKEUP_LINE: usize = 20;
+    #[cfg(feature = "low-power")]
+    cfg_select! {
+        any(stm32f3, stm32f4, stm32f7, stm32l1, stm32l4, stm32wb) => {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+        }
+        stm32l0 => {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+        }
+        _ => {}
+    }
 
-    #[cfg(all(feature = "low-power", stm32l0))]
-    const EXTI_WAKEUP_LINE: usize = 20;
-
-    #[cfg(all(feature = "low-power", stm32wb))]
-    const EXTI_WAKEUP_LINE: usize = 19;
-
-    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4, stm32wb)))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
-
-    #[cfg(all(feature = "low-power", stm32l0))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
-
-    #[cfg(not(rtc_v2_f2))]
+    #[cfg(not(any(rtc_v2_f2, rtc_v2_l1_cat1)))]
     fn shpf() -> bool {
         Self::regs().isr().read().shpf()
     }
 
+    #[cfg(not(rtc_v2_f0_x0))]
     fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
             Some(rtc.bkpr(register).read().bkp())
@@ -159,9 +191,18 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     }
 
+    #[cfg(not(rtc_v2_f0_x0))]
     fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
             rtc.bkpr(register).write(|w| w.set_bkp(value));
         }
     }
+
+    #[cfg(rtc_v2_f0_x0)]
+    fn read_backup_register(_rtc: Rtc, _register: usize) -> Option<u32> {
+        None
+    }
+
+    #[cfg(rtc_v2_f0_x0)]
+    fn write_backup_register(_rtc: Rtc, _register: usize, _value: u32) {}
 }

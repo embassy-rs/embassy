@@ -8,10 +8,8 @@ use core::mem::forget;
 
 use common::*;
 use defmt::assert_eq;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dma;
-use panic_probe as _;
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::{Rng, SeedableRng};
 
@@ -21,11 +19,7 @@ static mut DST_BUF1: [u8; 8192] = [0; _];
 static mut SRC_BUF2: [u8; 128] = [0; _];
 static mut DST_BUF2: [u8; 128] = [0; _];
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

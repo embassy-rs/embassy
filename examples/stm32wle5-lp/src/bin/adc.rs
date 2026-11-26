@@ -13,6 +13,8 @@ use static_cell::StaticCell;
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
+    // The time driver runs from LSI (on by default) so it keeps counting in Stop mode.
+    config.rcc.mux.lptim1sel = embassy_stm32::rcc::mux::Lptimsel::Lsi;
     // enable HSI clock
     config.rcc.hsi = true;
     // enable LSI clock for RTC
@@ -49,7 +51,7 @@ async fn async_main(_spawner: Spawner) {
     let mut pin = p.PA10;
 
     let mut vrefint = adc.enable_vrefint();
-    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles795);
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles79_5);
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32g031g8.pdf
         // 6.3.3 Embedded internal reference voltage
@@ -59,7 +61,7 @@ async fn async_main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.blocking_read(&mut pin, SampleTime::Cycles795);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles79_5);
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_secs(1).await;
     }

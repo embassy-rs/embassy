@@ -13,7 +13,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender, TrySendError};
 use embassy_sync::waitqueue::WakerRegistration;
 pub use xarxa_driver as driver;
-use xarxa_driver::{Capabilities, HardwareAddress, LinkState, NotSupported, PacketBuf};
+use xarxa_driver::{Capabilities, DriverBuf, HardwareAddress, LinkState, NotSupported, RxWanted};
 
 /// Max multicast hardware addresses the multicast filter list holds.
 pub const MULTICAST_FILTER_SIZE: usize = 10;
@@ -47,15 +47,15 @@ impl MulticastFilter {
 ///
 /// Holds the inbound and outbound packet queues, `N_RX` and `N_TX` packets long.
 ///
-/// The queues hold [`PacketBuf`]s, which come from the stack's packet pool, so their
+/// The queues hold [`DriverBuf`]s, which come from the stack's packet pool, so their
 /// size here is a handful of bytes per slot, not a whole packet each.
 ///
 /// The stack hands the runner empty buffers to receive into, up to `N_RX` of them,
 /// counting both empty buffers and received packets waiting for the stack.
 pub struct State<const N_RX: usize, const N_TX: usize> {
-    rx_empty: Channel<NoopRawMutex, PacketBuf, N_RX>,
-    rx: Channel<NoopRawMutex, PacketBuf, N_RX>,
-    tx: Channel<NoopRawMutex, PacketBuf, N_TX>,
+    rx_empty: Channel<NoopRawMutex, DriverBuf, N_RX>,
+    rx: Channel<NoopRawMutex, DriverBuf, N_RX>,
+    tx: Channel<NoopRawMutex, DriverBuf, N_TX>,
     shared: Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -68,6 +68,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
             tx: Channel::new(),
             shared: Mutex::new(RefCell::new(Shared {
                 rx_queued: 0,
+                rx_empty: 0,
                 rx_capacity: N_RX,
                 link_state: LinkState::Down,
                 waker: WakerRegistration::new(),
@@ -93,6 +94,8 @@ impl<const N_RX: usize, const N_TX: usize> Default for State<N_RX, N_TX> {
 struct Shared {
     /// Buffers in the `rx_empty` and `rx` queues.
     rx_queued: usize,
+    /// Buffers in the `rx_empty` queue.
+    rx_empty: usize,
     /// Max value of `rx_queued`, `N_RX`.
     rx_capacity: usize,
     link_state: LinkState,
@@ -109,9 +112,9 @@ struct Shared {
 ///
 /// Holds the shared state and the lower end of channels for inbound and outbound packets.
 pub struct Runner<'d> {
-    tx_chan: DynamicReceiver<'d, PacketBuf>,
-    rx_chan: DynamicSender<'d, PacketBuf>,
-    rx_empty: DynamicReceiver<'d, PacketBuf>,
+    tx_chan: DynamicReceiver<'d, DriverBuf>,
+    rx_chan: DynamicSender<'d, DriverBuf>,
+    rx_empty: DynamicReceiver<'d, DriverBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -127,8 +130,8 @@ pub struct StateRunner<'d> {
 ///
 /// Holds the lower end of the channel for passing inbound packets up the stack.
 pub struct RxRunner<'d> {
-    rx_chan: DynamicSender<'d, PacketBuf>,
-    rx_empty: DynamicReceiver<'d, PacketBuf>,
+    rx_chan: DynamicSender<'d, DriverBuf>,
+    rx_empty: DynamicReceiver<'d, DriverBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -136,7 +139,7 @@ pub struct RxRunner<'d> {
 ///
 /// Holds the lower end of the channel for passing outbound packets down the stack.
 pub struct TxRunner<'d> {
-    tx_chan: DynamicReceiver<'d, PacketBuf>,
+    tx_chan: DynamicReceiver<'d, DriverBuf>,
 }
 
 impl<'d> Runner<'d> {
@@ -193,19 +196,19 @@ impl<'d> Runner<'d> {
 
     /// Wait for an empty buffer from the stack, to receive a packet into.
     ///
-    /// The buffer has zero length. Its [`capacity`](PacketBuf::capacity) is the
+    /// The buffer has zero length. Its [`capacity`](DriverBuf::capacity) is the
     /// stack's packet buffer size, which may be smaller than the MTU.
     ///
     /// Push it back filled with [`rx`](Self::rx), or drop it to give it back to
     /// the stack's pool.
-    pub async fn rx_buf(&mut self) -> PacketBuf {
+    pub async fn rx_buf(&mut self) -> DriverBuf {
         core::future::poll_fn(|cx| self.poll_rx_buf(cx)).await
     }
 
     /// Get an empty buffer from the stack, if there is one right now.
     ///
     /// See [`rx_buf`](Self::rx_buf).
-    pub fn try_rx_buf(&mut self) -> Option<PacketBuf> {
+    pub fn try_rx_buf(&mut self) -> Option<DriverBuf> {
         let buf = self.rx_empty.try_receive().ok()?;
         rx_taken(self.shared);
         Some(buf)
@@ -214,14 +217,14 @@ impl<'d> Runner<'d> {
     /// Poll for an empty buffer from the stack.
     ///
     /// See [`rx_buf`](Self::rx_buf).
-    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<DriverBuf> {
         let buf = core::task::ready!(self.rx_empty.poll_receive(cx));
         rx_taken(self.shared);
         Poll::Ready(buf)
     }
 
     /// Push a received packet to the stack, waiting for space in the inbound queue.
-    pub async fn rx(&mut self, buf: PacketBuf) {
+    pub async fn rx(&mut self, buf: DriverBuf) {
         self.rx_chan.send(buf).await;
         rx_pushed(self.shared);
     }
@@ -229,24 +232,24 @@ impl<'d> Runner<'d> {
     /// Push a received packet to the stack, if the inbound queue has space right now.
     ///
     /// If it doesn't, the buffer is handed back in the `Err` variant.
-    pub fn try_rx(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    pub fn try_rx(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)?;
         rx_pushed(self.shared);
         Ok(())
     }
 
     /// Wait for a packet the stack wants to transmit.
-    pub async fn tx(&mut self) -> PacketBuf {
+    pub async fn tx(&mut self) -> DriverBuf {
         self.tx_chan.receive().await
     }
 
     /// Get a packet the stack wants to transmit, if there is one right now.
-    pub fn try_tx(&mut self) -> Option<PacketBuf> {
+    pub fn try_tx(&mut self) -> Option<DriverBuf> {
         self.tx_chan.try_receive().ok()
     }
 
     /// Poll for a packet the stack wants to transmit.
-    pub fn poll_tx(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+    pub fn poll_tx(&mut self, cx: &mut Context<'_>) -> Poll<DriverBuf> {
         self.tx_chan.poll_receive(cx)
     }
 }
@@ -325,19 +328,19 @@ impl RxRunner<'_> {
 
     /// Wait for an empty buffer from the stack, to receive a packet into.
     ///
-    /// The buffer has zero length. Its [`capacity`](PacketBuf::capacity) is the
+    /// The buffer has zero length. Its [`capacity`](DriverBuf::capacity) is the
     /// stack's packet buffer size, which may be smaller than the MTU.
     ///
     /// Push it back filled with [`rx`](Self::rx), or drop it to give it back to
     /// the stack's pool.
-    pub async fn rx_buf(&mut self) -> PacketBuf {
+    pub async fn rx_buf(&mut self) -> DriverBuf {
         core::future::poll_fn(|cx| self.poll_rx_buf(cx)).await
     }
 
     /// Get an empty buffer from the stack, if there is one right now.
     ///
     /// See [`rx_buf`](Self::rx_buf).
-    pub fn try_rx_buf(&mut self) -> Option<PacketBuf> {
+    pub fn try_rx_buf(&mut self) -> Option<DriverBuf> {
         let buf = self.rx_empty.try_receive().ok()?;
         rx_taken(self.shared);
         Some(buf)
@@ -346,14 +349,14 @@ impl RxRunner<'_> {
     /// Poll for an empty buffer from the stack.
     ///
     /// See [`rx_buf`](Self::rx_buf).
-    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+    pub fn poll_rx_buf(&mut self, cx: &mut Context<'_>) -> Poll<DriverBuf> {
         let buf = core::task::ready!(self.rx_empty.poll_receive(cx));
         rx_taken(self.shared);
         Poll::Ready(buf)
     }
 
     /// Push a received packet to the stack, waiting for space in the inbound queue.
-    pub async fn rx(&mut self, buf: PacketBuf) {
+    pub async fn rx(&mut self, buf: DriverBuf) {
         self.rx_chan.send(buf).await;
         rx_pushed(self.shared);
     }
@@ -361,7 +364,7 @@ impl RxRunner<'_> {
     /// Push a received packet to the stack, if the inbound queue has space right now.
     ///
     /// If it doesn't, the buffer is handed back in the `Err` variant.
-    pub fn try_rx(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    pub fn try_rx(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         self.rx_chan.try_send(buf).map_err(|TrySendError::Full(buf)| buf)?;
         rx_pushed(self.shared);
         Ok(())
@@ -370,17 +373,17 @@ impl RxRunner<'_> {
 
 impl TxRunner<'_> {
     /// Wait for a packet the stack wants to transmit.
-    pub async fn tx(&mut self) -> PacketBuf {
+    pub async fn tx(&mut self) -> DriverBuf {
         self.tx_chan.receive().await
     }
 
     /// Get a packet the stack wants to transmit, if there is one right now.
-    pub fn try_tx(&mut self) -> Option<PacketBuf> {
+    pub fn try_tx(&mut self) -> Option<DriverBuf> {
         self.tx_chan.try_receive().ok()
     }
 
     /// Poll for a packet the stack wants to transmit.
-    pub fn poll_tx(&mut self, cx: &mut Context<'_>) -> Poll<PacketBuf> {
+    pub fn poll_tx(&mut self, cx: &mut Context<'_>) -> Poll<DriverBuf> {
         self.tx_chan.poll_receive(cx)
     }
 }
@@ -390,11 +393,13 @@ fn rx_taken(shared: &Mutex<NoopRawMutex, RefCell<Shared>>) {
     shared.lock(|s| {
         let s = &mut *s.borrow_mut();
         // The stack stops giving buffers when the queues are full. Wake it to
-        // give more.
-        if s.rx_queued == s.rx_capacity {
+        // give more, and to learn the runner is starved when this was the last
+        // empty buffer.
+        if s.rx_queued == s.rx_capacity || s.rx_empty == 1 {
             s.waker.wake();
         }
         s.rx_queued -= 1;
+        s.rx_empty -= 1;
     })
 }
 
@@ -461,9 +466,9 @@ pub fn new<'d, const N_RX: usize, const N_TX: usize>(
 ///
 /// Holds the shared state and upper end of channels for inbound and outbound packets.
 pub struct Device<'d> {
-    rx_empty: DynamicSender<'d, PacketBuf>,
-    rx: DynamicReceiver<'d, PacketBuf>,
-    tx: DynamicSender<'d, PacketBuf>,
+    rx_empty: DynamicSender<'d, DriverBuf>,
+    rx: DynamicReceiver<'d, DriverBuf>,
+    tx: DynamicSender<'d, DriverBuf>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
     caps: Capabilities,
     /// The last waker passed to `register_waker`. `can_transmit` arms the TX queue's
@@ -499,27 +504,36 @@ impl driver::Driver for Device<'_> {
         Ok(())
     }
 
-    fn rx_wanted(&mut self) -> usize {
+    fn rx_wanted(&mut self) -> RxWanted {
         self.shared.lock(|s| {
             let s = s.borrow();
-            // `rx_queued` counts buffers in both the `rx_empty` and `rx` queues, so it
-            // can reach `2 * N_RX`. Saturate so a full `rx` queue can't wrap this.
-            s.rx_capacity.saturating_sub(s.rx_queued)
+            RxWanted {
+                // `rx_queued` counts buffers in both the `rx_empty` and `rx` queues, so it
+                // can reach `2 * N_RX`. Saturate so a full `rx` queue can't wrap this.
+                count: s.rx_capacity.saturating_sub(s.rx_queued),
+                // With no empty buffer queued, the runner can't receive a frame once it
+                // is done with the one it may hold.
+                starved: s.rx_empty == 0,
+            }
         })
     }
 
-    fn rx_give(&mut self, buf: PacketBuf) {
-        if self.rx_wanted() == 0 {
+    fn rx_give(&mut self, buf: DriverBuf) {
+        if self.rx_wanted().count == 0 {
             // Not asked for: dropping it gives it back to the pool.
             return;
         }
         // Can't fail: `rx_empty` holds `N_RX` and at most `N_RX` are queued.
         if self.rx_empty.try_send(buf).is_ok() {
-            self.shared.lock(|s| s.borrow_mut().rx_queued += 1);
+            self.shared.lock(|s| {
+                let s = &mut *s.borrow_mut();
+                s.rx_queued += 1;
+                s.rx_empty += 1;
+            });
         }
     }
 
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         let buf = self.rx.try_receive().ok()?;
         self.shared.lock(|s| s.borrow_mut().rx_queued -= 1);
         Some(buf)
@@ -535,7 +549,7 @@ impl driver::Driver for Device<'_> {
         }
     }
 
-    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    fn transmit(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         self.tx.try_send(buf).map_err(|TrySendError::Full(buf)| buf)
     }
 

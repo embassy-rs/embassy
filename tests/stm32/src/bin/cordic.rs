@@ -8,11 +8,9 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
-use defmt_rtt as _;
 use dsp_fixedpoint::Q32;
 use embassy_executor::Spawner;
 use embassy_stm32::{cordic, rng};
-use panic_probe as _;
 
 /* input value control, can be changed */
 
@@ -23,11 +21,7 @@ const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 // And all calculations generate 2 results.
 const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let dp = init();
 

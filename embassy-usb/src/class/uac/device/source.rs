@@ -9,7 +9,7 @@ use super::function::AudioFunction;
 pub use super::function::{ControlMonitor, FeatureUnitControls, State};
 use super::{Channel, MAX_AUDIO_CHANNEL_COUNT, SampleWidth};
 use crate::class::uac::terminal_type::TerminalType;
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointType};
+use crate::driver::{Driver, EndpointType};
 use crate::{Builder, EndpointOptions};
 
 /// Everything the audio source advertises to the host.
@@ -56,7 +56,7 @@ impl<'d> Config<'d> {
 /// Implementation of the USB audio class 1.0, source side.
 pub struct AudioSource<'d, D: Driver<'d>> {
     /// The audio stream toward the host.
-    pub stream: Stream<'d, D>,
+    pub stream: D::EndpointIn,
     /// Control Monitor
     pub control_monitor: ControlMonitor<'d>,
 }
@@ -110,7 +110,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
             "at most 1023 bytes per full-speed isochronous packet"
         );
 
-        let (streaming_endpoint, _, control_monitor) =
+        let (stream, _, control_monitor) =
             function.build(builder, state, max_packet_size as u16, None, |alt, max_packet_size| {
                 alt.alloc_endpoint_in(
                     EndpointType::Isochronous,
@@ -122,25 +122,8 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
             });
 
         Self {
-            stream: Stream { streaming_endpoint },
+            stream,
             control_monitor,
         }
-    }
-}
-
-/// Used for writing audio frames.
-pub struct Stream<'d, D: Driver<'d>> {
-    streaming_endpoint: D::EndpointIn,
-}
-
-impl<'d, D: Driver<'d>> Stream<'d, D> {
-    /// Writes a single packet into the IN endpoint
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        crate::class::write_packet(&mut self.streaming_endpoint, data).await
-    }
-
-    /// Waits for the USB host to enable this interface: it is listening.
-    pub async fn wait_connection(&mut self) {
-        self.streaming_endpoint.wait_enabled().await;
     }
 }

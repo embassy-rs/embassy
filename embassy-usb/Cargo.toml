@@ -56,6 +56,7 @@ class-all = [
     "class-hub",
     "class-midi",
     "class-msc",
+    "class-mtp",
     "class-printer",
     "class-uac",
     "class-usbtmc",
@@ -81,6 +82,7 @@ class-cdc-ncm = ["device", "dep:embassy-net-driver-channel"]
 class-cmsis-dap-v2 = ["device"]
 class-dfu = ["device", "dep:embassy-time"]
 class-gud = ["device"]
+class-mtp = ["device"]
 class-usbtmc = ["device"]
 class-uvc = ["device"]
 class-vendor = ["device", "embedded-io"]
@@ -123,7 +125,7 @@ max-handler-count-8 = []
 
 [dependencies]
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+embassy-usb-driver = { version = "0.3.0", path = "../embassy-usb-driver" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional = true }
 embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }

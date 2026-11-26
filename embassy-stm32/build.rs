@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode, TempCalibration,
 };
 
 #[path = "./build_common.rs"]
@@ -772,7 +772,7 @@ fn main() {
         clock_gen.chained_muxes.insert(
             "PER",
             &PeripheralRccRegister {
-                register: "AHBPERCKSELR",
+                register: "CCIPR1",
                 field: "PERSEL",
             },
         );
@@ -944,23 +944,23 @@ fn main() {
             }
         }
 
-        fn gen_prescaled_mux(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
-            let mux_expr = self.gen_mux(
-                peripheral,
-                &PeripheralRccRegister {
-                    register: mux.register,
-                    field: mux.field,
-                },
-            );
-
+        /// Wrap a kernel clock expression in a runtime read of its prescaler field,
+        /// dividing/multiplying accordingly (e.g. F1 `CFGR/ADCPRE`, C5
+        /// `CCIPR2/ADCDACPRE`).
+        fn wrap_prescaler(
+            &mut self,
+            peripheral: &str,
+            freq: TokenStream,
+            prescaler: &PeripheralRccRegister,
+        ) -> TokenStream {
             let ir = &self.rcc_registers.ir;
-            let fieldset_name = mux.prescaler.register.to_ascii_lowercase();
+            let fieldset_name = prescaler.register.to_ascii_lowercase();
             let fieldset = ir
                 .fieldsets
                 .iter()
                 .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
                 .unwrap();
-            let field_name = mux.prescaler.field.to_ascii_lowercase();
+            let field_name = prescaler.field.to_ascii_lowercase();
             let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
             let enum_name = field.enumm.unwrap();
             let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
@@ -987,7 +987,7 @@ fn main() {
 
             quote! {
                 {
-                    let freq = #mux_expr;
+                    let freq = #freq;
                     match crate::pac::RCC.#fieldset_name().read().#field_name() {
                         #match_arms
                         #[allow(unreachable_patterns)]
@@ -998,6 +998,25 @@ fn main() {
                         )
                     }
                 }
+            }
+        }
+
+        /// Kernel clock from the consolidated metapac `PeripheralRccMux`: a mux, a
+        /// parent clock (no mux), or either of those behind a prescaler.
+        fn gen_kernel(&mut self, peripheral: &str, mux: &PeripheralRccMux) -> TokenStream {
+            let base = if let (Some(register), Some(field)) = (mux.register, mux.field) {
+                self.gen_mux(peripheral, &PeripheralRccRegister { register, field })
+            } else if let Some(clock) = mux.clock {
+                self.gen_clock(peripheral, clock)
+            } else {
+                panic!(
+                    "peripheral '{}' has a kernel clock with neither a mux field nor a parent clock",
+                    peripheral
+                )
+            };
+            match &mux.prescaler {
+                Some(prescaler) => self.wrap_prescaler(peripheral, base, prescaler),
+                None => base,
             }
         }
     }
@@ -1062,9 +1081,51 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
-                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
-                PeripheralRccKernelClock::PrescaledMux(mux) => clock_gen.gen_prescaled_mux(p.name, mux),
+                PeripheralRccKernelClock::Clock(clock) => {
+                    // STM32F3 SPI2/SPI3 are dual-purpose. If I2SMOD is set, the audio clock
+                    // comes from SYSCLK (or I2S_CKIN). If not, it's standard PCLK.
+                    //
+                    // Below code is implement a runtime check against I2SCFGR.I2SMOD that returns
+                    // the SPI clock in SPI mode and the I2S clock in I2S mode.
+                    let is_f3_i2s_capable = chip_name.starts_with("stm32f3")
+                        && p.name
+                            .strip_prefix("SPI")
+                            .map(|n| peripheral_map.contains_key(format!("I2S{}", n).as_str()))
+                            .unwrap_or(false);
+
+                    if is_f3_i2s_capable {
+                        let default_clock = clock_gen.gen_clock(p.name, clock);
+                        let pname = format_ident!("{}", p.name);
+                        quote! {
+                            if crate::pac::#pname.i2scfgr().read().i2smod() {
+                                // I2S mode: I2SxCLK source is selected by RCC_CFGR.I2SSRC
+                                let i2ssrc_ckin =
+                                    crate::pac::RCC.cfgr().read().i2ssrc() != crate::pac::rcc::vals::Issrc::Sys;
+
+                                if i2ssrc_ckin {
+                                    panic!(
+                                        "I2S on {} is configured to use external I2S_CKIN, which is not \
+                                         supported by this driver. Clear RCC_CFGR.I2SSRC to use SYSCLK.",
+                                        stringify!(#pname))
+                                }
+
+                                unsafe { crate::rcc::get_freqs() }
+                                    .sys
+                                    .to_hertz()
+                                    .unwrap_or_else(|| panic!(
+                                        "I2S on {} requires SYSCLK to be running, but it is not configured",
+                                        stringify!(#pname)
+                                    ))
+                            } else {
+                                // SPI mode: PCLK1 as before
+                                #default_clock
+                            }
+                        }
+                    } else {
+                        clock_gen.gen_clock(p.name, clock)
+                    }
+                }
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_kernel(p.name, mux),
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
@@ -1188,6 +1249,75 @@ fn main() {
             }
         }
     });
+
+    // The kernel clock selected for an LPTIM time driver, so the driver can check that it can run
+    // and whether it keeps running in Stop mode.
+    if let Some(p) = METADATA.peripherals.iter().find(|p| p.name == time_driver_singleton)
+        && p.registers.as_ref().is_some_and(|r| r.kind == "lptim")
+        && let Some(rcc) = &p.rcc
+        && let PeripheralRccKernelClock::Mux(mux) = &rcc.kernel_clock
+        && let (Some(register), Some(field)) = (mux.register, mux.field)
+    {
+        let ir = &clock_gen.rcc_registers.ir;
+        let fieldset_name = register.to_ascii_lowercase();
+        let fieldset = ir
+            .fieldsets
+            .iter()
+            .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+            .unwrap();
+        let field_name = field.to_ascii_lowercase();
+        let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+        let enum_name = field.enumm.unwrap();
+        let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+        let mut name_arms = TokenStream::new();
+        for v in enumm.variants {
+            let variant = format_ident!("{}", v.name);
+            let name = pascal_to_upper_snake(v.name);
+            name_arms.extend(quote!(Sel::#variant => #name,));
+        }
+        let has = |name: &str| enumm.variants.iter().any(|v| v.name == name);
+        let is_lsi = if has("Lsi") {
+            quote!(sel() == Sel::Lsi)
+        } else {
+            quote!(false)
+        };
+        let is_lse = if has("Lse") {
+            quote!(sel() == Sel::Lse)
+        } else {
+            quote!(false)
+        };
+
+        let fieldset_name = format_ident!("{}", fieldset_name);
+        let field_name = format_ident!("{}", field_name);
+        let enum_name = format_ident!("{}", enum_name);
+        g.extend(quote! {
+            pub(crate) mod time_driver_clock {
+                use crate::pac::rcc::vals::#enum_name as Sel;
+
+                fn sel() -> Sel {
+                    crate::pac::RCC.#fieldset_name().read().#field_name()
+                }
+
+                /// Name of the selected clock.
+                pub(crate) fn name() -> &'static str {
+                    #[allow(unreachable_patterns)]
+                    match sel() {
+                        #name_arms
+                        _ => "?",
+                    }
+                }
+
+                pub(crate) fn is_lsi() -> bool {
+                    #is_lsi
+                }
+
+                pub(crate) fn is_lse() -> bool {
+                    #is_lse
+                }
+            }
+        });
+    }
 
     // Generate RCC
     clock_gen.clock_names.insert("sys".to_string());
@@ -2869,6 +2999,69 @@ fn main() {
 
         let row = vec![regs.kind.to_string(), p.name.to_string()];
         peripherals_table.push(row);
+    }
+
+    cfgs.declare_all(&[
+        "adc_vrefint_cal",
+        "adc_temp_cal",
+        "adc_temp_two_point",
+        "adc_temp_one_point",
+        "adc_temp_nominal",
+    ]);
+
+    if let Some(cal) = METADATA.adc_calibration {
+        if let Some(vref) = cal.vrefint {
+            cfgs.enable("adc_vrefint_cal");
+            let vref_mv = vref.vref_mv as u32;
+            let cal_bits = vref.cal_bits;
+            g.extend(quote! {
+                pub(crate) const ADC_VREF_CAL_MV: u32 = #vref_mv;
+                pub(crate) const ADC_VREF_CAL_BITS: u8 = #cal_bits;
+            });
+        }
+        if let Some(temp) = cal.temp {
+            match temp {
+                TempCalibration::TwoPoint(t) => {
+                    cfgs.enable("adc_temp_cal");
+                    cfgs.enable("adc_temp_two_point");
+                    let vref_mv = t.vref_mv as u32;
+                    let cal_bits = t.cal_bits;
+                    let cal1_temp_c = t.cal1_temp_c as i32;
+                    let cal2_temp_c = t.cal2_temp_c as i32;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_CAL_MV: u32 = #vref_mv;
+                        pub(crate) const ADC_TEMP_CAL_BITS: u8 = #cal_bits;
+                        pub(crate) const ADC_TEMP_CAL1_C: i32 = #cal1_temp_c;
+                        pub(crate) const ADC_TEMP_CAL2_C: i32 = #cal2_temp_c;
+                    });
+                }
+                TempCalibration::OnePoint(t) => {
+                    cfgs.enable("adc_temp_cal");
+                    cfgs.enable("adc_temp_one_point");
+                    let vref_mv = t.vref_mv as u32;
+                    let cal_bits = t.cal_bits;
+                    let cal1_temp_c = t.cal1_temp_c as i32;
+                    let avg_slope_uv_per_c = t.avg_slope_uv_per_c;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_CAL_MV: u32 = #vref_mv;
+                        pub(crate) const ADC_TEMP_CAL_BITS: u8 = #cal_bits;
+                        pub(crate) const ADC_TEMP_CAL1_C: i32 = #cal1_temp_c;
+                        pub(crate) const ADC_TEMP_AVG_SLOPE_UV_PER_C: i32 = #avg_slope_uv_per_c;
+                    });
+                }
+                TempCalibration::Nominal(t) => {
+                    cfgs.enable("adc_temp_nominal");
+                    let ref_temp_c = t.ref_temp_c as i32;
+                    let v_ref_mv = t.v_ref_mv as u32;
+                    let avg_slope_uv_per_c = t.avg_slope_uv_per_c;
+                    g.extend(quote! {
+                        pub(crate) const ADC_TEMP_REF_C: i32 = #ref_temp_c;
+                        pub(crate) const ADC_TEMP_VREF_MV: u32 = #v_ref_mv;
+                        pub(crate) const ADC_TEMP_AVG_SLOPE_UV_PER_C: i32 = #avg_slope_uv_per_c;
+                    });
+                }
+            }
+        }
     }
 
     g.extend(dfsdm_codegen::gen_shapes());

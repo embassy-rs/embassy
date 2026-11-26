@@ -53,9 +53,9 @@ async fn main(_spawner: Spawner) {
     let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vrefint = adc.blocking_read(&mut vrefint_channel, SampleTime::Cycles245);
+        let vrefint = adc.blocking_read(&mut vrefint_channel, SampleTime::Cycles24_5);
         info!("vrefint: {}", vrefint);
-        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles245);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles24_5);
         info!("measured: {}", measured);
         Timer::after_millis(500).await;
     }

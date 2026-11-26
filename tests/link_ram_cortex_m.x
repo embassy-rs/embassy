@@ -129,12 +129,20 @@ SECTIONS
   } > RAM
 
   /* ## Sections in RAM */
+  /* ### Initial values of .data
+     RAM: the image is loaded with a copy of .data here, which cortex-m-rt copies to .data on
+     every boot. A reset that boots the image again without reloading it (e.g. through a stub in
+     flash) then starts with the initial values, like a flash image does. */
+  .data_init (NOLOAD) : ALIGN(8)
+  {
+    . += SIZEOF(.data);
+  } > RAM
+
   /* ### .data */
-  .data : ALIGN(4)
+  .data : AT(ADDR(.data_init)) ALIGN(8)
   {
     . = ALIGN(4);
     __sdata = .;
-    __edata = .; /* RAM: By setting __sdata=__edata cortex-m-rt has to copy 0 bytes as .data is already in RAM */
 
     *(.data .data.*);
     /* 8-byte align the end of this section: the whole segment must be a
@@ -145,10 +153,8 @@ SECTIONS
   /* Allow sections from user `memory.x` injected using `INSERT AFTER .data` to
    * use the .data loading mechanism by pushing __edata. Note: do not change
    * output region or load region in those user sections! */
-  /* Link from RAM: Disabled, now __sdata == __edata
   . = ALIGN(4);
   __edata = .;
-  */
 
   /* LMA of .data */
   __sidata = LOADADDR(.data);
@@ -157,7 +163,8 @@ SECTIONS
      This section contains the TrustZone-M veneers put there by the Arm GNU linker. */
   /* Security Attribution Unit blocks must be 32 bytes aligned. */
   /* Note that this pads the RAM usage to 32 byte alignment. */
-  .gnu.sgstubs : ALIGN(32)
+  /* LMA = VMA again (sections after .data would inherit its LMA offset). */
+  .gnu.sgstubs : AT(ADDR(.gnu.sgstubs)) ALIGN(32)
   {
     . = ALIGN(32);
     __veneer_base = .;
@@ -171,7 +178,7 @@ SECTIONS
   __veneer_limit = .;
 
   /* ### .bss */
-  .bss (NOLOAD) : ALIGN(4)
+  .bss (NOLOAD) : AT(ADDR(.bss)) ALIGN(4)
   {
     . = ALIGN(4);
     __sbss = .;

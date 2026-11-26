@@ -67,13 +67,12 @@ impl Endpoint for TestEndpoint {
         true
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         self.stalled.set(stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(self.stalled.get())
+    fn is_stalled(&self) -> bool {
+        self.stalled.get()
     }
 }
 
@@ -750,6 +749,142 @@ fn configuration_and_alt_setting_clear_halt() {
     });
 }
 
+/// The manufacturer string descriptor the device returns for `manufacturer`.
+fn manufacturer_string_descriptor(manufacturer: &str) -> std::vec::Vec<u8> {
+    let mut control_buf = [0; 512];
+    manufacturer_string_descriptor_with_control_buf(manufacturer, &mut control_buf)
+}
+
+/// The manufacturer string descriptor the device returns when its control buffer is `control_buf` bytes.
+fn manufacturer_string_descriptor_with_control_buf(manufacturer: &str, control_buf: &mut [u8]) -> std::vec::Vec<u8> {
+    // The real driver hands its control buffer to the descriptor code as the scratch buffer, so
+    // size the scratch buffer the same way.
+    let control_buf_len = control_buf.len();
+    let mut config = Config::new(0x1234, 0x5678);
+    config.manufacturer = Some(manufacturer);
+    let mut config_descriptor = [0; 64];
+    let mut bos_descriptor = [0; 64];
+    let builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        control_buf,
+    );
+    let mut usb = builder.build();
+
+    let req = Request::parse(&[
+        0x80,
+        Request::GET_DESCRIPTOR,
+        1,
+        descriptor_type::STRING,
+        0x09,
+        0x04,
+        0xff,
+        0,
+    ]);
+    let mut buf = std::vec![0; control_buf_len];
+    match usb.inner.handle_get_descriptor(req, &mut buf) {
+        InResponse::Accepted(data) => data.to_vec(),
+        InResponse::Rejected => panic!("manufacturer string should be accepted"),
+    }
+}
+
+#[test]
+fn long_string_descriptor_is_truncated_to_fit_blength() {
+    // bLength is one byte, so a string descriptor holds at most 126 UTF-16 code units.
+    let data = manufacturer_string_descriptor(&"a".repeat(200));
+    assert_eq!(data.len(), 254);
+    assert_eq!(data[0], 254);
+    assert_eq!(data[1], descriptor_type::STRING);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+
+    // A string that fits is not changed.
+    let data = manufacturer_string_descriptor(&"a".repeat(126));
+    assert_eq!(data.len(), 254);
+
+    // A character outside the BMP is two code units. It is dropped, not split, when only one fits.
+    let data = manufacturer_string_descriptor(&("a".repeat(125) + "\u{1F600}"));
+    assert_eq!(data.len(), 252);
+    assert_eq!(data[0], 252);
+}
+
+#[test]
+fn long_string_descriptor_is_truncated_to_fit_a_small_control_buffer() {
+    // A control buffer below 255 bytes cannot hold a full-length descriptor. The string is cut to
+    // the buffer instead of overrunning it, so a short control buffer does not panic.
+    let mut control_buf = [0; 64];
+    let data = manufacturer_string_descriptor_with_control_buf(&"a".repeat(200), &mut control_buf);
+    assert_eq!(data.len(), 62);
+    assert_eq!(data[0], 62);
+    assert_eq!(data[1], descriptor_type::STRING);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+
+    // The same holds for the 7-byte control buffers the examples use.
+    let mut control_buf = [0; 7];
+    let data = manufacturer_string_descriptor_with_control_buf(&"a".repeat(200), &mut control_buf);
+    assert_eq!(data.len(), 6);
+    assert_eq!(data[0], 6);
+    assert!(data[2..].chunks(2).all(|c| c == [b'a', 0]));
+}
+
+struct AltSettingHandler<'a>(&'a Cell<Option<(u8, u8)>>);
+
+impl Handler for AltSettingHandler<'_> {
+    fn set_alternate_setting(&mut self, iface: InterfaceNumber, alternate_setting: u8) {
+        self.0.set(Some((iface.0, alternate_setting)));
+    }
+}
+
+#[test]
+fn set_configuration_resets_alt_settings() {
+    let seen = Cell::new(None);
+    let mut handler = AltSettingHandler(&seen);
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut function = builder.function(0xff, 0, 0);
+    let mut interface = function.interface();
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_bulk_out(Some(0x01.into()), EndpointOptions::new());
+    let mut alt = interface.alt_setting(0xff, 0, 0, None);
+    alt.endpoint_interrupt_in(Some(0x83.into()), 64, 1);
+    drop(function);
+    builder.handler(&mut handler);
+    let usb = &mut builder.build();
+
+    configure(usb);
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(1));
+    assert_eq!(seen.get(), Some((0, 1)));
+
+    // USB 2.0 §9.1.1.5: a (re)configured device is in alternate setting zero,
+    // even if the host selects the configuration that is already active.
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+
+    // Deconfiguring and configuring again also starts from alternate setting zero.
+    assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 0, 0, 0), Response::Accepted);
+    assert_eq!(seen.get(), Some((0, 0)));
+    assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
+    assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
+    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
+    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+}
+
 #[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
 #[test]
 fn test_ccid_device_and_host_interop() {
@@ -803,11 +938,11 @@ fn test_endpoint_stall_from_class() {
     let mut usb = builder.build();
 
     configure(&mut usb);
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!ep_out.is_stalled());
 
     // A class driver can reject traffic on its own endpoint, and the host sees the halt.
-    block_on(ep_out.set_stall(true)).unwrap();
-    assert!(ep_out.is_stalled().unwrap());
+    block_on(ep_out.set_stalled(true));
+    assert!(ep_out.is_stalled());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
 
     // The host clearing the halt recovers the endpoint, without the class doing anything.
@@ -815,13 +950,13 @@ fn test_endpoint_stall_from_class() {
         endpoint_request(&mut usb, Request::CLEAR_FEATURE, 1),
         Response::Accepted
     );
-    assert!(!ep_out.is_stalled().unwrap());
+    assert!(!ep_out.is_stalled());
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 
     // The class can also clear its own stall.
-    block_on(ep_out.set_stall(true)).unwrap();
+    block_on(ep_out.set_stalled(true));
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(1));
-    block_on(ep_out.set_stall(false)).unwrap();
+    block_on(ep_out.set_stalled(false));
     assert_eq!(endpoint_request(&mut usb, Request::GET_STATUS, 1), Response::Status(0));
 }
 
@@ -896,6 +1031,103 @@ fn test_cdc_ecm_device_descriptors() {
     // wMaxSegmentSize = 1514 (0x05ea)
     assert_eq!(eth_desc[8], 0xea);
     assert_eq!(eth_desc[9], 0x05);
+}
+
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_send_break_is_advertised_and_reported_when_enabled() {
+    use crate::class::cdc_acm::device::{Break, CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let mut acm_config = AcmConfig::new();
+    acm_config.send_break = true;
+    let class = CdcAcmClass::new(&mut builder, &mut state, acm_config);
+    let mut usb = builder.build();
+
+    // `configure()` resets the bus, so the class reports a `Stop` first.
+    configure(&mut usb);
+    assert_eq!(class.take_break(), Some(Break::Stop));
+    // Start a break that lasts until the host stops it.
+    assert_eq!(request(&mut usb, 0x21, 0x23, 0xFFFF, 0, 0), Response::Accepted);
+    assert_eq!(class.take_break(), Some(Break::UntilStopped));
+    block_on(usb.inner.handle_bus_event(&mut usb.bus, Event::PowerRemoved));
+    assert_eq!(class.take_break(), Some(Break::Stop));
+
+    drop(class);
+    drop(usb);
+    // D1 and D2 set: line coding and SEND_BREAK.
+    assert!(config_descriptor.windows(4).any(|w| w == [4, 0x24, 0x02, 0x06]));
+}
+
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_send_break_is_rejected_by_default() {
+    use crate::class::cdc_acm::device::{CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let class = CdcAcmClass::new(&mut builder, &mut state, AcmConfig::new());
+    let mut usb = builder.build();
+
+    configure(&mut usb);
+    assert_eq!(request(&mut usb, 0x21, 0x23, 0xFFFF, 0, 0), Response::Rejected);
+    assert_eq!(class.take_break(), None);
+
+    drop(class);
+    drop(usb);
+    // Only D1 set: no SEND_BREAK.
+    assert!(config_descriptor.windows(4).any(|w| w == [4, 0x24, 0x02, 0x02]));
+}
+
+#[cfg(feature = "class-cdc-acm")]
+#[test]
+fn cdc_acm_notification_endpoint_fits_serial_state() {
+    use crate::class::cdc_acm::device::{CdcAcmClass, Config as AcmConfig, State};
+
+    let mut state = State::new();
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        Config::new(0x1234, 0x5678),
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let class = CdcAcmClass::new(&mut builder, &mut state, AcmConfig::new());
+    let (_sender, _receiver, _control, _notifier) = class.split_with_notifier();
+    drop(builder.build());
+
+    // The 10-byte SERIAL_STATE notification has to fit in one packet.
+    let endpoint = config_descriptor
+        .windows(7)
+        .find(|w| w[0] == 7 && w[1] == 5 && w[3] == 0x03)
+        .expect("interrupt endpoint descriptor not found");
+    // wMaxPacketSize 16, bInterval 255.
+    assert_eq!(endpoint[4..7], [16, 0, 255]);
 }
 
 #[cfg(feature = "class-printer")]
@@ -1917,6 +2149,49 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
 }
 
 #[cfg(feature = "class-midi")]
+/// Builds a MIDI 1.0 class with the given bulk packet size at `max_speed`.
+fn build_midi_with_packet_size(max_speed: UsbDeviceSpeed, max_packet_size: u16) {
+    use crate::class::midi::device::{MidiClass, MidiClassConfig};
+
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 64];
+    let mut control_buf = [0; 64];
+    let mut config = Config::new(0x1234, 0x5678);
+    config.max_speed = max_speed;
+    let mut builder = Builder::new(
+        TestDriver::default(),
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut [],
+        &mut control_buf,
+    );
+    let midi_config = MidiClassConfig {
+        max_packet_size,
+        ..MidiClassConfig::default()
+    };
+    let _midi = MidiClass::new(&mut builder, midi_config);
+}
+
+#[test]
+fn midi_bulk_packet_size_follows_the_device_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 64);
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 8);
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 512);
+}
+
+#[test]
+#[should_panic(expected = "bulk endpoints require a max_packet_size of 512")]
+fn midi_default_packet_size_is_refused_at_high_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::High, 64);
+}
+
+#[test]
+#[should_panic(expected = "full-speed bulk endpoints require a max_packet_size of 8, 16, 32 or 64")]
+fn midi_odd_packet_size_is_refused_at_full_speed() {
+    build_midi_with_packet_size(UsbDeviceSpeed::Full, 100);
+}
+
 #[test]
 fn test_midi2_device_enumeration_and_control() {
     use crate::class::midi::device::{Midi2Config, MidiClass, MidiClassConfig, MidiClassState};

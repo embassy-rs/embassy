@@ -10,7 +10,7 @@ use core::mem::DropGuard;
 
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
+use embassy_net_driver_channel::driver::{DriverBuf, LinkState};
 use embedded_io_async::{BufRead, Write};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
 pub use ppproto::{Config, Ipv4Status};
@@ -85,7 +85,7 @@ impl<'d> Runner<'d> {
         let mut needs_poll = true;
         let mut was_up = false;
         // Empty buffer from the stack, to copy the next received packet into.
-        let mut pkt_buf: Option<PacketBuf> = None;
+        let mut pkt_buf: Option<DriverBuf> = None;
 
         loop {
             let rx_fut = async {

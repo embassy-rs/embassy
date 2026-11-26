@@ -25,14 +25,14 @@ async fn main(_spawner: Spawner) {
         // Wait for pin to go high
         {
             let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0, 0x07F);
-            let v_high = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles135).await;
+            let v_high = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles13_5).await;
             info!("ADC sample is high {}", v_high);
         }
 
         // Wait for pin to go low
         {
             let mut wd = adc.enable_watchdog(WatchdogIndex::Awd1, WatchdogChannels::from_channel(&pin), 0x01f, 0xFFF);
-            let v_low = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles135).await;
+            let v_low = wd.monitor(&mut adc, &mut pin, SampleTime::Cycles13_5).await;
             info!("ADC sample is low {}", v_low);
         }
     }

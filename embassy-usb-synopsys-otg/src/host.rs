@@ -5,7 +5,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
@@ -13,8 +13,8 @@ use embassy_usb_driver::host::{
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
-use crate::PhyType;
 use crate::otg_v1::{Otg, vals};
+use crate::{PhyType, SharedRawMutex};
 
 // Per-channel event flags, OR'd into an AtomicU16 mailbox by the ISR.
 const EV_XFRC: u16 = 1 << 0;
@@ -73,7 +73,7 @@ struct HostStateFields {
 /// Storage object for USB host driver state. Create one per OTG instance.
 pub struct HostStateStorage<const CH_COUNT: usize, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     channels: [ChannelState; CH_COUNT],
     fields: HostStateFields,
@@ -82,7 +82,7 @@ where
 
 impl<const CH_COUNT: usize, M> HostStateStorage<CH_COUNT, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Create a new host state.
     pub const fn new(mutex: M) -> Self {
@@ -111,7 +111,7 @@ where
         HostState {
             channels: self.channels.as_slice(),
             fields: &self.fields,
-            mutex: &self.mutex,
+            mutex: self.mutex.share(),
         }
     }
 }
@@ -121,31 +121,29 @@ where
 /// Build from [`HostState::as_host_state`].
 pub struct HostState<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     channels: &'d [ChannelState],
     fields: &'d HostStateFields,
-    mutex: &'d M,
+    mutex: M,
 }
 
 impl<'d, M> Clone for HostState<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn clone(&self) -> Self {
         Self {
             channels: self.channels,
             fields: self.fields,
-            mutex: self.mutex,
+            mutex: self.mutex.share(),
         }
     }
 }
 
-impl<'d, M> Copy for HostState<'d, M> where M: RawMutex + Copy {}
-
 impl<'d, M> HostState<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Returns the number of host channels supported by this state.
     pub fn channel_count(&self) -> usize {
@@ -154,10 +152,9 @@ where
 }
 
 /// Hardware-dependent host configuration.
-#[derive(Copy, Clone)]
 pub struct OtgHostInstance<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// The USB peripheral registers.
     pub regs: Otg,
@@ -169,13 +166,27 @@ where
     pub phy_type: PhyType,
 }
 
+impl<'d, M> Clone for OtgHostInstance<'d, M>
+where
+    M: SharedRawMutex,
+{
+    fn clone(&self) -> Self {
+        Self {
+            regs: self.regs,
+            state: self.state.clone(),
+            fifo_depth_words: self.fifo_depth_words,
+            phy_type: self.phy_type,
+        }
+    }
+}
+
 /// Handle host-mode interrupts.
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
 pub unsafe fn on_host_interrupt<M>(r: Otg, state: &HostState<'_, M>)
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     let gintsts = r.gintsts().read();
     let ch_count = state.channels.len();
@@ -434,7 +445,7 @@ fn hprt_read_safe(r: Otg) -> u32 {
 /// USB OTG Host Driver.
 pub struct OtgHost<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     instance: OtgHostInstance<'d, M>,
     inited: bool,
@@ -442,13 +453,52 @@ where
 
 impl<'d, M> OtgHost<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Create a new OTG host driver.
     pub fn new(instance: OtgHostInstance<'d, M>) -> Self {
         Self {
             instance,
             inited: false,
+        }
+    }
+
+    /// Waits until a connection has been stable for 100 ms (USB 2.0 §7.1.7.3, TATTDB).
+    ///
+    /// A device can bounce on the contacts as it is plugged in, and the host must not reset the port
+    /// before that settles. Any connect or disconnect event during the 100 ms restarts the wait.
+    ///
+    /// Returns `false` if the device is gone at the end of it.
+    async fn wait_connection_stable(&mut self) -> bool {
+        const T_ATTDB_MS: u64 = 100;
+        let state = &self.instance.state;
+        loop {
+            embassy_time::Timer::after_millis(T_ATTDB_MS).await;
+
+            let events = state
+                .fields
+                .port_event
+                .fetch_and(!(PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED), Ordering::AcqRel);
+            let settled = events & (PORT_EVENT_CONNECTED | PORT_EVENT_DISCONNECTED) == 0;
+
+            if self.instance.regs.hprt().read().pcsts() {
+                if settled {
+                    return true;
+                }
+                // The line changed, so the 100 ms starts over.
+                continue;
+            }
+
+            // The device is gone. This function consumed the port event above, so hand the
+            // disconnect back: `wait_for_device_event` is what wakes the channels with
+            // `EV_DISCONNECT`, and it has to see this to wake a transfer that was in flight.
+            // Swallowing it here would leave that transfer waiting for some later disconnect.
+            state
+                .fields
+                .port_event
+                .fetch_or(PORT_EVENT_DISCONNECTED, Ordering::Release);
+            state.fields.port_waker.wake();
+            return false;
         }
     }
 
@@ -585,12 +635,12 @@ where
 
 /// Pipe allocator handle for [`OtgHost`].
 ///
-/// Obtained from [`UsbHostController::allocator`]. Holds only `Copy` handles
-/// to the controller's `'d`-borrowed state, so it can be freely copied and
-/// retained by class drivers independently of the controller's `&mut` borrow.
+/// Obtained from [`UsbHostController::allocator`]. Holds only handles to the
+/// controller's `'d`-borrowed state, so it can be freely cloned and retained by
+/// class drivers independently of the controller's `&mut` borrow.
 pub struct OtgHostAllocator<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     regs: Otg,
     state: HostState<'d, M>,
@@ -598,18 +648,19 @@ where
 
 impl<'d, M> Clone for OtgHostAllocator<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            regs: self.regs,
+            state: self.state.clone(),
+        }
     }
 }
 
-impl<'d, M> Copy for OtgHostAllocator<'d, M> where M: RawMutex + Copy {}
-
 impl<'d, M> UsbHostAllocator<'d> for OtgHostAllocator<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex + 'd,
 {
     type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, M>;
 
@@ -655,7 +706,7 @@ where
 
                 return Ok(Channel {
                     regs: self.regs,
-                    state: self.state,
+                    state: self.state.clone(),
                     index: i,
                     device_address: addr,
                     ep_number,
@@ -673,14 +724,14 @@ where
 
 impl<'d, M> UsbHostController<'d> for OtgHost<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex + 'd,
 {
     type Allocator = OtgHostAllocator<'d, M>;
 
     fn allocator(&self) -> Self::Allocator {
         OtgHostAllocator {
             regs: self.instance.regs,
-            state: self.instance.state,
+            state: self.instance.state.clone(),
         }
     }
 
@@ -695,7 +746,7 @@ where
         loop {
             // Wait for CONNECTED or DISCONNECTED event.
             let event = poll_fn(|cx| {
-                let state = self.instance.state;
+                let state = &self.instance.state;
                 state.fields.port_waker.register(cx.waker());
 
                 let ev = state.fields.port_event.load(Ordering::Acquire);
@@ -737,12 +788,15 @@ where
                 return DeviceEvent::Disconnected;
             }
 
-            // Connected: perform bus reset.
+            // Connected: let the connection settle, then perform bus reset.
+            if !self.wait_connection_stable().await {
+                continue;
+            }
             self.bus_reset().await;
 
             // Now wait for ENABLED or DISCONNECTED.
             let enabled_event = poll_fn(|cx| {
-                let state = self.instance.state;
+                let state = &self.instance.state;
                 state.fields.port_waker.register(cx.waker());
 
                 let ev = state.fields.port_event.load(Ordering::Acquire);
@@ -884,7 +938,7 @@ pub struct Channel<'d, T, D, M = CriticalSectionRawMutex>
 where
     T: pipe::Type,
     D: pipe::Direction,
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     regs: Otg,
     state: HostState<'d, M>,
@@ -897,12 +951,13 @@ where
     phantom: PhantomData<(T, D)>,
 }
 
-// SAFETY: Channel only accesses its own state in the shared HostState.
+// SAFETY: Channel only accesses its own state in the shared HostState. It holds a handle to the
+// shared lock, so the handle must be `Send`.
 unsafe impl<T, D, M> Send for Channel<'_, T, D, M>
 where
     T: pipe::Type,
     D: pipe::Direction,
-    M: RawMutex + Copy,
+    M: SharedRawMutex + Send,
 {
 }
 
@@ -910,7 +965,7 @@ impl<T, D, M> Drop for Channel<'_, T, D, M>
 where
     T: pipe::Type,
     D: pipe::Direction,
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn drop(&mut self) {
         let r = self.regs;
@@ -948,7 +1003,7 @@ impl<T, D, M> Channel<'_, T, D, M>
 where
     T: pipe::Type,
     D: pipe::Direction,
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
@@ -1371,7 +1426,7 @@ impl<T, D, M> UsbPipe<T, D> for Channel<'_, T, D, M>
 where
     T: pipe::Type,
     D: pipe::Direction,
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where

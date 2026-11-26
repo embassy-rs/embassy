@@ -8,6 +8,7 @@
 pub(crate) mod fmt;
 
 pub mod atomic_ring_buffer;
+pub mod iso_helpers;
 mod macros;
 mod peripheral;
 pub use peripheral::{Peri, PeripheralType};

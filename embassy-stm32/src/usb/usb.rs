@@ -6,30 +6,28 @@ mod usb_host;
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 mod double_buffer;
 
-#[cfg(any(usb_v1, usb_v3, usb_v4))]
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll};
 
-#[cfg(any(usb_v1, usb_v3, usb_v4))]
 use critical_section::Mutex;
 #[cfg(any(usb_v1, usb_v3, usb_v4))]
 use double_buffer::{RxQueue, TxQueue};
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-    EndpointInterval, EndpointType, Event, Speed, Unsupported,
+    EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 #[cfg(usb_v4)]
 pub use usb_host::*;
 
-#[cfg(feature = "exti")]
 use crate::exti::ExtiInput;
-#[cfg(feature = "exti")]
 use crate::mode::Async;
 use crate::pac::USBRAM;
 use crate::pac::usb::regs;
@@ -91,6 +89,21 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             //trace!("USB IRQ: reset");
             IRQ_RESET.store(true, Ordering::Relaxed);
 
+            critical_section::with(|cs| {
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for (i, state) in iso.iter_mut().enumerate() {
+                    if state.armed || state.arm_wait {
+                        clear_iso_in_counts::<T>(i, state.buf_addr);
+                        state.reset_state();
+                        EP_IN_WAKERS[i].wake();
+                    } else {
+                        state.reset_state();
+                    }
+                }
+                drop(iso);
+                update_sofm::<T>(cs);
+            });
+
             // Write 0 to clear.
             let mut clear = regs::Istr(!0);
             clear.set_reset(false);
@@ -98,6 +111,33 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
             // Wake main thread.
             BUS_WAKER.wake();
+        }
+
+        if istr.sof() {
+            // Write 0 to clear.
+            let mut clear = regs::Istr(!0);
+            clear.set_sof(false);
+            regs.istr().write_value(clear);
+
+            let now = u32::from(regs.fnr().read().fn_());
+            critical_section::with(|cs| {
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for i in 1..EP_COUNT {
+                    let state = &mut iso[i];
+                    let mut wake = state.arm_wait;
+                    if state.armed && forward(u32::from(state.expiry_frame), now, ISO_FRAME_SPAN) < ISO_FRAME_SPAN / 2 {
+                        // Drop an uncollected packet so the host receives a ZLP instead of stale data.
+                        clear_iso_in_counts::<T>(i, state.buf_addr);
+                        state.armed = false;
+                        wake = true;
+                    }
+                    if wake {
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+                drop(iso);
+                update_sofm::<T>(cs);
+            });
         }
 
         if istr.ctr() {
@@ -143,6 +183,25 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 EP_OUT_WAKERS[index].wake();
             }
             if epr.ctr_tx() {
+                if epr.ep_type() == EpType::Iso {
+                    critical_section::with(|cs| {
+                        let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                        let state = &mut iso[index];
+                        if state.armed {
+                            // Ensure both buffer counts are 0 so any extra poll before the next write
+                            // sends a ZLP rather than repeating this packet.
+                            clear_iso_in_counts::<T>(index, state.buf_addr);
+                            state.armed = false;
+                            if state.phase.is_none() {
+                                let now = u32::from(regs.fnr().read().fn_());
+                                let interval = u32::from(state.interval.max(1));
+                                state.phase = Some((now % interval) as u16);
+                            }
+                            drop(iso);
+                            update_sofm::<T>(cs);
+                        }
+                    });
+                }
                 TX_PENDING[index].store(false, Ordering::Relaxed);
                 //trace!("EP {} TX", index);
                 EP_IN_WAKERS[index].wake();
@@ -159,6 +218,51 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 const EP_COUNT: usize = 8;
+const ISO_FRAME_SPAN: u32 = 1 << 11;
+
+#[derive(Clone, Copy)]
+struct IsoInState {
+    buf_addr: u16,
+    armed: bool,
+    expiry_frame: u16,
+    phase: Option<u16>,
+    interval: u16,
+    arm_wait: bool,
+    reset: bool,
+}
+
+impl IsoInState {
+    const fn new() -> Self {
+        Self {
+            buf_addr: 0,
+            armed: false,
+            expiry_frame: 0,
+            phase: None,
+            interval: 1,
+            arm_wait: false,
+            reset: true,
+        }
+    }
+
+    fn reset_state(&mut self) {
+        self.armed = false;
+        self.phase = None;
+        self.arm_wait = false;
+        self.reset = true;
+    }
+}
+
+static ISO_IN_STATE: Mutex<RefCell<[IsoInState; EP_COUNT]>> = Mutex::new(RefCell::new([IsoInState::new(); EP_COUNT]));
+
+fn clear_iso_in_counts<T: Instance>(index: usize, buf_addr: u16) {
+    btable::write_in_len_tx::<T>(index, buf_addr, 0);
+    btable::write_in_len_rx::<T>(index, buf_addr, 0);
+}
+
+fn update_sofm<T: Instance>(cs: critical_section::CriticalSection<'_>) {
+    let active = ISO_IN_STATE.borrow(cs).borrow().iter().any(|s| s.armed || s.arm_wait);
+    T::regs().cntr().modify(|w| w.set_sofm(active));
+}
 
 #[cfg(usbram_16x1_512)]
 const USBRAM_SIZE: usize = 512;
@@ -300,7 +404,7 @@ fn reset_bulk_out<T: Instance>(index: usize, stat: Stat, queue: &mut RxQueue) {
 }
 
 // Set or clear the STALL handshake of an endpoint. Shared by `Bus::endpoint_set_stalled`
-// and `Endpoint::set_stall`, so a class driver can halt its own endpoint.
+// and `Endpoint::set_stalled`, so a class driver can halt its own endpoint.
 fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, double_buffered: bool, stalled: bool) {
     #[cfg(any(usb_v1, usb_v3, usb_v4))]
     {
@@ -593,7 +697,6 @@ pub struct Driver<'d, T: Instance> {
     #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: u16,
     ep_mem_free: u16, // first free address in EP mem, in bytes.
-    #[cfg(feature = "exti")]
     vbus: Option<ExtiInput<'d, Async>>,
 }
 
@@ -616,7 +719,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 
     /// Create a new USB driver with start-of-frame (SOF) output and VBUS detection.
-    #[cfg(all(feature = "exti", not(stm32l1)))]
+    #[cfg(not(stm32l1))]
     pub fn new_with_sof_and_vbus(
         _usb: Peri<'d, T>,
         dp: Peri<'d, impl DpPin<T>>,
@@ -652,7 +755,6 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// When `vbus` goes low, `Bus::poll` reports `Event::PowerRemoved` and the endpoints are
     /// disabled, so pending reads and writes return `EndpointError::Disabled`. When it goes high
     /// again, `Event::PowerDetected` is reported and the USB stack re-enumerates.
-    #[cfg(feature = "exti")]
     pub fn new_with_vbus(
         _usb: Peri<'d, T>,
         dp: Peri<'d, impl DpPin<T>>,
@@ -698,6 +800,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
 
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            for s in iso.iter_mut() {
+                *s = IsoInState::new();
+            }
+        });
+
         Self {
             phantom: PhantomData,
             alloc: [EndpointData {
@@ -708,7 +817,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: 0,
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
-            #[cfg(feature = "exti")]
             vbus: None,
         }
     }
@@ -812,7 +920,9 @@ impl<'d, T: Instance> Driver<'d, T> {
                 len,
                 _marker: PhantomData,
             },
+            #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: true,
+            schedule: IsoSchedule::new(),
         })
     }
 
@@ -896,6 +1006,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
                     if ep_type == EndpointType::Isochronous {
                         btable::write_in_rx::<T>(index, addr);
+                        clear_iso_in_counts::<T>(index, addr);
                     }
                 }
 
@@ -906,6 +1017,14 @@ impl<'d, T: Instance> Driver<'d, T> {
                     if ep_type == EndpointType::Isochronous {
                         btable::write_in_len_rx::<T>(index, addr, 0);
                     }
+                }
+
+                if ep_type == EndpointType::Isochronous {
+                    critical_section::with(|cs| {
+                        let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                        iso[index] = IsoInState::new();
+                        iso[index].buf_addr = addr;
+                    });
                 }
 
                 EndpointBuffer {
@@ -929,6 +1048,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             buf,
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: false,
+            schedule: IsoSchedule::new(),
         })
     }
 }
@@ -977,17 +1097,11 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             w.set_ctrm(true);
         });
 
-        #[cfg(all(any(usb_v3, usb_v4), not(feature = "exti")))]
-        regs.bcdr().write(|w| w.set_dppu(true));
-
-        #[cfg(all(any(usb_v3, usb_v4), feature = "exti"))]
+        #[cfg(any(usb_v3, usb_v4))]
         regs.bcdr()
             .write(|w| w.set_dppu(self.vbus.as_ref().map_or(true, |v| v.is_high())));
 
-        #[cfg(all(stm32l1, not(feature = "exti")))]
-        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
-
-        #[cfg(all(stm32l1, feature = "exti"))]
+        #[cfg(stm32l1)]
         crate::pac::SYSCFG
             .pmc()
             .modify(|w| w.set_usb_pu(self.vbus.as_ref().map_or(true, |v| v.is_high())));
@@ -1005,9 +1119,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             #[cfg(any(usb_v1, usb_v3, usb_v4))]
             double_buffered: self.double_buffered,
             inited: false,
-            #[cfg(feature = "exti")]
             vbus: self.vbus,
-            #[cfg(feature = "exti")]
             power_present: false,
             control: ControlPipe {
                 _marker: PhantomData,
@@ -1027,9 +1139,7 @@ pub struct Bus<'d, T: Instance> {
     double_buffered: u16,
     inited: bool,
     control: ControlPipe<'d, T>,
-    #[cfg(feature = "exti")]
     vbus: Option<ExtiInput<'d, Async>>,
-    #[cfg(feature = "exti")]
     power_present: bool,
 }
 
@@ -1085,6 +1195,17 @@ impl<'d, T: Instance> Bus<'d, T> {
                     w.set_dtog_tx(reset_dtog);
                     epr.write_value(w);
                 }
+                if epr.read().ep_type() == EpType::Iso {
+                    let index = ep_addr.index();
+                    critical_section::with(|cs| {
+                        let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                        let buf_addr = iso[index].buf_addr;
+                        clear_iso_in_counts::<T>(index, buf_addr);
+                        iso[index].reset_state();
+                        drop(iso);
+                        update_sofm::<T>(cs);
+                    });
+                }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
             Direction::Out => {
@@ -1115,57 +1236,54 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn poll_bus(&mut self, cx: &mut Context<'_>) -> Poll<Event> {
         BUS_WAKER.register(cx.waker());
 
-        #[cfg(feature = "exti")]
-        {
-            let mut removed = false;
-            if let Some(vbus) = &mut self.vbus {
-                if !self.power_present {
-                    // Wait for VBUS before reporting power, so a self-powered device does not
-                    // present itself to a host that isn't driving VBUS.
+        let mut removed = false;
+        if let Some(vbus) = &mut self.vbus {
+            if !self.power_present {
+                // Wait for VBUS before reporting power, so a self-powered device does not
+                // present itself to a host that isn't driving VBUS.
+                if vbus.is_low() {
+                    vbus.poll_for_rising_edge(cx);
                     if vbus.is_low() {
-                        vbus.poll_for_rising_edge(cx);
-                        if vbus.is_low() {
-                            return Poll::Pending;
-                        }
+                        return Poll::Pending;
                     }
-                    self.power_present = true;
-                    self.inited = true;
-                    trace!("VBUS detected");
-                    return Poll::Ready(Event::PowerDetected);
                 }
+                self.power_present = true;
+                self.inited = true;
+                trace!("VBUS detected");
+                return Poll::Ready(Event::PowerDetected);
+            }
 
-                // Powered: report removal as soon as VBUS drops. Checking the level after
-                // arming the edge covers a transition that happened while this future was not
-                // polled.
+            // Powered: report removal as soon as VBUS drops. Checking the level after
+            // arming the edge covers a transition that happened while this future was not
+            // polled.
+            if vbus.is_low() {
+                self.power_present = false;
+                removed = true;
+            } else {
+                vbus.poll_for_any_edge(cx);
                 if vbus.is_low() {
                     self.power_present = false;
                     removed = true;
-                } else {
-                    vbus.poll_for_any_edge(cx);
-                    if vbus.is_low() {
-                        self.power_present = false;
-                        removed = true;
-                    }
                 }
             }
+        }
 
-            if removed {
-                // Wake pending transfers so they return EndpointError::Disabled.
-                for i in 0..EP_COUNT {
-                    self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::In), false);
-                    self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::Out), false);
-                }
-
-                // Clear DPPU to signal a disconnect to the host (RM0444 37.6.6,
-                // USB_BCDR.DPPU_DPD).
-                #[cfg(any(usb_v3, usb_v4))]
-                T::regs().bcdr().modify(|w| w.set_dppu(false));
-                #[cfg(stm32l1)]
-                crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(false));
-
-                trace!("VBUS removed");
-                return Poll::Ready(Event::PowerRemoved);
+        if removed {
+            // Wake pending transfers so they return EndpointError::Disabled.
+            for i in 0..EP_COUNT {
+                self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::In), false);
+                self.set_endpoint_enabled_internal(EndpointAddress::from_parts(i, Direction::Out), false);
             }
+
+            // Clear DPPU to signal a disconnect to the host (RM0444 37.6.6,
+            // USB_BCDR.DPPU_DPD).
+            #[cfg(any(usb_v3, usb_v4))]
+            T::regs().bcdr().modify(|w| w.set_dppu(false));
+            #[cfg(stm32l1)]
+            crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(false));
+
+            trace!("VBUS removed");
+            return Poll::Ready(Event::PowerRemoved);
         }
 
         if !self.inited {
@@ -1268,26 +1386,17 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let stage = self.control.data_out_transfer(buf);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         let stage = self.control.data_in_transfer(data, needs_zlp);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
     }
 
     async fn control_accept(&mut self) {
         let stage = self.control.accept();
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, ()).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn control_reject(&mut self) {
@@ -1296,10 +1405,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn control_accept_set_address(&mut self, addr: u8) {
         let stage = self.control.accept_set_address(addr);
-        #[cfg(feature = "exti")]
-        return abort_on_vbus_removed(&mut self.vbus, stage, ()).await;
-        #[cfg(not(feature = "exti"))]
-        stage.await
+        abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -1323,7 +1429,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     async fn enable(&mut self) {
-        #[cfg(feature = "exti")]
         if self.vbus.is_some() {
             #[cfg(any(usb_v3, usb_v4))]
             T::regs().bcdr().modify(|w| w.set_dppu(true));
@@ -1397,6 +1502,7 @@ pub struct Endpoint<'d, T: Instance, D> {
     /// Double-buffered bulk endpoint, see `alloc_double_buffered`.
     #[cfg(any(usb_v1, usb_v3, usb_v4))]
     double_buffered: bool,
+    schedule: IsoSchedule,
 }
 
 impl<'d, T: Instance, D> Endpoint<'d, T, D> {
@@ -1526,13 +1632,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled IN OK");
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(T::regs(), self.info.addr)
     }
 
     fn is_enabled(&self) -> bool {
@@ -1561,13 +1666,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         trace!("wait_enabled OUT OK");
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.double_buffered_flag(), stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(T::regs(), self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(T::regs(), self.info.addr)
     }
 
     fn is_enabled(&self) -> bool {
@@ -1787,6 +1891,173 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
+pub struct IsoSlot<'a, 'd, T: Instance> {
+    ep: &'a mut Endpoint<'d, T, In>,
+    frame: u32,
+}
+
+impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
+        let index = self.ep.info.addr.index();
+        if data.len() > usize::from(self.ep.info.max_packet_size) {
+            return Err(IsoWriteError::BufferOverflow);
+        }
+
+        let interval = self.ep.iso_interval();
+        let res = critical_section::with(|cs| {
+            let regs = T::regs();
+            if regs.epr(index).read().stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            let now = u32::from(regs.fnr().read().fn_());
+            if forward(now, self.frame, ISO_FRAME_SPAN) != 1 {
+                return Err(IsoWriteError::TooLate);
+            }
+
+            let buf_addr = self.ep.buf.addr;
+            // Keep both counts zero while copying into PMA so an unexpected IN token sends a ZLP.
+            clear_iso_in_counts::<T>(index, buf_addr);
+            self.ep.buf.write(data);
+
+            // Arm the buffer that the peripheral will transmit on the next IN token, leaving the
+            // other buffer at length 0 so any extra poll before the next write sends a ZLP.
+            if regs.epr(index).read().dtog_tx() {
+                btable::write_in_len_rx::<T>(index, buf_addr, data.len() as u16);
+            } else {
+                btable::write_in_len_tx::<T>(index, buf_addr, data.len() as u16);
+            }
+
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            let state = &mut iso[index];
+            state.buf_addr = buf_addr;
+            state.armed = true;
+            state.interval = interval as u16;
+            let window = if state.phase.is_some() || interval == 1 {
+                1
+            } else {
+                interval
+            };
+            state.expiry_frame = ((self.frame + window) % ISO_FRAME_SPAN) as u16;
+            drop(iso);
+            update_sofm::<T>(cs);
+            Ok(())
+        });
+
+        res
+    }
+}
+
+struct IsoArmWaitGuard<T: Instance> {
+    index: usize,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Instance> Drop for IsoArmWaitGuard<T> {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            ISO_IN_STATE.borrow(cs).borrow_mut()[self.index].arm_wait = false;
+            update_sofm::<T>(cs);
+        });
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    fn iso_interval(&self) -> u32 {
+        self.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2)
+    }
+}
+
+impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
+    type Slot<'a>
+        = IsoSlot<'a, 'd, T>
+    where
+        Self: 'a;
+
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
+        assert_eq!(
+            self.info.ep_type,
+            EndpointType::Isochronous,
+            "IsoEndpointIn requires an isochronous endpoint"
+        );
+        let index = self.info.addr.index();
+        let interval = self.iso_interval();
+        let _guard = IsoArmWaitGuard::<T> {
+            index,
+            _marker: PhantomData,
+        };
+
+        // Wait until any previous armed packet has been sent or dropped.
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                let regs = T::regs();
+                if regs.epr(index).read().stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                if !iso[index].armed {
+                    iso[index].arm_wait = false;
+                    Poll::Ready(Ok(()))
+                } else {
+                    iso[index].arm_wait = true;
+                    drop(iso);
+                    update_sofm::<T>(cs);
+                    Poll::Pending
+                }
+            })
+        })
+        .await?;
+
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            if iso[index].reset {
+                iso[index].reset = false;
+                self.schedule.reset();
+            }
+            if let Some(phase) = iso[index].phase {
+                self.schedule.lock_phase(u32::from(phase), interval);
+            }
+        });
+
+        loop {
+            let now = u32::from(T::regs().fnr().read().fn_());
+            let offer = self.schedule.offer(now, interval, ISO_FRAME_SPAN);
+            let skipped = offer.skipped;
+            let frame = offer.frame;
+
+            let ready = poll_fn(|cx| {
+                EP_IN_WAKERS[index].register(cx.waker());
+                critical_section::with(|cs| {
+                    let regs = T::regs();
+                    if regs.epr(index).read().stat_tx() == Stat::Disabled || IRQ_RESET.load(Ordering::Acquire) {
+                        return Poll::Ready(Err(EndpointDisabledError));
+                    }
+                    let now = u32::from(regs.fnr().read().fn_());
+                    let ahead = forward(now, frame, ISO_FRAME_SPAN);
+                    if ahead == 1 {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(true))
+                    } else if ahead == 0 || ahead > interval {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(false))
+                    } else {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = true;
+                        update_sofm::<T>(cs);
+                        Poll::Pending
+                    }
+                })
+            })
+            .await?;
+
+            if ready {
+                return Ok((skipped, IsoSlot { ep: self, frame }));
+            }
+        }
+    }
+}
+
 /// The control pipe, which `Bus` drives with its `control_*` methods.
 struct ControlPipe<'d, T: Instance> {
     _marker: PhantomData<&'d mut T>,
@@ -1812,7 +2083,6 @@ fn control_restarted() -> bool {
 
 /// Runs a control stage until it completes, or until VBUS is removed, which gives `aborted`.
 /// Leaves the level of VBUS alone, so that `Bus::poll` reports the removal.
-#[cfg(feature = "exti")]
 async fn abort_on_vbus_removed<R>(
     vbus: &mut Option<ExtiInput<'_, Async>>,
     stage: impl core::future::Future<Output = R>,

@@ -1,13 +1,14 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
-#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
 pub mod host;
 mod interval;
+pub mod iso;
 
 pub use interval::EndpointInterval;
+pub use iso::{IsoEndpointIn, IsoInSlot, IsoWriteError};
 
 /// Speed of a device or port
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -62,7 +63,7 @@ pub enum EndpointType {
     /// Control endpoint. Used for device management. Only the host can initiate requests. Usually
     /// used only endpoint 0.
     Control = 0b00,
-    /// Isochronous endpoint. Used for time-critical unreliable data. Not implemented yet.
+    /// Isochronous endpoint. Used for time-critical unreliable data.
     Isochronous = 0b01,
     /// Bulk endpoint. Used for large amounts of best-effort reliable data.
     Bulk = 0b10,
@@ -447,20 +448,12 @@ pub trait Endpoint {
     /// the data toggle to DATA0, whether or not the endpoint was stalled.
     /// Enabling the endpoint clears a stall; stalling before the endpoint is
     /// enabled may not take effect.
-    ///
-    /// # Errors
-    ///
-    /// * [`Unsupported`] - This driver cannot halt endpoints.
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported>;
+    async fn set_stalled(&mut self, stalled: bool);
 
     /// Get whether the STALL handshake is set on this endpoint.
     ///
-    /// Returns `Ok(false)` for endpoints that do not have the halt feature.
-    ///
-    /// # Errors
-    ///
-    /// * [`Unsupported`] - This driver cannot halt endpoints.
-    fn is_stalled(&self) -> Result<bool, Unsupported>;
+    /// Returns `false` for endpoints that do not have the halt feature.
+    fn is_stalled(&self) -> bool;
 }
 
 /// OUT Endpoint trait.
@@ -491,15 +484,18 @@ pub trait EndpointIn: Endpoint {
     ///
     /// Drivers are allowed to buffer packets/transfers and return before the host acknowledges them.
     ///
+    /// For isochronous endpoints, use [`IsoEndpointIn`] instead of this.
+    ///
     /// # Errors
     ///
     /// * [`EndpointDisabledError`] - The endpoint is disabled.
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError>;
 }
 
+/// Event returned by [`Bus::poll`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Event returned by [`Bus::poll`].
+#[non_exhaustive]
 pub enum Event {
     /// The USB reset condition has been detected, negotiating the given bus [`Speed`].
     Reset(Speed),
@@ -552,6 +548,7 @@ impl core::error::Error for EndpointDisabledError {}
 /// Errors returned by [`EndpointOut::read_transfer`] and [`Bus::control_data_out`].
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum EndpointError {
     /// The received packet is too long to fit in `buf`.
     BufferOverflow,

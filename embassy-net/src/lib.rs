@@ -44,7 +44,7 @@ use xarxa::driver::{Driver, LinkState};
 #[cfg(feature = "hostname")]
 use xarxa::error::HostnameTooLong;
 use xarxa::iface::IfaceHandle;
-pub use xarxa::{Align, Pool, StaticPool, ValidAlign, config, error, wire};
+pub use xarxa::{Align, Buf, Pool, StaticPool, ValidAlign, config, error, wire};
 pub use xarxa_driver as driver;
 
 use crate::iface::{AddIfaceError, Iface};
@@ -145,7 +145,8 @@ impl<'d> Stack<'d> {
     /// Create a network stack.
     ///
     /// Every packet buffer of the stack and its drivers comes from `pool`, usually
-    /// a [`StaticPool`] in a `static`.
+    /// a [`StaticPool`] in a `ConstStaticCell`. The pool belongs to this stack
+    /// alone, so no other stack can allocate from it.
     ///
     /// `random_seed` seeds the stack's PRNG, which picks TCP initial sequence
     /// numbers and ephemeral ports. This should be random, or at least different
@@ -153,7 +154,11 @@ impl<'d> Stack<'d> {
     ///
     /// The stack starts out with no interfaces: add them with
     /// [`add_iface_borrowed`](Self::add_iface_borrowed).
-    pub fn new(storage: &'d mut StackStorage<'d>, pool: &'static impl Pool, random_seed: u64) -> (Self, Runner<'d>) {
+    pub fn new(
+        storage: &'d mut StackStorage<'d>,
+        pool: &'static mut impl Pool,
+        random_seed: u64,
+    ) -> (Self, Runner<'d>) {
         #[allow(unused_mut)]
         let mut stack = xarxa::Stack::new(pool, random_seed);
 

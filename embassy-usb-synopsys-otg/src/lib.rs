@@ -9,25 +9,30 @@
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
+mod shared_raw_mutex;
 
 use core::cell::UnsafeCell;
 use core::cmp::min;
 use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::pin::pin;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, Speed, Unsupported,
+    EndpointInfo, EndpointInterval, EndpointOut, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed,
+    Unsupported,
 };
 
 use crate::fmt::Bytes;
+pub use crate::shared_raw_mutex::SharedRawMutex;
 
 pub mod otg_v1;
 
@@ -39,7 +44,7 @@ use otg_v1::{Otg, regs, vals};
 /// Handle interrupts.
 pub unsafe fn on_interrupt<M>(r: Otg, state: &State<'_, M>)
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     trace!("irq");
     let ep_count = state.endpoint_count();
@@ -47,10 +52,14 @@ where
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
+        let sof = iso_arm_waiting(state);
         r.gintmsk().write(|w| {
             w.set_iepint(true);
             w.set_oepint(true);
             w.set_rxflvlm(true);
+            if sof {
+                w.set_sofm(true);
+            }
         });
         state.bus_waker.wake();
 
@@ -164,6 +173,17 @@ where
                     });
                 }
 
+                // Lock host polling phase on the first completed isochronous IN transfer.
+                if ep_ints.xfrc() && r.diepctl(ep_num).read().eptyp() == vals::Eptyp::ISOCHRONOUS {
+                    let ep = &state.ep_states[ep_num];
+                    if ep.iso_phase.load(Ordering::Acquire) == ISO_PHASE_UNLOCKED {
+                        let interval = ep.iso_interval.load(Ordering::Acquire).max(1);
+                        let frame = ep.iso_armed_frame.load(Ordering::Acquire);
+                        ep.iso_phase.store(frame % interval, Ordering::Release);
+                    }
+                    ep.iso_probes_left.store(0, Ordering::Release);
+                }
+
                 state.ep_states[ep_num].in_waker.wake();
                 trace!("in ep={} irq val={:08x}", ep_num, ep_ints.0);
             }
@@ -225,10 +245,55 @@ where
             abort_in_endpoint(r, ep_num);
             flush_tx_fifo(r, r.diepctl(ep_num).read().txfnum());
 
-            // Let the writer queue the next packet.
-            state.ep_states[ep_num].in_waker.wake();
+            let ep = &state.ep_states[ep_num];
+            let probes = ep.iso_probes_left.load(Ordering::Acquire);
+            if probes > 0
+                && ep.in_enabled.load(Ordering::Acquire)
+                && ep.iso_phase.load(Ordering::Acquire) == ISO_PHASE_UNLOCKED
+            {
+                // Phase is not yet locked for interval > 1: probe the remaining ticks of this
+                // service interval with a 0-byte ZLP so the host's first IN token locks the phase.
+                ep.iso_probes_left.store(probes - 1, Ordering::Release);
+                let span = u32::from(ep.iso_span.load(Ordering::Acquire)).max(1);
+                let next_frame = (u32::from(frame_number) + 1) % span;
+                ep.iso_armed_frame.store(next_frame as u16, Ordering::Release);
+                r.dieptsiz(ep_num).write(|w| {
+                    w.set_mcnt(1);
+                    w.set_pktcnt(1);
+                    w.set_xfrsiz(0);
+                });
+                r.diepctl(ep_num).modify(|w| {
+                    if next_frame & 1 == 1 {
+                        w.set_soddfrm_sd1pid(true);
+                    } else {
+                        w.set_sd0pid_sevnfrm(true);
+                    }
+                    w.set_cnak(true);
+                    w.set_epena(true);
+                });
+            } else {
+                ep.iso_probes_left.store(0, Ordering::Release);
+                // The packet is gone. Wake the writer waiting in `ready`.
+                ep.in_waker.wake();
+            }
         }
     }
+
+    // `IsoEndpointIn::ready` waits on this until the target slot is one tick away.
+    // The waiter manages SOFM itself; clearing it here would race with enabling it.
+    if ints.sof() {
+        r.gintsts().write(|w| w.set_sof(true));
+        for ep in state.ep_states {
+            if ep.iso_arm_wait.load(Ordering::Acquire) {
+                ep.in_waker.wake();
+            }
+        }
+    }
+}
+
+/// True while some IN endpoint is waiting for the tick on which it can arm an isochronous packet.
+fn iso_arm_waiting<M: SharedRawMutex>(state: &State<'_, M>) -> bool {
+    state.ep_states.iter().any(|ep| ep.iso_arm_wait.load(Ordering::Acquire))
 }
 
 /// Reads a received packet from the RX FIFO into `buf`.
@@ -291,6 +356,9 @@ impl PhyType {
 /// Indicates that [State::ep_out_buffers] is empty.
 const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
 
+/// Sentinel value for [`EpState::iso_phase`] before the first completed IN transfer locks the phase.
+const ISO_PHASE_UNLOCKED: u16 = u16::MAX;
+
 struct EpState {
     in_waker: AtomicWaker,
     out_waker: AtomicWaker,
@@ -309,6 +377,29 @@ struct EpState {
     /// The OUT transfer of [`EndpointOut::read_transfer`], if one is in progress. Accessed only
     /// with [`State::mutex`] held.
     out_xfer: UnsafeCell<Option<OutXfer>>,
+    /// Set while [`IsoEndpointIn::ready`] is waiting for the tick on which it can arm.
+    iso_arm_wait: AtomicBool,
+    /// Exact frame-counter value targeted by the currently armed isochronous IN packet or probe.
+    iso_armed_frame: AtomicU16,
+    /// Locked host polling phase in `0..interval`, or [`ISO_PHASE_UNLOCKED`] before the first XFRC.
+    iso_phase: AtomicU16,
+    /// Remaining 0-byte ZLP probes in this interval while phase is unlocked for `interval > 1`.
+    iso_probes_left: AtomicU16,
+    /// Service interval in ticks for the currently armed isochronous packet.
+    iso_interval: AtomicU16,
+    /// Frame-counter modulus (2048 at FS, 16384 at HS) for the currently armed isochronous packet.
+    iso_span: AtomicU16,
+    /// Set on endpoint disable/reset so [`IsoEndpointIn::ready`] resets its [`IsoSchedule`].
+    iso_reset: AtomicBool,
+}
+
+impl EpState {
+    fn reset_iso(&self) {
+        self.iso_arm_wait.store(false, Ordering::Release);
+        self.iso_probes_left.store(0, Ordering::Release);
+        self.iso_phase.store(ISO_PHASE_UNLOCKED, Ordering::Release);
+        self.iso_reset.store(true, Ordering::Release);
+    }
 }
 
 /// A multi-packet OUT transfer, which [`on_interrupt`] receives straight into `buf`.
@@ -379,7 +470,7 @@ struct EndpointData {
 /// Build from [`State::as_state`].
 pub struct State<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     cp_state: &'d ControlPipeSetupState,
     ep_states: &'d [EpState],
@@ -389,23 +480,21 @@ where
 
 impl<'d, M> Clone for State<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn clone(&self) -> Self {
         Self {
             cp_state: self.cp_state,
             ep_states: self.ep_states,
             bus_waker: self.bus_waker,
-            mutex: self.mutex,
+            mutex: self.mutex.share(),
         }
     }
 }
 
-impl<'d, M> Copy for State<'d, M> where M: RawMutex + Copy {}
-
 impl<M> State<'_, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Returns the number of device endpoints supported by this state.
     pub fn endpoint_count(&self) -> usize {
@@ -430,7 +519,7 @@ where
 
 impl<'d, M> State<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
         self.ep_states[index].alloc(dir)
@@ -481,6 +570,7 @@ where
             }
             ep.in_enabled.store(false, Ordering::Release);
             ep.out_enabled.store(false, Ordering::Release);
+            ep.reset_iso();
         }
         self.cp_state.setup_ready.store(false, Ordering::Release);
         self.cp_state.setup_pending.store(false, Ordering::Release);
@@ -500,7 +590,7 @@ where
 /// Storage object for USB OTG driver state.
 pub struct StateStorage<const EP_COUNT: usize, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
@@ -510,7 +600,7 @@ where
 
 impl<const EP_COUNT: usize, M> StateStorage<EP_COUNT, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Create a new StateStorage.
     pub const fn new(mutex: M) -> Self {
@@ -531,6 +621,13 @@ where
                     in_enabled: AtomicBool::new(false),
                     out_enabled: AtomicBool::new(false),
                     out_xfer: UnsafeCell::new(None),
+                    iso_arm_wait: AtomicBool::new(false),
+                    iso_armed_frame: AtomicU16::new(0),
+                    iso_phase: AtomicU16::new(ISO_PHASE_UNLOCKED),
+                    iso_probes_left: AtomicU16::new(0),
+                    iso_interval: AtomicU16::new(1),
+                    iso_span: AtomicU16::new(2048),
+                    iso_reset: AtomicBool::new(true),
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
@@ -544,7 +641,7 @@ where
             cp_state: &self.cp_state,
             ep_states: self.ep_states.as_slice(),
             bus_waker: &self.bus_waker,
-            mutex: self.mutex,
+            mutex: self.mutex.share(),
         }
     }
 }
@@ -601,7 +698,7 @@ impl Default for Config {
 /// USB OTG driver.
 pub struct Driver<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     config: Config,
     ep_out_buffer: &'d mut [u8],
@@ -611,7 +708,7 @@ where
 
 impl<'d, M> Driver<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Initializes the USB OTG peripheral.
     ///
@@ -636,7 +733,7 @@ where
 
     /// Returns the total amount of words (u32) allocated in dedicated FIFO.
     fn allocated_fifo_words(&self) -> u16 {
-        let st = self.instance.state;
+        let st = &self.instance.state;
         self.instance.extra_rx_fifo_words + st.ep_fifo_size_out() + st.ep_fifo_size_in()
     }
 
@@ -675,7 +772,7 @@ where
         }
 
         let dir = D::dir();
-        let st = self.instance.state;
+        let st = &self.instance.state;
         let endpoint_count = st.endpoint_count();
         let tx_fifo_count = self.instance.tx_fifo_count;
 
@@ -751,21 +848,23 @@ where
         Ok(Endpoint {
             _phantom: PhantomData,
             regs: self.instance.regs,
-            mutex: self.instance.state.mutex,
+            mutex: self.instance.state.mutex.share(),
             state: ep_state,
+            endpoints: self.instance.state.ep_states,
             info: EndpointInfo::new(
                 EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
                 max_packet_size,
                 interval,
             ),
+            schedule: IsoSchedule::new(),
         })
     }
 }
 
 impl<'d, M> embassy_usb_driver::Driver<'d> for Driver<'d, M>
 where
-    M: RawMutex + Copy + 'd,
+    M: SharedRawMutex + 'd,
 {
     type EndpointOut = Endpoint<'d, Out, M>;
     type EndpointIn = Endpoint<'d, In, M>;
@@ -803,7 +902,7 @@ where
 
         let regs = self.instance.regs;
         let setup_state = self.instance.state.cp_state;
-        let mutex = self.instance.state.mutex;
+        let mutex = self.instance.state.mutex.share();
         let control = ControlPipe {
             max_packet_size: control_max_packet_size,
             setup_state,
@@ -963,9 +1062,9 @@ impl EpState {
 
 /// Set or clear the STALL handshake of an endpoint.
 ///
-/// Shared by [`Bus::endpoint_set_stalled`] and [`Endpoint::set_stall`], so that a class
+/// Shared by [`Bus::endpoint_set_stalled`] and [`Endpoint::set_stalled`], so that a class
 /// driver can halt its own endpoint without access to the bus.
-fn set_endpoint_stalled<M: RawMutex + Copy>(
+fn set_endpoint_stalled<M: SharedRawMutex>(
     regs: Otg,
     mutex: M,
     ep_state: &EpState,
@@ -1028,7 +1127,7 @@ fn is_endpoint_stalled(regs: Otg, index: usize, dir: Direction) -> bool {
 /// USB bus.
 pub struct Bus<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     config: Config,
     instance: OtgInstance<'d, M>,
@@ -1038,7 +1137,7 @@ where
 
 impl<'d, M> Bus<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Checks for bus events, without a pending SETUP packet.
     fn poll_bus(&mut self, cx: &mut Context<'_>) -> Poll<Event> {
@@ -1051,7 +1150,7 @@ where
         }
 
         let regs = self.instance.regs;
-        let st = self.instance.state;
+        let st = self.instance.state.clone();
         st.bus_waker.register(cx.waker());
 
         let mut ints = regs.gintsts().read();
@@ -1162,6 +1261,9 @@ where
             w.set_srqim(true);
             w.set_otgint(true);
             w.set_iisoixfrm(true);
+            if iso_arm_waiting(&self.instance.state) {
+                w.set_sofm(true);
+            }
         });
     }
 
@@ -1361,7 +1463,7 @@ where
 
         let regs = self.instance.regs;
         // Configure RX fifo size. All endpoints share the same FIFO area.
-        let st = self.instance.state;
+        let st = &self.instance.state;
         // ERRATA NOTE: Don't interrupt FIFOs being written to. The interrupt
         // handler COULD interrupt us here and do FIFO operations, so ensure
         // the interrupt does not occur.
@@ -1425,7 +1527,7 @@ where
         trace!("configure_endpoints");
 
         let regs = self.instance.regs;
-        let st = self.instance.state;
+        let st = &self.instance.state;
 
         // Discard the data that the device received before the reset. The FIFOs are empty now.
         // A packet or a SETUP in these buffers is from the previous session. If the software
@@ -1519,7 +1621,7 @@ where
 
     fn disable_all_endpoints(&mut self) {
         let regs = self.instance.regs;
-        let st = self.instance.state;
+        let st = &self.instance.state;
 
         // This function runs when the bus power is no longer present. Thus it does not use the
         // stop sequences of [`abort_in_endpoint`] and [`abort_out_endpoint`]: the core cannot
@@ -1539,6 +1641,7 @@ where
 
             st.ep_states[i].in_enabled.store(false, Ordering::Release);
             st.ep_states[i].out_enabled.store(false, Ordering::Release);
+            st.ep_states[i].reset_iso();
             // Wake the futures that wait on these endpoints, so that they report `Disabled`.
             st.ep_states[i].in_waker.wake();
             st.ep_states[i].out_waker.wake();
@@ -1560,6 +1663,7 @@ where
             for ep in self.instance.state.ep_states {
                 ep.in_enabled.store(false, Ordering::Release);
                 ep.out_enabled.store(false, Ordering::Release);
+                ep.reset_iso();
                 // Wake the futures that wait on these endpoints, so that they report `Disabled`.
                 // If the software does not wake them, they wait for data that cannot come.
                 ep.in_waker.wake();
@@ -1571,7 +1675,7 @@ where
 
 impl<'d, M> embassy_usb_driver::Bus for Bus<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     async fn poll(&mut self) -> Event {
         poll_fn(|cx| match self.poll_bus(cx) {
@@ -1610,7 +1714,7 @@ where
         trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
 
         let regs = self.instance.regs;
-        let st = self.instance.state;
+        let st = self.instance.state.clone();
 
         assert!(
             ep_addr.index() < st.endpoint_count(),
@@ -1648,7 +1752,7 @@ where
         );
 
         let regs = self.instance.regs;
-        let st = self.instance.state;
+        let st = &self.instance.state;
         let reset_toggle = st
             .ep_alloc_get(ep_addr.direction(), ep_addr.index())
             .is_some_and(|ep| has_data_toggle(ep.ep_type));
@@ -1724,6 +1828,7 @@ where
                 st.ep_states[ep_addr.index()]
                     .in_enabled
                     .store(enabled, Ordering::Release);
+                st.ep_states[ep_addr.index()].reset_iso();
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].in_waker.wake();
             }
@@ -1815,18 +1920,22 @@ impl Dir for Out {
 /// USB endpoint.
 pub struct Endpoint<'d, D, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     _phantom: PhantomData<D>,
     regs: Otg,
     info: EndpointInfo,
     state: &'d EpState,
+    /// Every endpoint of this device, so a finished arm-wait can see if another is still waiting.
+    endpoints: &'d [EpState],
     mutex: M,
+    /// Next isochronous IN slot.
+    schedule: IsoSchedule,
 }
 
 impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, In, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn info(&self) -> EndpointInfo {
         self.info
@@ -1849,26 +1958,25 @@ where
         self.state.in_enabled.load(Ordering::Acquire)
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled(
             self.regs,
-            self.mutex,
+            self.mutex.share(),
             self.state,
             self.info.addr.index(),
             Direction::In,
             stalled,
         );
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::In)
     }
 }
 
 impl<'d, M> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn info(&self) -> EndpointInfo {
         self.info
@@ -1891,26 +1999,25 @@ where
         self.state.out_enabled.load(Ordering::Acquire)
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled(
             self.regs,
-            self.mutex,
+            self.mutex.share(),
             self.state,
             self.info.addr.index(),
             Direction::Out,
             stalled,
         );
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled(self.regs, self.info.addr.index(), Direction::Out)
     }
 }
 
 impl<'d, D, M> Endpoint<'d, D, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Returns the largest transfer, in whole max-size packets, that the core can do at once.
     fn max_transfer_len(&self) -> usize {
@@ -1937,7 +2044,7 @@ where
 
 impl<'d, M> Endpoint<'d, Out, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Waits for a packet and reads it from `out_buffer`. The endpoint is idle afterwards.
     async fn read_packet_inner(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
@@ -2049,9 +2156,9 @@ where
 
 /// Stops an unfinished [`OutXfer`] when dropped, so that the interrupt handler no longer writes
 /// to its buffer.
-struct OutXferGuard<'a, 'd, M: RawMutex + Copy>(&'a Endpoint<'d, Out, M>);
+struct OutXferGuard<'a, 'd, M: SharedRawMutex>(&'a Endpoint<'d, Out, M>);
 
-impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
+impl<M: SharedRawMutex> Drop for OutXferGuard<'_, '_, M> {
     fn drop(&mut self) {
         let ep = self.0;
         // SAFETY: `State::mutex` is held.
@@ -2076,7 +2183,7 @@ impl<M: RawMutex + Copy> Drop for OutXferGuard<'_, '_, M> {
 
 impl<'d, M> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let max_packet_size = usize::from(self.info.max_packet_size);
@@ -2105,7 +2212,7 @@ where
 
 impl<'d, M> Endpoint<'d, In, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// Waits for the previous transfer to complete.
     async fn wait_in_idle(&mut self) -> Result<(), EndpointDisabledError> {
@@ -2169,8 +2276,11 @@ where
 
     /// Sets up a transfer of `len` bytes and enables the endpoint.
     ///
+    /// `iso_frame` is the frame-counter value an isochronous packet is armed for. Other
+    /// callers pass `None`, which targets the next tick.
+    ///
     /// Call with [`State::mutex`] held.
-    fn start_in_transfer(&self, len: usize) {
+    fn start_in_transfer(&self, len: usize, iso_frame: Option<u32>) {
         let index = self.info.addr.index();
         let packets = len.div_ceil(usize::from(self.info.max_packet_size)).max(1);
         self.regs.dieptsiz(index).write(|w| {
@@ -2180,18 +2290,9 @@ where
         });
 
         if self.info.ep_type == EndpointType::Isochronous {
-            // Isochronous endpoints must set the correct even/odd frame bit to
-            // correspond with the next frame's number.
-            let frame_number = self.regs.dsts().read().fnsof();
-            let frame_is_odd = frame_number & 0x01 == 1;
-
-            self.regs.diepctl(index).modify(|r| {
-                if frame_is_odd {
-                    r.set_sd0pid_sevnfrm(true);
-                } else {
-                    r.set_soddfrm_sd1pid(true);
-                }
-            });
+            // The core transmits in the next frame whose parity matches this bit.
+            let frame = iso_frame.unwrap_or_else(|| self.fnsof().wrapping_add(1));
+            self.set_iso_frame(index, frame);
         }
 
         // Enable endpoint
@@ -2254,7 +2355,7 @@ impl Drop for InXferGuard<'_> {
 
 impl<'d, M> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         if buf.is_empty() {
@@ -2268,7 +2369,7 @@ where
         for transfer in buf.chunks(self.max_transfer_len()) {
             trace!("write_transfer ep={:?} len={}", self.info.addr, transfer.len());
             self.wait_in_idle().await?;
-            self.mutex.lock(|| self.start_in_transfer(transfer.len()));
+            self.mutex.lock(|| self.start_in_transfer(transfer.len(), None));
 
             // `start_in_transfer` enables the endpoint for every packet of `transfer`. If this
             // future is dropped before those packets are in the FIFO, stop the endpoint.
@@ -2294,10 +2395,255 @@ where
     }
 }
 
+/// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
+pub struct IsoSlot<'a, 'd, M = CriticalSectionRawMutex>
+where
+    M: SharedRawMutex,
+{
+    ep: &'a mut Endpoint<'d, In, M>,
+    frame: u32,
+}
+
+impl<M> IsoInSlot for IsoSlot<'_, '_, M>
+where
+    M: SharedRawMutex,
+{
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
+        if data.len() > usize::from(self.ep.info.max_packet_size) {
+            return Err(IsoWriteError::BufferOverflow);
+        }
+        if !self.ep.state.in_enabled.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let span = self.ep.frame_span();
+        let interval = self.ep.service_interval();
+        let armed = self.ep.mutex.lock(|| {
+            if !self.ep.state.in_enabled.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            let ahead = forward(self.ep.fnsof(), self.frame, span);
+            if ahead != 1 {
+                return Err(IsoWriteError::TooLate);
+            }
+            self.ep
+                .state
+                .iso_armed_frame
+                .store(self.frame as u16, Ordering::Release);
+            self.ep.state.iso_interval.store(interval as u16, Ordering::Release);
+            self.ep.state.iso_span.store(span as u16, Ordering::Release);
+            let probes = if interval > 1 && self.ep.state.iso_phase.load(Ordering::Acquire) == ISO_PHASE_UNLOCKED {
+                (interval - 1) as u16
+            } else {
+                0
+            };
+            self.ep.state.iso_probes_left.store(probes, Ordering::Release);
+            // ERRATA: a FIFO write must not be interrupted by accesses to certain OTG registers.
+            self.ep.start_in_transfer(data.len(), Some(self.frame));
+            self.ep.write_fifo(data);
+            Ok(())
+        });
+
+        armed
+    }
+}
+
+impl<'d, M> IsoEndpointIn for Endpoint<'d, In, M>
+where
+    M: SharedRawMutex,
+{
+    type Slot<'a>
+        = IsoSlot<'a, 'd, M>
+    where
+        Self: 'a;
+
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
+        assert_eq!(
+            self.info.ep_type,
+            EndpointType::Isochronous,
+            "IsoEndpointIn requires an isochronous endpoint"
+        );
+        if !self.state.in_enabled.load(Ordering::Acquire) {
+            return Err(EndpointDisabledError);
+        }
+
+        // Wait until the previous packet (and any unlocked-phase ZLP probes) finished or dropped.
+        self.wait_iso_idle().await?;
+        // Ensure the TX FIFO can hold a full packet so synchronous `IsoSlot::write` never waits.
+        let mps = usize::from(self.info.max_packet_size);
+        if mps > 0 {
+            self.wait_fifo_space(mps).await?;
+        }
+
+        let reset = self.mutex.lock(|| {
+            let r = self.state.iso_reset.load(Ordering::Acquire);
+            if r {
+                self.state.iso_reset.store(false, Ordering::Release);
+            }
+            r
+        });
+        if reset {
+            self.schedule.reset();
+        }
+
+        let span = self.frame_span();
+        let interval = self.service_interval();
+        let phase = self.state.iso_phase.load(Ordering::Acquire);
+        if phase != ISO_PHASE_UNLOCKED {
+            self.schedule.lock_phase(u32::from(phase), interval);
+        }
+
+        loop {
+            if !self.state.in_enabled.load(Ordering::Acquire) {
+                return Err(EndpointDisabledError);
+            }
+            let offer = self.schedule.offer(self.fnsof(), interval, span);
+            let skipped = offer.skipped;
+            // The even/odd bit can only name the next tick, so wait until `offer.frame` is that tick.
+            if self.wait_until_arm_point(offer.frame, interval, span).await? {
+                return Ok((
+                    skipped,
+                    IsoSlot {
+                        ep: self,
+                        frame: offer.frame,
+                    },
+                ));
+            }
+        }
+    }
+}
+
 impl<'d, M> Endpoint<'d, In, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
+    /// Modulus of `DSTS.FNSOF`: 14 bits at high speed (frame and microframe), 11 at full speed.
+    fn frame_span(&self) -> u32 {
+        if self.regs.dsts().read().enumspd() == vals::Dspd::HIGH_SPEED {
+            1 << 14
+        } else {
+            1 << 11
+        }
+    }
+
+    /// `DSTS.FNSOF` masked to [`Self::frame_span`].
+    fn fnsof(&self) -> u32 {
+        u32::from(self.regs.dsts().read().fnsof()) & (self.frame_span() - 1)
+    }
+
+    /// Service interval in frame-counter ticks. High speed counts microframes, full speed frames.
+    fn service_interval(&self) -> u32 {
+        let ticks = if self.regs.dsts().read().enumspd() == vals::Dspd::HIGH_SPEED {
+            self.info.interval.microframes().max(1)
+        } else {
+            self.info.interval.frames().max(1)
+        };
+        ticks.min(self.frame_span() / 2).max(1)
+    }
+
+    /// Even/odd frame bit for `frame`. Call with [`State::mutex`] held.
+    fn set_iso_frame(&self, index: usize, frame: u32) {
+        self.regs.diepctl(index).modify(|r| {
+            if frame & 1 == 1 {
+                r.set_soddfrm_sd1pid(true);
+            } else {
+                r.set_sd0pid_sevnfrm(true);
+            }
+        });
+    }
+
+    async fn wait_iso_idle(&mut self) -> Result<(), EndpointDisabledError> {
+        let index = self.info.addr.index();
+        poll_fn(|cx| {
+            self.state.in_waker.register(cx.waker());
+            if !self.state.in_enabled.load(Ordering::Acquire) {
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+            if !self.regs.diepctl(index).read().epena() && self.state.iso_probes_left.load(Ordering::Acquire) == 0 {
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    /// Wait until `frame` is the next frame-counter tick.
+    ///
+    /// Returns `Ok(true)` when `frame` is one tick ahead, `Ok(false)` if `frame` was already
+    /// reached or passed while waiting, or `Err(EndpointDisabledError)` if disabled.
+    /// Dropping this clears the SOF wait without arming the endpoint.
+    async fn wait_until_arm_point(
+        &mut self,
+        frame: u32,
+        interval: u32,
+        span: u32,
+    ) -> Result<bool, EndpointDisabledError> {
+        let ahead = forward(self.fnsof(), frame, span);
+        if ahead == 1 {
+            return Ok(true);
+        }
+        if !self.state.in_enabled.load(Ordering::Acquire) {
+            return Err(EndpointDisabledError);
+        }
+        if ahead == 0 || ahead > interval {
+            return Ok(false);
+        }
+
+        let flag = &self.state.iso_arm_wait as *const AtomicBool;
+        let endpoints = self.endpoints as *const [EpState];
+        let regs = self.regs;
+        let mutex = self.mutex.share();
+
+        struct ClearSof<M: SharedRawMutex> {
+            flag: *const AtomicBool,
+            endpoints: *const [EpState],
+            regs: Otg,
+            mutex: M,
+        }
+        impl<M: SharedRawMutex> Drop for ClearSof<M> {
+            fn drop(&mut self) {
+                // SAFETY: both pointers come from this device's `State`, which outlives the future.
+                unsafe { (*self.flag).store(false, Ordering::Release) };
+                let waiting = unsafe {
+                    (*self.endpoints)
+                        .iter()
+                        .any(|ep| ep.iso_arm_wait.load(Ordering::Acquire))
+                };
+                if !waiting {
+                    self.mutex.lock(|| self.regs.gintmsk().modify(|w| w.set_sofm(false)));
+                }
+            }
+        }
+        let _clear = ClearSof::<M> {
+            flag,
+            endpoints,
+            regs,
+            mutex,
+        };
+
+        poll_fn(|cx| {
+            self.state.in_waker.register(cx.waker());
+            if !self.state.in_enabled.load(Ordering::Acquire) {
+                return Poll::Ready(Err(EndpointDisabledError));
+            }
+
+            let ahead = forward(self.fnsof(), frame, span);
+            if ahead == 1 {
+                return Poll::Ready(Ok(true));
+            }
+            if ahead == 0 || ahead > interval {
+                return Poll::Ready(Ok(false));
+            }
+
+            self.state.iso_arm_wait.store(true, Ordering::Release);
+            self.mutex.lock(|| self.regs.gintmsk().modify(|w| w.set_sofm(true)));
+            Poll::Pending
+        })
+        .await
+    }
+
     async fn write_packet_inner(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         trace!("write_packet ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
@@ -2311,7 +2657,7 @@ where
         //
         // Prevent the interrupt (which might poke FIFOs) from executing while copying data to FIFOs.
         self.mutex.lock(|| {
-            self.start_in_transfer(buf.len());
+            self.start_in_transfer(buf.len(), None);
             self.write_fifo(buf);
         });
 
@@ -2324,7 +2670,7 @@ where
 /// The control pipe, which `Bus` drives with its `control_*` methods.
 struct ControlPipe<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     max_packet_size: u16,
     regs: Otg,
@@ -2338,7 +2684,7 @@ where
 
 impl<'d, M> ControlPipe<'d, M>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
@@ -2404,7 +2750,7 @@ where
         trace!("control: data_out_transfer len={}", buf.len());
         let (regs, mutex, setup_state, ep0_out, power_events) = (
             self.regs,
-            self.mutex,
+            self.mutex.share(),
             self.setup_state,
             self.ep_out.state,
             self.power_events,
@@ -2426,14 +2772,14 @@ where
         trace!("control: data_in_transfer len={} zlp={}", data.len(), needs_zlp);
         let (regs, mutex, setup_state, ep0_out, power_events) = (
             self.regs,
-            self.mutex,
+            self.mutex.share(),
             self.setup_state,
             self.ep_out.state,
             self.power_events,
         );
         abort_on_new_setup_or_reset(
             regs,
-            mutex,
+            mutex.share(),
             setup_state,
             ep0_out,
             power_events,
@@ -2477,7 +2823,7 @@ where
 
         let (regs, mutex, setup_state, ep0_out, power_events) = (
             self.regs,
-            self.mutex,
+            self.mutex.share(),
             self.setup_state,
             self.ep_out.state,
             self.power_events,
@@ -2523,7 +2869,7 @@ where
 
 /// Returns `true` if a control stage was aborted by a new SETUP or a bus event, and keeps
 /// `USBRST` unmasked so a reset after a suspend still wakes the control stage.
-fn control_stage_aborted<M: RawMutex>(
+fn control_stage_aborted<M: SharedRawMutex>(
     regs: Otg,
     mutex: &M,
     setup_state: &ControlPipeSetupState,
@@ -2556,7 +2902,7 @@ fn control_stage_aborted<M: RawMutex>(
 /// (`power_events`). EP0's EPENA and enabled flags survive a reset, so without this a stage can
 /// wait forever, and the event is never handled: embassy-usb doesn't poll the bus during a control
 /// transfer. Returns `EndpointDisabledError` when the transfer was abandoned.
-async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: RawMutex>(
+async fn abort_on_new_setup_or_reset<T, E: From<EndpointDisabledError>, M: SharedRawMutex>(
     regs: Otg,
     mutex: M,
     setup_state: &ControlPipeSetupState,
@@ -2600,10 +2946,9 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
 }
 
 /// Hardware-dependent USB IP configuration.
-#[derive(Copy, Clone)]
 pub struct OtgInstance<'d, M = CriticalSectionRawMutex>
 where
-    M: RawMutex + Copy,
+    M: SharedRawMutex,
 {
     /// The USB peripheral.
     pub regs: Otg,
@@ -2622,6 +2967,23 @@ where
     pub tx_fifo_count: u8,
     /// Function to calculate TRDT value based on some internal clock speed.
     pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
+}
+
+impl<'d, M> Clone for OtgInstance<'d, M>
+where
+    M: SharedRawMutex,
+{
+    fn clone(&self) -> Self {
+        Self {
+            regs: self.regs,
+            state: self.state.clone(),
+            fifo_depth_words: self.fifo_depth_words,
+            phy_type: self.phy_type,
+            extra_rx_fifo_words: self.extra_rx_fifo_words,
+            tx_fifo_count: self.tx_fifo_count,
+            calculate_trdt_fn: self.calculate_trdt_fn,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2668,7 +3030,7 @@ mod tests {
         let state = storage.as_state();
 
         let mut buf = [0; 256];
-        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         driver
             .alloc_endpoint_out(&EndpointConfig::new(
                 None,
@@ -2690,9 +3052,12 @@ mod tests {
         state.ep_states[1].out_enabled.store(true, Ordering::Release);
         state.cp_state.setup_ready.store(true, Ordering::Release);
         state.cp_state.setup_pending.store(true, Ordering::Release);
+        state.ep_states[1].iso_arm_wait.store(true, Ordering::Release);
+        state.ep_states[1].iso_phase.store(3, Ordering::Release);
+        state.ep_states[1].iso_probes_left.store(5, Ordering::Release);
 
         let mut buf = [0; 256];
-        let mut driver = Driver::new(&mut buf, instance(state), Config::default());
+        let mut driver = Driver::new(&mut buf, instance(state.clone()), Config::default());
         let ep = driver
             .alloc_endpoint_out(&EndpointConfig::new(
                 None,
@@ -2706,6 +3071,9 @@ mod tests {
         assert!(!state.ep_states[1].out_enabled.load(Ordering::Acquire));
         assert!(!state.cp_state.setup_ready.load(Ordering::Acquire));
         assert!(!state.cp_state.setup_pending.load(Ordering::Acquire));
+        assert!(!state.ep_states[1].iso_arm_wait.load(Ordering::Acquire));
+        assert_eq!(state.ep_states[1].iso_phase.load(Ordering::Acquire), ISO_PHASE_UNLOCKED);
+        assert_eq!(state.ep_states[1].iso_probes_left.load(Ordering::Acquire), 0);
         let _ = driver.start(64);
     }
 }

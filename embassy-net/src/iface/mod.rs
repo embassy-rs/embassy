@@ -141,7 +141,7 @@ impl<'d> Iface<'d> {
     }
 
     /// The interface's IP-layer MTU: the device MTU minus the link-layer header,
-    /// clamped to what a [`PacketBuf`](crate::driver::PacketBuf) can carry.
+    /// clamped to what a [`DriverBuf`](crate::driver::DriverBuf) can carry.
     pub fn ip_mtu(&self) -> usize {
         self.with(|i| (i.ip_mtu(), NoWake))
     }

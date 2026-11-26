@@ -21,7 +21,7 @@ use embassy_stm32_wpan::sub::mac::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
@@ -97,8 +97,8 @@ async fn main(spawner: Spawner) {
     // Init network stack
     let ipv6_addr = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2ff);
 
-    static POOL: StaticPool = StaticPool::new();
-    let (stack, eth_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool> = ConstStaticCell::new(StaticPool::new());
+    let (stack, eth_runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();

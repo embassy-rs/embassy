@@ -28,13 +28,13 @@ cargo test --manifest-path ./embassy-nrf/Cargo.toml --no-default-features --feat
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp2040,jiff,_test
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp235xa,_test
 
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,exti,single-bank,low-power,jiff,test
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,exti,dual-bank,test
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f732ze,time-driver-any,exti,test
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,exti,single-bank,test
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,exti,dual-bank,test
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f103c8,time-driver-any,exti,test --lib usb::
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32l476rg,time-driver-any,exti,test --lib lcd::
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,single-bank,low-power,jiff,test
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,dual-bank,test
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f732ze,time-driver-any,test
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,single-bank,test
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,dual-bank,test
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f103c8,time-driver-any,test --lib usb::
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32l476rg,time-driver-any,test --lib lcd::
 
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml --no-default-features --features tc6,packetmeta-id

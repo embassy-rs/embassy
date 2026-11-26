@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+NPU:
+- feat: stm32/npu: run a network compiled to streaming-engine epochs (without `--enable-epoch-controller`). `EpochBlock::streaming` carries the generated pre-op, post-op, and the output-engine wait mask. `Npu::run_streaming_epoch` arms that mask, runs the pre-op, and sleeps until those engines complete. `Npu::run_network` dispatches streaming-engine blocks the same way. The driver still does not program the NPU units; that sequence stays in the generated pre-op.
+- change: stm32/npu: `EpochBlock` has a `streng_mask` field. `hw`, `hw_with`, and `sw` set it to 0. A struct literal must include it.
+
 PAC:
 - change: stm32: the `defmt` feature no longer enables `defmt` in `stm32-metapac`. PAC types, including the ones re-exported by the HAL (e.g. `rcc::AHBPrescaler`), no longer implement `defmt::Format` by default.
 - change: stm32: PAC types no longer implement `Debug` by default.
@@ -15,6 +19,14 @@ PAC:
 
 Atomic:
 - fix: stm32/atomic: make `AtomicClear::clear` atomic on targets without 8-bit atomic RMW (thumbv6m)
+- fix: stm32/atomic: `Reg::set_bits`/`clear_bits` (used by the HSEM, IPCC, I2C and SDMMC drivers) no longer use core atomics for the read-modify-write. `LDREX`/`STREX` on peripheral registers is UNPREDICTABLE on Armv7-M, and when the write re-arms an interrupt whose handler runs between the `LDREX` and the `STREX` the retry loop never terminates. The update is now done in a critical section.
+
+HSEM:
+- fix: stm32/hsem: `blocking_listen` and `listen` no longer drop a notification that was sent before the call. The notification is consumed after it has been observed instead of being cleared before waiting for it, which deadlocked `init_secondary` when the other core had already completed `init_primary` (e.g. when starting or restarting the secondary core under a debugger).
+- fix: stm32/hsem: `HardwareSemaphoreInterruptHandler` now consumes the notification flags with `HSEM_CnICR` and latches them in software before waking. The latched masked status keeps the interrupt line asserted until the flags are cleared, so masking `HSEM_CnIER` (the old behavior) did not deassert it: arming the interrupt with a notification pending re-entered the handler forever, starving the tasks supposed to consume the notification. The software latch also delivers a notification whose wake happens before the listener registers its waker.
+- feat: stm32/hsem: add `HardwareSemaphoreChannel::is_notified` and `HardwareSemaphoreChannel::clear_notification`, which check and clear the notification without consuming it.
+- fix: stm32: `init_primary` discards a stale HSEM notification from a previous run of the core before initializing the hardware, and `init_secondary`/`try_init_secondary` treat the notification as a level rather than an event. The secondary core can now be started (or restarted under a debugger) in any order relative to the primary core without deadlocking or consuming a stale notification.
+- change: stm32: `try_init_secondary` no longer blocks when the other core is not done with its init (matching its documentation).
 
 SUBGHZ:
 - feat: stm32/subghz: add a driver for the on-chip sub-GHz radio of STM32WL and STM32WLE5 (`SubghzSpi`, `SubghzControl`). It covers the dedicated `SUBGHZSPI`, radio reset, `RFBUSY` waiting and the `SUBGHZ_RADIO` interrupt. The driver does not wrap the radio's command set: the caller sends the commands.
@@ -35,13 +47,16 @@ UCPD:
 - fix: stm32/ucpd: receive PD messages in the background ([#7527](https://github.com/embassy-rs/embassy/issues/7527)). The RX DMA only ran while `PdPhy::receive` was pending, so a message arriving between two calls was lost, and its first byte left a DMA request pending that put a stale byte in front of the next received message. The interrupt now restarts the DMA after every message, alternating between two buffers; one message can wait for `receive`.
 - change: stm32/ucpd: `Ucpd::split_pd_phy` and `IdlePdPhy::activate` take the receive buffers, `&mut RxBuffers`.
 - fix: stm32/ucpd: `PdPhy::transmit_with_sop` and `PdPhy::transmit_hardreset` return `TxError::HardReset` without transmitting if a Hard Reset was received that hasn't been reported yet. They started the transmission first, so a message was cut short when its DMA was stopped, or a Hard Reset was sent back.
+- fix: stm32/ucpd: a transmission after a cancelled `PdPhy::transmit` no longer loses its first byte. The cancelled message ran out of data, which left the TX DMA request for its next byte pending, so the next transmission's DMA wrote its first byte before the message started. Every following message was sent corrupted.
+- fix: stm32/ucpd: `PdPhy::transmit` no longer hangs after a cancelled `PdPhy::transmit_hardreset`. The Hard Reset is still sent, and while it is, the UCPD ignores a transmission request without reporting it. `transmit` now waits for the Hard Reset first.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.
 
 USB:
+- feat: stm32/usb: implement `IsoEndpointIn` for both the non-OTG USB peripheral and OTG (via `embassy-usb-synopsys-otg`), with service-interval scheduling, phase locking for intervals > 1, and dropping of uncollected packets.
 - change: stm32/usb: a control transfer stage now ends when the bus is suspended, or VBUS is removed (`exti`), so the event is not missed. The control pipe is part of `Bus`.
-- feat: stm32/usb: add optional VBUS detection for the non-OTG USB peripheral. `Driver::new_with_vbus` takes an `ExtiInput`; when VBUS goes low `Bus::poll` reports `Event::PowerRemoved`, disables the endpoints so pending transfers return `EndpointError::Disabled`, and drops the D+ pull-up where the peripheral exposes it. `Event::PowerDetected` is reported when VBUS returns. Requires the `exti` feature.
+- feat: stm32/usb: add optional VBUS detection for the non-OTG USB peripheral. `Driver::new_with_vbus` takes an `ExtiInput`; when VBUS goes low `Bus::poll` reports `Event::PowerRemoved`, disables the endpoints so pending transfers return `EndpointError::Disabled`, and drops the D+ pull-up where the peripheral exposes it. `Event::PowerDetected` is reported when VBUS returns.
 
 RCC:
 - fix: stm32/rcc g0: enable the flash prefetch after setting the latency; with 2 wait states at 64 MHz and prefetch off code ran 8-16% slower.
@@ -49,6 +64,9 @@ RCC:
 - feat: stm32/rcc u5: backup SRAM; `BackupMemory::new` enables its clock
 - feat: stm32/rcc: add `rcc::reset_flags()` to read what caused the last reset.
 - change: stm32/rcc h7: remove `rcc::ResetReason`, use `rcc::reset_flags()` instead (breaking change).
+- fix: stm32/rcc f2, f4, f7, g0, g4, h5, h7: report the LSE and LSI frequencies, so peripherals can use them as kernel clock
+- fix: stm32/rcc u3: `LseConfig::peripherals_clocked` sets `LSESYSEN`; it was ignored
+- feat: stm32/rcc g5: add `Config::ls` to configure the LSI, the LSE and the RTC clock.
 
 LPTIM:
 - fix: stm32/lptim: a period whose tick count is at least 65536 no longer panics when rounding the divider up to a power of two still leaves the reload above 65535. The prescaler is the smallest of /1, /2, ..., /128 for which the reload fits in 16 bits. A period that does not fit even at /128 still panics.
@@ -60,6 +78,11 @@ Time driver:
 - fix: stm32/time-driver-lptim: the interrupt handler clears only the flags it read; it also cleared every enabled flag, so an overflow that arrived during the handler was lost and time fell back one counter period
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, wait for `DIEROK` after each `DIER` change; a `CCIE` write still in flight when entering Stop lost the alarm wakeup until the next overflow
 - fix: stm32/time-driver-lptim: `now()` retries if the update event flag changes while it reads the counter; a wrap between the two reads returned a time one counter period ahead, then time went backwards
+- fix: stm32/time-driver-lptim: build on chips with LPTIM v1, v1a or v1b (F4, F7, G0, G4, H7, L0, L4, L4+, WB), which have no update event; the counter overflow is counted on `ARRM`
+- fix: stm32/time-driver-lptim: build on C5, H5, L5, U0 and U3; `time-driver-lptim3` on U5 and U3 uses the shared LPTIM3/LPTIM4 kernel clock mux
+- change: stm32/time-driver-lptim: `init` no longer changes `config.rcc`. The LPTIM kernel clock must be selected in `config.rcc.mux` and enabled in `config.rcc` (LSE with `peripherals_clocked: true` on L5, U0, U3, U5, WBA and WL); the reset value is no longer switched to LSI, and LSI and HSI are no longer enabled (breaking change).
+- change: stm32/time-driver-lptim: panic at `init` if the LPTIM kernel clock is LSE not routed to peripherals, or a frequency that is not 1, 2, 4, ..., 128 times the tick rate.
+- change: stm32/time-driver-lptim: with `low-power`, an LPTIM kernel clock other than LSI or LSE disables Stop mode and logs a warning.
 - fix: stm32/time-driver-lptim: on U5, U3 and WBA, the wait for `CMPOK` after a compare write is bounded, as the `DIEROK` wait is, instead of spinning forever with interrupts masked; both bounds now count counter clock cycles, so a prescaled counter no longer gives up on a `DIEROK` that is only slow
 
 I2C:
@@ -68,6 +91,7 @@ I2C:
 - fix: stm32/i2c v2: a blocking controller transfer that times out (e.g. SCL held low by the target) now resets the peripheral (PE toggle, as for BERR/ARLO) instead of requesting STOP and abandoning the transfer. The abandoned transfer's NACKF/STOPF arrived later and the next call returned them after it had started its own transfer, which then ran unserved, so every later blocking transfer timed out until PE was toggled by hand.
 - fix: stm32/i2c v2: an async slave `respond_to_write` that received more than its buffer holds timed out while discarding the extra bytes, because nothing woke it for them, and could leave the last one in RXDR. It now wakes on every byte and reads a byte that arrived with the STOP.
 - fix: stm32/i2c v2: the async master and slave transfers of a driver from `I2c::new_no_dma` panicked on `Option::unwrap()` for its missing DMA channel whenever they moved data. They now move each byte on the TXIS/RXNE interrupt.
+- fix: stm32/i2c v1: round CCR up instead of down, so SCL is never faster than the requested frequency. 400 kHz came out as 410 kHz with a 16 MHz APB1 clock and 444 kHz with 8 MHz. CCR is also limited to its 12-bit field instead of being truncated.
 
 USART:
 - fix: stm32/usart: `BufferedUartTx::flush` could return before the last bytes left the UART when a write wrapped around the end of the TX buffer. The TC interrupt now reports done only when the TX buffer is empty, and every write pends the interrupt.
@@ -115,10 +139,22 @@ Flash:
 - fix: G0 with swapped banks erases the requested bank.
 - fix: the caches are flushed after program and erase operations: the `FLASH_ACR` caches (F2/F4, L4, G0/G4, C0, U0, WB, WL), the F7 ART, the ICACHE (L5, U5, U3, WBA, H5, C5) and the Cortex-M7 caches (F7, H7). The `FLASH_ACR` data cache, the F7 ART and the ICACHE are also disabled while the operation runs.
 - fix: async operations prevent the low-power executor from entering Stop mode.
+- fix: programming zeros over a word with an uncorrectable ECC error, as left behind by an interrupted program or erase, no longer panics in the NMI handler on chips that report ECC errors with an NMI.
 
 Low power:
-- fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F4, G4, L0, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
+- fix: stm32/low-power: fail to compile on chip families with no low-power implementation, instead of building a `sleep()` that set `SLEEPDEEP` and entered whatever `PWR` happened to default to, without clearing the wake-up flags or restoring the system clock on wake-up. Implemented families are F3, F4, F7, G0, G4, L0, L1, L4, L5, U0, U3, U5, H5, WB, WBA and WL.
 - add: stm32/low-power: Stop mode support for STM32G4, entering the low-power-regulator stop (`PWR_CR1.LPMS = 0b001`).
+- add: stm32/low-power: Stop mode support for STM32F3, F7, G0 and L1.
+- fix: stm32: enable the DBGMCU clock on C0, F0, G0 and L0, so `enable_debug_during_sleep` and `freeze_iwdg_when_halted` take effect without a debugger enabling it.
+- fix: stm32/low-power: build on L412/L422 and L4P5/L4Q5, on U3 with a TIM time driver, and on U0 with an LPTIM time driver
+- fix: stm32/low-power: restore the clocks after Stop on L0, L4, L5, U0, WB and H5 (including the voltage scale and flash latency on H5), which kept running on the wake-up clock.
+- change: stm32/low-power: after Stop, turn back on only the oscillators, PLLs and voltage settings that Stop turned off, instead of re-running the RCC init (U3, U5, WL, WBA, F4, G4).
+- fix: stm32/low-power l0: only put the regulator in low-power mode for Stop, not for the `WFI` sleeps after it.
+- fix: stm32/low-power u0: execute the `WFI` from RAM. With `enable_debug_during_sleep`, the chip HardFaulted on wake-up from Stop.
+- fix: stm32/low-power g0: execute the `WFI` from RAM, like on U0. With `enable_debug_during_sleep`, the chip HardFaulted on wake-up from Stop, also with no debugger attached.
+- fix: stm32/rcc l5: don't reset the backup domain when configuring LSE/LSI, which also erased SRAM2.
+- change: stm32/rcc l5: `LsConfig::new()` and `LsConfig::default()` use LSI for the RTC, like the other families, instead of turning it off.
+- change: stm32/low-power: remove the `low-power-debug-with-sleep` feature.
 
 Align to API guidelines:
 - change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
@@ -307,9 +343,14 @@ CORDIC:
 RTC:
 - fix: stm32/rtc: compute the prescalers so the calendar advances once per second. PREDIV_A is 7 bits, but the asynchronous divider was taken as clock / `RtcConfig::frequency` without a limit, so with the default 256 Hz and a 40 kHz LSI (F0, F3) 155 was written as 27 and the RTC ran about 5.6 times too fast. A requested frequency the clock cannot produce exactly is now rounded to the nearest lower divider that divides the clock evenly.
 - change: stm32/rtc: `DateTime` is renamed to `RawDateTime`. It has public fields that hold the calendar register values as stored (the year is within the century, the day of week is a `u8`, the subsecond is the raw `RTC_SSR` counter instead of microseconds), with no validation. `DayOfWeek` and `DateTimeError` are removed.
-- change: stm32/rtc: `RtcTimeProvider::now` is renamed to `read_raw`, and `Rtc::set_datetime` and `AnyRtc::set_datetime` to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
-- feat: stm32/rtc: add the `jiff` feature, with `RtcTimeProvider::read`, `Rtc::set` and `AnyRtc::set` taking and returning `jiff::civil::DateTime`.
+- change: stm32/rtc: `RtcTimeProvider` is renamed to `RtcReader` and its `now` method to `read_raw`, and `Rtc::set_datetime` is renamed to `set_raw`. They work with `RawDateTime` and do not return a `Result`. `RtcError` is removed.
+- feat: stm32/rtc: add the `jiff` feature, with `RtcReader::read` and `Rtc::set` taking and returning `jiff::civil::DateTime`.
+- change: stm32/rtc: `Rtc::new` returns only the `Rtc`, which has `read` and `read_raw` methods. Get an `RtcReader` to read the time from other tasks with `Rtc::reader`.
+- change: stm32/rtc: `Rtc` and `RtcReader` have a `'d` lifetime, and `Rtc::new` takes a `Peri<'d, RTC>` instead of a `Peri<'static, RTC>`.
+- change: stm32/rtc: with the `low-power` feature, `Rtc::new` takes an `RtcConfig` and returns an `Rtc`, the same as without it. `RtcContainer`, `RtcBorrow` and `AnyRtc` are removed.
+- feat: stm32/rtc f1: add an RTC driver. The F1 RTC has no calendar: `Rtc` exposes its 32-bit counter, which increments once per second, with `Rtc::counter` and `Rtc::set_counter`.
 - change: stm32/rtc: remove the `chrono` feature.
+- fix: stm32/rtc: `Rtc::new` no longer enters init mode when the RTC already has the requested prescalers and the 24-hour format. Leaving init mode restarts the prescaler counters, so `Rtc::new` on a running RTC (e.g. after a reset with the backup domain kept) lost the elapsed fraction of the current second: always on RTC v2 (F0, F2, F3, F4, F7, H7, L0, L1, L4, WB), and on RTC v3 as long as the calendar had not been set to a year other than 2000.
 
 SDMMC:
 - fix: stm32/sdmmc v1: a divisor of 258 was accepted and written as CLKDIV 256, which the 8-bit field stores as 0, so the card clock ran at half the kernel clock instead of 1/258 of it. 257 is now the largest divisor.
@@ -326,6 +367,7 @@ EXTI:
 - fix: stm32/exti: the EXTI interrupt handler only services its own line. It used to mask and clear every pending line 0-15, including lines handled by user code with `ExtiInput<Blocking>`.
 - change: stm32/exti: wakers are only allocated for channels whose `InterruptHandler` is bound, instead of 16 for every program.
 - change: stm32/exti: `embassy_stm32::init` no longer enables the EXTI interrupt vectors in the NVIC. `ExtiInput<Async>` constructors enable their channel's vector. With `ExtiInput<Blocking>` and your own interrupt handler, enable the vector yourself.
+- change: stm32/exti: remove the `exti` Cargo feature. The `exti` module, `ExtiInput`, the async SPI slave constructors, `RingBufferedSpiRx` and USB VBUS detection are always available.
 
 ## 0.6.0 - 2026-03-10
 

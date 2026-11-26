@@ -7,7 +7,7 @@ use embedded_io_async::Write as _;
 use getrandom::SysRng;
 use log::*;
 use rand_core::TryRng;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 /// How many connections we serve at the same time.
 const SOCKET_COUNT: usize = 4;
@@ -65,8 +65,8 @@ async fn main_task(spawner: Spawner) {
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
-    static POOL: StaticPool = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool> = ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the TAP interface to the stack.
     static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();

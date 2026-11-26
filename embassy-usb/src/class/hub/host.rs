@@ -554,17 +554,23 @@ pub struct HubDescriptor {
     pub port_power_ctrl_mask: [u8; 32],
 }
 
+/// Size in bytes of the bitmaps of a hub descriptor for a hub with `port_num` ports.
+///
+/// Bit 0 is reserved and bit n is port n (USB 2.0 §11.23.2.1), so there are `port_num + 1` bits.
+const fn bitmap_len(port_num: u8) -> usize {
+    (port_num as usize + 1).div_ceil(u8::BITS as usize)
+}
+
 impl HubDescriptor {
     /// Current size of (device_removable)[Self::device_removable] and (port_power_ctrl_mask)[Self::port_power_ctrl_mask].
     pub fn variable_bitmap_size(&self) -> usize {
-        // bit 0 is reserved
-        Ord::max(1, (self.port_num as usize).div_ceil(u8::BITS as usize))
+        bitmap_len(self.port_num)
     }
 }
 
 impl VariableSizeDescriptor for HubDescriptor {
-    const MIN_LEN: u8 = 7 + 2; // bit 0 is reserved
-    const MAX_LEN: u8 = 7 + 2 * 255u8.div_ceil(u8::BITS as u8);
+    const MIN_LEN: u8 = 7 + 2 * bitmap_len(0) as u8;
+    const MAX_LEN: u8 = 7 + 2 * bitmap_len(255) as u8;
 
     /// Matches length with the number of ports.
     fn match_bytes_len(bytes: &[u8]) -> bool {
@@ -573,7 +579,7 @@ impl VariableSizeDescriptor for HubDescriptor {
         }
         let len = bytes[0] as usize;
         let port_num = bytes[2] as usize;
-        len == 7 + 2 * Ord::max(1, port_num.div_ceil(u8::BITS as usize))
+        len == 7 + 2 * bitmap_len(port_num as u8)
     }
 }
 
@@ -585,7 +591,7 @@ impl USBDescriptor for HubDescriptor {
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::match_bytes(bytes)?;
         let port_num = bytes[2];
-        let n = Ord::max(1, (port_num as usize).div_ceil(u8::BITS as usize));
+        let n = bitmap_len(port_num);
         let mut device_removable = [0u8; _];
         let mut port_power_ctrl_mask = [0u8; _];
         if let Some(data) = bytes.get(7..) {
@@ -613,13 +619,12 @@ impl USBDescriptor for HubDescriptor {
 
 impl WritableDescriptor for HubDescriptor {
     fn write_to_bytes(&self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
-        let n = Ord::max(1, self.port_num.div_ceil(u8::BITS as u8));
-        Self::prepare_bytes(bytes, 7 + 2 * n)?;
+        let n = self.variable_bitmap_size();
+        Self::prepare_bytes(bytes, (7 + 2 * n) as u8)?;
         bytes[2] = self.port_num;
         [bytes[3], bytes[4]] = self.characteristics.to_le_bytes();
         bytes[5] = self.power_on_delay;
         bytes[6] = self.max_current;
-        let n = n as usize;
         bytes[7..7 + n].copy_from_slice(&self.device_removable[..n]);
         bytes[7 + n..7 + 2 * n].copy_from_slice(&self.port_power_ctrl_mask[..n]);
         Ok(bytes[0] as usize)
@@ -832,5 +837,40 @@ pub mod tests {
             Ok(7 + 2 * 0x11usize.div_ceil(u8::BITS as usize))
         );
         assert_eq!(HubDescriptor::try_from_bytes(&bytes), Ok(descriptor));
+    }
+
+    /// The bitmaps have a bit per port plus the reserved bit 0 (USB 2.0 §11.23.2.1),
+    /// so an 8 port hub needs 2 bytes for each, not 1.
+    #[test]
+    fn hub_descriptor_bitmaps_include_reserved_bit() {
+        for (port_num, bitmap_len) in [
+            (1u8, 1usize),
+            (7, 1),
+            (8, 2),
+            (15, 2),
+            (16, 3),
+            (31, 4),
+            (32, 5),
+            (255, 32),
+        ] {
+            let len = 7 + 2 * bitmap_len;
+            let mut bytes = [0u8; HubDescriptor::BUF_SIZE];
+            bytes[0] = len as u8;
+            bytes[1] = HubDescriptor::DESC_TYPE;
+            bytes[2] = port_num;
+            // The last port's bit is the last bit of each bitmap.
+            let last = 7 + bitmap_len - 1;
+            bytes[last] = 0x80 >> (7 - (port_num % 8));
+            bytes[last + bitmap_len] = 0x80 >> (7 - (port_num % 8));
+
+            let descriptor = HubDescriptor::try_from_bytes(&bytes[..len]).unwrap();
+            assert_eq!(descriptor.variable_bitmap_size(), bitmap_len);
+            assert_eq!(descriptor.device_removable[bitmap_len - 1], bytes[last]);
+            assert_eq!(descriptor.port_power_ctrl_mask[bitmap_len - 1], bytes[last]);
+
+            let mut written = [0u8; HubDescriptor::BUF_SIZE];
+            assert_eq!(descriptor.write_to_bytes(&mut written), Ok(len));
+            assert_eq!(written[..len], bytes[..len]);
+        }
     }
 }

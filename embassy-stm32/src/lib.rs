@@ -204,7 +204,6 @@ pub mod dsihost;
 pub mod dts;
 #[cfg(eth)]
 pub mod eth;
-#[cfg(feature = "exti")]
 pub mod exti;
 #[cfg(flash)]
 pub mod flash;
@@ -274,7 +273,8 @@ pub mod ramcfg;
 pub mod rif;
 #[cfg(rng)]
 pub mod rng;
-#[cfg(all(rtc, not(rtc_v1)))]
+#[cfg(rtc)]
+#[cfg_attr(rtc_v1, path = "rtc/v1.rs")]
 pub mod rtc;
 #[cfg(saes)]
 pub mod saes;
@@ -428,7 +428,10 @@ pub struct Config {
     pub rcc: rcc::Config,
 
     #[cfg(feature = "low-power")]
-    /// RTC config
+    /// RTC config.
+    ///
+    /// Unless a low-power timer is the time driver, the RTC measures the time spent in Stop mode,
+    /// and `init` configures it with this. Pass the same config to [`rtc::Rtc::new`].
     pub rtc: rtc::RtcConfig,
 
     #[cfg(feature = "low-power")]
@@ -664,7 +667,7 @@ mod dual_core {
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
         #[cfg(feature = "low-power")]
-        rcc_config: UnsafeCell<MaybeUninit<Option<rcc::Config>>>,
+        stop_restore: UnsafeCell<MaybeUninit<Option<rcc::StopRestore>>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -678,11 +681,20 @@ mod dual_core {
     /// This should only be called once at startup, otherwise it panics.
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
+    /// The notification sent at the end of this function is a level, not an event:
+    /// a secondary core that starts (or restarts) after this function has completed
+    /// observes it immediately. Any stale notification from a previous run of this
+    /// core is discarded before the hardware is initialized, so a secondary core
+    /// cannot mistake it for this run's notification.
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
         critical_section::with(|cs| crate::hsem::init_hsem(cs, true));
+
+        // Discard any notification left over from a previous run of this core (e.g.
+        // when restarting only this core under a debugger).
+        hsem::get_hsem(1).clear_notification();
 
         #[cfg(stm32h7)]
         {
@@ -699,7 +711,7 @@ mod dual_core {
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
         let p = init_hw(config);
 
         hsem::get_hsem(1).blocking_notify();
@@ -710,18 +722,36 @@ mod dual_core {
     /// Try to initialize the `embassy-stm32` HAL based on the init done by the other core using [init_primary].
     ///
     /// This returns the peripheral singletons that can be used for creating drivers if the other core is done with its init.
-    /// If the other core is not done yet, this will return `None`.
+    /// If the other core is not done yet, this will return `None`. It never blocks:
+    /// call it repeatedly (as [init_secondary] does) until it returns `Some`.
     ///
-    /// This should only be called once at startup, otherwise it may panic.
+    /// The notification from the other core is consumed as a level rather than an
+    /// event, so this core can be restarted (e.g. under a debugger) while the other
+    /// core keeps running, and still proceed.
+    ///
+    /// This can only succeed once per boot, otherwise it may panic.
     ///
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
+        // The HSEM peripheral must be clocked before its registers can be used.
+        //
+        // The RCC enable registers are banked per core on these parts: each
+        // core gates its own peripheral clocks and cannot enable a peripheral
+        // for the other core, so this core enables HSEM in its own bank.
         critical_section::with(|cs| {
             rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
 
-        // Wait for the semaphore to be unlocked by the primary core
-        hsem::get_hsem(1).blocking_listen();
+        // Wait for the primary core to complete its init. The notification is not
+        // consumed here, so a notification sent before this call (or before this
+        // core was restarted) is not lost.
+        if !hsem::get_hsem(1).is_notified() {
+            return None;
+        }
+
+        // Ensure the notification is observed before the shared data written by
+        // the other core is read.
+        cortex_m::asm::dmb();
 
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
@@ -732,6 +762,10 @@ mod dual_core {
     ///
     /// This returns the peripheral singletons that can be used for creating drivers when the other core is done with its init.
     /// If the other core is not done yet, this will spinloop wait on it.
+    ///
+    /// This can be called again if this core is restarted while the other core
+    /// keeps running; the notification from [init_primary] is not consumed, so a
+    /// restart does not miss it.
     ///
     /// This should only be called once at startup, otherwise it may panic.
     ///
@@ -748,7 +782,7 @@ mod dual_core {
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
         #[cfg(feature = "low-power")]
-        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
+        rcc::set_stop_restore_ptr(shared_data.stop_restore.get());
 
         let config = unsafe { (*shared_data.config.get()).assume_init() };
 
@@ -832,9 +866,14 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::DBGMCU.cr().read();
         }
 
+        // The DBGMCU registers are on APB and need their bus clock (RM0091 6.4.7, RM0490 6.4.14,
+        // RM0444 5.4.15, RM0377 7.3.13).
+        #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_l0))]
+        rcc::enable_with_cs_no_refcount::<peripherals::DBGMCU>(cs);
+
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_h5, dbgmcu_c5))]
+            #[cfg(any(dbgmcu_h5, dbgmcu_c5, dbgmcu_g5))]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
@@ -1119,8 +1158,8 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
-            #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
+            rtc::init_low_power(cs, config.rtc);
+            #[cfg(feature = "low-power")]
             crate::time_driver::LPTimeDriver::set_min_stop_pause(
                 crate::time_driver::get_driver(),
                 cs,

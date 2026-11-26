@@ -261,6 +261,117 @@ fn hsi_enable() {
     while !RCC.cr().read().hsirdy() {}
 }
 
+/// Flash wait states for a system clock of `hz` in voltage range `vos` (RM0493 Table 41, LPM=0).
+const fn flash_latency(vos: VoltageScale, hz: u32) -> u8 {
+    match vos {
+        VoltageScale::Range1 => match hz {
+            ..=32_000_000 => 0,
+            ..=64_000_000 => 1,
+            ..=96_000_000 => 2,
+            ..=100_000_000 => 3,
+            _ => 4,
+        },
+        VoltageScale::Range2 => match hz {
+            ..=8_000_000 => 0,
+            ..=16_000_000 => 1,
+            _ => 2,
+        },
+    }
+}
+
+/// The clocks to bring back after Stop.
+///
+/// WBA wakes up on HSI16 with HSE32 and PLL1 off and PLL1SRC cleared. Stop 0 keeps the voltage
+/// range; Stop 1 and 2 wake up in range 2 with HDIV5 set to divide by 2, and need the flash and
+/// SRAM wait states at 1 or more before Stop (RM0493 7.3.3, 11.5.2, 11.7.7, 12.6).
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    pllsrc: crate::pac::rcc::vals::Pllsrc,
+    cfgr4: crate::pac::rcc::regs::Cfgr4,
+    sw: Sysclk,
+    vos: VoltageScale,
+    latency: u8,
+    sram_latency: u8,
+    /// Flash and SRAM wait states HSI16 needs in range 2, if higher than the current ones.
+    wake_latency: Option<(u8, u8)>,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let latency = FLASH.acr().read().latency();
+        let sram_latency = crate::pac::RAMCFG.m1cr().read().wsc();
+        // HSI16 in range 2.
+        let wake = (flash_latency(VoltageScale::Range2, HSI_FREQ.0), 1);
+        Self {
+            cr: RCC.cr().read(),
+            pllsrc: RCC.pll1cfgr().read().pllsrc(),
+            cfgr4: RCC.cfgr4().read(),
+            sw: RCC.cfgr1().read().sws(),
+            vos: crate::pac::PWR.vosr().read().vos(),
+            latency,
+            sram_latency,
+            wake_latency: (wake.0 > latency || wake.1 > sram_latency)
+                .then_some((wake.0.max(latency), wake.1.max(sram_latency))),
+        }
+    }
+
+    fn set_latency((flash, sram): (u8, u8)) {
+        FLASH.acr().modify(|w| w.set_latency(flash));
+        while FLASH.acr().read().latency() != flash {}
+        crate::pac::RAMCFG.m1cr().modify(|w| w.set_wsc(sram));
+        crate::pac::RAMCFG.m2cr().modify(|w| w.set_wsc(sram));
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            Self::set_latency(latency);
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let pwr = crate::pac::PWR;
+        if pwr.vosr().read().vos() != self.vos {
+            pwr.vosr().modify(|w| w.set_vos(self.vos));
+            while !pwr.vosr().read().vosrdy() {}
+        }
+
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            if s.hseon() && !w.hseon() {
+                w.set_hsepre(s.hsepre());
+                w.set_hseon(true);
+            }
+            w.set_hsion(w.hsion() | s.hsion());
+        });
+        while (s.hseon() && !RCC.cr().read().hserdy()) || (s.hsion() && !RCC.cr().read().hsirdy()) {}
+
+        if s.pllon() && !RCC.cr().read().pllon() {
+            RCC.pll1cfgr().modify(|w| w.set_pllsrc(self.pllsrc));
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+        }
+
+        if RCC.cfgr4().read() != self.cfgr4 {
+            RCC.cfgr4().write_value(self.cfgr4);
+        }
+        if RCC.cfgr1().read().sws() != self.sw {
+            RCC.cfgr1().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr1().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            Self::set_latency((self.latency, self.sram_latency));
+        }
+
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Switch to HSI to prevent problems with PLL configuration.
     if !RCC.cr().read().hsion() {
@@ -326,20 +437,7 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk7, _) = super::util::calc_pclk(hclk1, config.apb7_pre);
 
     // Set flash wait states
-    let flash_latency = match config.voltage_scale {
-        VoltageScale::Range1 => match sys_clk.0 {
-            ..=32_000_000 => 0,
-            ..=64_000_000 => 1,
-            ..=96_000_000 => 2,
-            ..=100_000_000 => 3,
-            _ => 4,
-        },
-        VoltageScale::Range2 => match sys_clk.0 {
-            ..=8_000_000 => 0,
-            ..=16_000_000 => 1,
-            _ => 2,
-        },
-    };
+    let flash_latency = flash_latency(config.voltage_scale, sys_clk.0);
 
     FLASH.acr().modify(|w| w.set_latency(flash_latency));
     while FLASH.acr().read().latency() != flash_latency {}
@@ -400,7 +498,7 @@ pub(crate) unsafe fn init(config: Config) {
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
             Hertz(16_000_000) => Usbrefcksel::Mhz16,
-            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(19_200_000) => Usbrefcksel::Mhz19_2,
             Hertz(20_000_000) => Usbrefcksel::Mhz20,
             Hertz(24_000_000) => Usbrefcksel::Mhz24,
             Hertz(26_000_000) => Usbrefcksel::Mhz26,

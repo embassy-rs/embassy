@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
 
     let now = date(2020, 5, 15).at(10, 30, 15, 0);
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
     info!("Got RTC!");
 
     rtc.set(now).unwrap();
@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
     // In reality the delay would be much longer
     Timer::after_millis(20000).await;
 
-    let then = time_provider.read().unwrap();
+    let then = rtc.read().unwrap();
     print_datetime(then);
 }
 

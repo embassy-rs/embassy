@@ -65,7 +65,10 @@ pub struct MidiClassConfig<'d> {
     ///
     /// The same bulk endpoints are used by the MIDI 1.0 and MIDI 2.0 alternate
     /// settings, so this single value applies to both.
-    /// For full-speed devices, the value has to be one of 8, 16, 32 or 64.
+    /// At full speed, the value has to be one of 8, 16, 32 or 64. At high speed it has to be 512,
+    /// and at SuperSpeed 1024. [`MidiClass::new`] and [`MidiClass::new_with_names`] panic otherwise.
+    ///
+    /// The default is 64, so a high-speed device has to set it.
     pub max_packet_size: u16,
 
     /// Name of the MIDIStreaming interface.
@@ -394,6 +397,12 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             MAX_MIDI_JACKS,
         );
 
+        // The bulk endpoints are allocated below with `alloc_endpoint_*`, which does not check the
+        // packet size. Run the check `endpoint_bulk_in()` and `endpoint_bulk_out()` do.
+        let mut options = EndpointOptions::new();
+        options.max_packet_size = Some(max_packet_size);
+        let max_packet_size = builder.bulk_max_packet_size(options);
+
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
         // USB MIDI 2.0 §4 allows a function with only one direction. A direction is
@@ -690,12 +699,11 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         write_umps(self.write_ep.as_mut().ok_or(EndpointError::Disabled)?, packets).await
     }
 
-    /// Writes raw UMP bytes to the host.
+    /// Writes raw UMP bytes to the host as one transfer, with a ZLP after a full last packet.
     ///
     /// This is only meaningful while Alternate Setting 1 (MIDI 2.0) is active.
     pub async fn write_ump_bytes(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
-        Ok(write_ep.write_transfer(data, false).await?)
+        write_bytes(self.write_ep.as_mut().ok_or(EndpointError::Disabled)?, data).await
     }
 
     /// Reads Universal MIDI Packets from the host.
@@ -734,6 +742,14 @@ async fn wait_any_enabled<R: Endpoint, W: Endpoint>(read_ep: &mut Option<R>, wri
         (None, Some(write_ep)) => write_ep.wait_enabled().await,
         (None, None) => {}
     }
+}
+
+/// Write `data` as one transfer, ending it with a ZLP if it exactly fills its last packet.
+///
+/// Without the ZLP the host has no short packet to tell it the transfer is over.
+async fn write_bytes<E: EndpointIn>(ep: &mut E, data: &[u8]) -> Result<(), EndpointError> {
+    ep.write_transfer(data, true).await?;
+    Ok(())
 }
 
 /// Write UMPs in transfers of whole packets, ending one that exactly fills the last packet with a ZLP.
@@ -849,39 +865,41 @@ mod tests {
         assert!(!state.is_midi2_active());
     }
 
-    #[test]
-    fn write_ump_cuts_between_packets_and_ends_a_full_transfer_with_a_zlp() {
-        use embassy_futures::block_on;
-        use embassy_usb_driver::{
-            Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType, Unsupported,
-        };
+    use embassy_usb_driver::{
+        Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType,
+    };
 
-        struct Capture {
-            info: EndpointInfo,
-            writes: heapless::Vec<heapless::Vec<u8, 64>, 8>,
+    /// An IN endpoint that records each transfer and whether it asked for a ZLP.
+    struct Capture {
+        info: EndpointInfo,
+        writes: heapless::Vec<heapless::Vec<u8, 64>, 8>,
+        needs_zlp: heapless::Vec<bool, 8>,
+    }
+
+    impl Endpoint for Capture {
+        fn info(&self) -> EndpointInfo {
+            self.info
         }
-        impl Endpoint for Capture {
-            fn info(&self) -> EndpointInfo {
-                self.info
-            }
-            async fn wait_enabled(&mut self) {}
-            fn is_enabled(&self) -> bool {
-                true
-            }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Err(Unsupported)
-            }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Err(Unsupported)
-            }
+        async fn wait_enabled(&mut self) {}
+        fn is_enabled(&self) -> bool {
+            true
         }
-        impl EndpointIn for Capture {
-            async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-                self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
-                Ok(())
-            }
+        async fn set_stalled(&mut self, _stalled: bool) {}
+        fn is_stalled(&self) -> bool {
+            false
         }
-        let capture = |max_packet_size| Capture {
+    }
+
+    impl EndpointIn for Capture {
+        async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+            self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
+            self.needs_zlp.push(needs_zlp).unwrap();
+            Ok(())
+        }
+    }
+
+    fn capture(max_packet_size: u16) -> Capture {
+        Capture {
             info: EndpointInfo::new(
                 EndpointAddress::from(0x81),
                 EndpointType::Bulk,
@@ -889,7 +907,26 @@ mod tests {
                 EndpointInterval::NONE,
             ),
             writes: heapless::Vec::new(),
-        };
+            needs_zlp: heapless::Vec::new(),
+        }
+    }
+
+    #[test]
+    fn write_ump_bytes_asks_the_driver_for_a_zlp() {
+        use embassy_futures::block_on;
+
+        // A transfer that exactly fills its last packet needs a ZLP, and the driver adds it.
+        let mut ep = capture(64);
+        block_on(write_bytes(&mut ep, &[0; 64])).unwrap();
+        assert_eq!(ep.writes.len(), 1);
+        assert_eq!(ep.writes[0].len(), 64);
+        assert_eq!(ep.needs_zlp, [true]);
+    }
+
+    #[test]
+    fn write_ump_cuts_between_packets_and_ends_a_full_transfer_with_a_zlp() {
+        use embassy_futures::block_on;
+
         let quad = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
 
         // 96 bytes: a full transfer, then a short one that needs no ZLP.
@@ -920,7 +957,7 @@ mod tests {
     #[test]
     fn wait_connection_ends_when_only_one_of_the_endpoints_is_enabled() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType, Unsupported};
+        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 
         // `Never` is the OUT endpoint after switching to an IN-only setting.
         struct Never(EndpointInfo);
@@ -935,11 +972,9 @@ mod tests {
             fn is_enabled(&self) -> bool {
                 false
             }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Err(Unsupported)
-            }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Err(Unsupported)
+            async fn set_stalled(&mut self, _stalled: bool) {}
+            fn is_stalled(&self) -> bool {
+                false
             }
         }
         impl Endpoint for Enabled {
@@ -950,11 +985,9 @@ mod tests {
             fn is_enabled(&self) -> bool {
                 true
             }
-            async fn set_stall(&mut self, _stalled: bool) -> Result<(), Unsupported> {
-                Err(Unsupported)
-            }
-            fn is_stalled(&self) -> Result<bool, Unsupported> {
-                Err(Unsupported)
+            async fn set_stalled(&mut self, _stalled: bool) {}
+            fn is_stalled(&self) -> bool {
+                false
             }
         }
         let info = EndpointInfo::new(

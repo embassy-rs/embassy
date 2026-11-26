@@ -36,11 +36,11 @@ async fn main(_spawner: Spawner) {
         second: 0,
         subsecond: 0,
     };
-    rtc.0.set_raw(initial_datetime);
+    rtc.set_raw(initial_datetime);
 
     // Reading datetime every 1s
     loop {
-        info!("{}", rtc.1.read_raw());
+        info!("{}", rtc.read_raw());
 
         Timer::after_millis(1000).await;
     }

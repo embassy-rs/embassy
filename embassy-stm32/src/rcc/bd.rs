@@ -14,6 +14,7 @@ use crate::time::Hertz;
 #[derive(Clone, Copy)]
 pub enum LseMode {
     Oscillator(LseDrive),
+    /// External clock. On C5 this uses digital bypass; analog bypass is not functional.
     Bypass,
 }
 
@@ -29,8 +30,9 @@ pub struct LseConfig {
 #[allow(dead_code)]
 #[derive(Default, Clone, Copy)]
 pub enum LseDrive {
-    #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
+    #[cfg(not(any(stm32h5, stm32g5, stm32c5)))] // ES0565/ES0661/ES0676/ES0677: LSE low drive is not functional
     Low = 0,
+    #[cfg(not(stm32g5))] // G5 only has medium-high and high drive.
     MediumLow = 0x01,
     #[default]
     MediumHigh = 0x02,
@@ -44,8 +46,9 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
         use crate::pac::rcc::vals::Lsedrv;
 
         match value {
-            #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
+            #[cfg(not(any(stm32h5, stm32g5, stm32c5)))]
             LseDrive::Low => Lsedrv::Low,
+            #[cfg(not(stm32g5))]
             LseDrive::MediumLow => Lsedrv::MediumLow,
             LseDrive::MediumHigh => Lsedrv::MediumHigh,
             LseDrive::High => Lsedrv::High,
@@ -53,17 +56,26 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32g5, stm32c5)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
 #[cfg(any(stm32c0))]
 type Bdcr = crate::pac::rcc::regs::Csr1;
+// C5/G5 call the backup domain the "RTC domain": RCC_RTCCR instead of RCC_BDCR.
+#[cfg(any(stm32g5, stm32c5))]
+type Bdcr = crate::pac::rcc::regs::Rtccr;
 
 #[cfg(any(stm32c0))]
 fn unlock() {}
 
-#[cfg(not(any(stm32c0)))]
+#[cfg(any(stm32g5, stm32c5))]
+fn unlock() {
+    crate::pac::PWR.rtccr().modify(|w| w.set_drtcp(true));
+    while !crate::pac::PWR.rtccr().read().drtcp() {}
+}
+
+#[cfg(not(any(stm32c0, stm32g5, stm32c5)))]
 fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
@@ -81,10 +93,12 @@ fn unlock() {
 fn bdcr() -> Reg<Bdcr, RW> {
     #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
-    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32g5, stm32c5)))]
     return crate::pac::RCC.bdcr();
     #[cfg(any(stm32c0))]
     return crate::pac::RCC.csr1();
+    #[cfg(any(stm32g5, stm32c5))]
+    return crate::pac::RCC.rtccr();
 }
 
 #[derive(Clone, Copy)]
@@ -99,13 +113,7 @@ pub struct LsConfig {
 impl LsConfig {
     /// Creates an [`LsConfig`] using the LSI when possible.
     pub const fn new() -> Self {
-        // on L5, just the fact that LSI is enabled makes things crash.
-        // TODO: investigate.
-
-        #[cfg(not(stm32l5))]
-        return Self::default_lsi();
-        #[cfg(stm32l5)]
-        return Self::off();
+        Self::default_lsi()
     }
 
     pub const fn default_lse() -> Self {
@@ -169,7 +177,7 @@ impl LsConfig {
             },
             None => (false, false, None),
         };
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         let lse_sysen = if let Some(lse) = self.lse {
             Some(lse.peripherals_clocked)
         } else {
@@ -181,12 +189,14 @@ impl LsConfig {
         // Disable backup domain write protection
         unlock();
 
-        if self.lsi {
+        let enable_lsi = || {
             #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
             #[cfg(stm32n6)]
             let csr = crate::pac::RCC.sr();
-            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0, stm32n6)))]
+            #[cfg(any(stm32g5, stm32c5))]
+            let csr = crate::pac::RCC.rtccr();
+            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0, stm32n6, stm32g5, stm32c5)))]
             let csr = crate::pac::RCC.csr();
             #[cfg(stm32c0)]
             let csr = crate::pac::RCC.csr2();
@@ -205,6 +215,9 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        };
+        if self.lsi {
+            enable_lsi();
         }
 
         // Enable backup regulator for persistent battery backed sram
@@ -298,7 +311,16 @@ impl LsConfig {
         {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(stm32c5)]
+        if lse_en {
+            ok &= reg.lseext()
+                == if lse_byp {
+                    crate::pac::rcc::vals::Lseext::Digital
+                } else {
+                    crate::pac::rcc::vals::Lseext::Analog
+                };
+        }
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if let Some(lse_sysen) = lse_sysen
             && !lse_sysen
         {
@@ -315,7 +337,7 @@ impl LsConfig {
 
         // After a power-on reset LSESYSEN will be set to 0
         // even if VBAT was present and kept the RTC running
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if ok
             && let Some(lse_sysen) = lse_sysen
             && lse_sysen
@@ -334,10 +356,18 @@ impl LsConfig {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5)))]
+        #[cfg(not(any(
+            rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6, stm32u5, stm32l5, stm32g5, stm32c5
+        )))]
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
+        }
+        // The reset turns the LSI off on WBA, although RM0493 says it doesn't reset LSI1ON
+        // (checked on an STM32WBA52).
+        #[cfg(stm32wba)]
+        if self.lsi {
+            enable_lsi();
         }
         // H5 has a terrible, terrible errata: 'SRAM2 is erased when the backup domain is reset'
         // pending a more sane sane way to handle this, just don't reset BD for now.
@@ -348,7 +378,9 @@ impl LsConfig {
         // STM32H562xx/563xx/573xx device errata - 2.2.14 SRAM2 is erased when the backup domain is reset
         // The U5 does the same: SRAM2 is one of the "device secrets" a backup domain reset wipes
         // (RM0456, tamper and backup registers), observed on an STM32U585 where the erase zeroed
-        // the 64 kB of SRAM2 during `init`.
+        // the 64 kB of SRAM2 during `init`. L5 too: "The SRAM2 is also erased by a Backup domain
+        // reset" (RM0438, memory and bus architecture). G5 is assumed to behave like its C5 sibling:
+        // "SRAM2 is erased by hardware in case of a backup domain reset" (RM0522, RAMCFG).
         //#[cfg(any(stm32h5, stm32h7rs))]
         #[cfg(any(stm32h7rs, stm32n6))]
         {
@@ -370,6 +402,13 @@ impl LsConfig {
                         w.set_lsedrv(lse_drv.into());
                     }
                     w.set_lsebyp(lse_byp);
+                    // ES0661/ES0676/ES0677: analog bypass is not functional on C5.
+                    #[cfg(stm32c5)]
+                    w.set_lseext(if lse_byp {
+                        crate::pac::rcc::vals::Lseext::Digital
+                    } else {
+                        crate::pac::rcc::vals::Lseext::Analog
+                    });
                     w.set_lseon(true);
                 });
 
@@ -388,7 +427,7 @@ impl LsConfig {
                 while !crate::pac::RCC.sr().read().lserdy() {}
             }
 
-            #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+            #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
             if let Some(lse_sysen) = lse_sysen {
                 bdcr().modify(|w| {
                     w.set_lsesysen(lse_sysen);
@@ -403,7 +442,18 @@ impl LsConfig {
         if self.rtc != RtcClockSource::Disable {
             #[cfg(not(rcc_n6))]
             bdcr().modify(|w| {
-                #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]
+                #[cfg(any(
+                    rtc_v2_h7,
+                    rtc_v2_l4,
+                    rtc_v2_wb,
+                    rtc_v3_base,
+                    rtc_v3_g0,
+                    rtc_v3_u0,
+                    rtc_v3_u5,
+                    rtc_v3_h5,
+                    rtc_v3_h503,
+                    rtc_v3_wba
+                ))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
                 #[cfg(not(rcc_wba))]
@@ -416,6 +466,13 @@ impl LsConfig {
                 crate::pac::RCC.ccipr7().modify(|w| w.set_rtcsel(self.rtc));
                 crate::pac::RCC.apb4lenr().modify(|w| w.set_rtcen(true))
             }
+        }
+
+        // The F1 RTC prescaler is in the backup domain too. Writing it restarts the current second, so it is
+        // only set here, together with the RTC clock.
+        #[cfg(rtc_v1)]
+        if let Some(clk) = rtc_clk {
+            crate::rtc::set_prescaler(clk);
         }
 
         trace!("BDCR configured: {:08x}", bdcr().read().0);

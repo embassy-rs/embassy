@@ -15,7 +15,6 @@ use embassy_stm32::flash::{
 };
 use embassy_stm32::mode::Mode;
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
-use panic_probe as _;
 
 teleprobe_meta::timeout!(120);
 
@@ -67,20 +66,20 @@ struct Sector {
     erase_value: u8,
 }
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     // This image stays in flash after the test. teleprobe power-cycles the board before every
     // run, so it boots again while teleprobe attaches for the next test. Resetting in the middle
-    // of erases during the attach makes it time out. A power cycle clears C_DEBUGEN, the test's
-    // own resets don't, so park until the debugger takes over.
+    // of erases during the attach makes it time out, and so does resetting while teleprobe resets
+    // and halts the core (the test clears VC_CORERESET). teleprobe starts the test with the
+    // debugger attached. A power cycle clears C_DEBUGEN, the test's own resets don't. So without
+    // a debugger at boot, this is the leftover image: park for good, teleprobe takes over.
     // Cortex-M0+ (G0, U0) software can't read DHCSR.
     #[cfg(all(ecc_reset, not(any(feature = "stm32g071rb", feature = "stm32u083rc"))))]
-    while !cortex_m::peripheral::DCB::is_debugger_attached() {
-        core::hint::spin_loop();
+    if !cortex_m::peripheral::DCB::is_debugger_attached() {
+        loop {
+            core::hint::spin_loop();
+        }
     }
 
     let mut p = init();
@@ -521,6 +520,9 @@ mod ecc {
             cp.SCB.disable_dcache(&mut cp.CPUID);
         }
 
+        #[cfg(ecc_reset)]
+        zero_errors(p.reborrow(), &planted).await;
+
         let mut f = Flash::new_blocking(p, Config::default());
         unwrap!(f.blocking_erase(s.offset, s.offset + s.size));
         verify(&mut f, &s, None);
@@ -902,6 +904,68 @@ mod ecc {
                 inout("r0") iters => _,
             )
         }
+    }
+
+    /// Erratum "Overwriting with all zeros a flash memory location previously programmed with all
+    /// ones fails" (G071: ES0418, WB55: ES0394 2.2.10, WL55: ES0500): programming zeros over a word
+    /// programmed with all ones sets PROGERR. A word left with all its data bits erased but not
+    /// its ECC bits looks like one.
+    #[cfg(ecc_reset)]
+    const ZEROS_OVER_ONES_FAIL: bool = cfg!(any(
+        feature = "stm32g071rb",
+        feature = "stm32wb55rg",
+        feature = "stm32wl55jc"
+    ));
+
+    /// Zeros can be programmed over any word, also one with an ECC error that the flash's check
+    /// that the word is erased hits. Even words are zeroed blocking, odd ones async.
+    ///
+    /// With [`ZEROS_OVER_ONES_FAIL`], only the words with ECC errors are written, and
+    /// `NotErased` is accepted.
+    #[cfg(ecc_reset)]
+    async fn zero_errors(mut p: Peri<'_, peripherals::FLASH>, planted: &Planted) {
+        let zeros = [0u8; WRITE_SIZE];
+        let words = || (planted.offset..planted.offset + planted.size).step_by(WRITE_SIZE);
+        let mut zeroed = 0;
+        {
+            let mut f = Flash::new_blocking(p.reborrow(), Config::default());
+            for offset in words().step_by(2) {
+                if zero_target(&mut f, offset) {
+                    let res = f.blocking_write(offset, &zeros);
+                    zeroed += zero_result(&mut f, offset, res) as u32;
+                }
+            }
+        }
+        let mut f = Flash::new(p, Irqs, Config::default());
+        for offset in words().skip(1).step_by(2) {
+            if zero_target(&mut f, offset) {
+                let res = f.write(offset, &zeros).await;
+                zeroed += zero_result(&mut f, offset, res) as u32;
+            }
+        }
+        info!("ecc: {} words zeroed", zeroed);
+        defmt::assert!(zeroed > 0);
+    }
+
+    /// Whether [`zero_errors`] writes zeros over the word at `offset`.
+    #[cfg(ecc_reset)]
+    fn zero_target<M: embassy_stm32::mode::Mode>(f: &mut Flash<'_, M>, offset: u32) -> bool {
+        let mut buf = [0u8; WRITE_SIZE];
+        !ZEROS_OVER_ONES_FAIL || f.blocking_read(offset, &mut buf) == Err(Error::Ecc)
+    }
+
+    /// Checks the result of writing zeros over the word at `offset`. Returns whether the word was
+    /// zeroed.
+    #[cfg(ecc_reset)]
+    fn zero_result<M: embassy_stm32::mode::Mode>(f: &mut Flash<'_, M>, offset: u32, res: Result<(), Error>) -> bool {
+        if ZEROS_OVER_ONES_FAIL && res == Err(Error::NotErased) {
+            return false;
+        }
+        unwrap!(res);
+        let mut buf = [0u8; WRITE_SIZE];
+        unwrap!(f.blocking_read(offset, &mut buf));
+        defmt::assert_eq!(buf, [0u8; WRITE_SIZE]);
+        true
     }
 
     #[cfg(ecc_reset)]

@@ -22,7 +22,7 @@ use crate::pac::adc::Adc as Regs;
 use crate::pac::adc::vals::Boost;
 #[cfg(any(adc_v3_f3, adc_v3_l4, adc_v3_g4))]
 use crate::pac::adc::vals::Dmacfg;
-#[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
+#[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5))]
 use crate::pac::adc::vals::Dmngt;
 #[cfg(all(adc_oversampler, not(adc_oversampler_1024)))]
 use crate::pac::adc::vals::Ovsr;
@@ -39,7 +39,7 @@ use crate::wait::block_for_us;
 
 /// Whether this is the 12-bit generation (`TR1..3`, `DMAEN`/`DMACFG`) or the 14/16-bit one
 /// (`LTR`/`HTR`, `DMNGT`, `PCSEL`).
-const BIG: bool = cfg!(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5));
+const BIG: bool = cfg!(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5));
 
 /// Maximum ADC clock frequency.
 #[cfg(stm32f3)]
@@ -62,6 +62,8 @@ const MAX_CLOCK: Hertz = Hertz::mhz(48);
 const MAX_CLOCK: Hertz = Hertz::mhz(70);
 #[cfg(stm32c5)]
 const MAX_CLOCK: Hertz = Hertz::mhz(70);
+#[cfg(stm32g5)]
+const MAX_CLOCK: Hertz = Hertz::mhz(75);
 
 /// Whether this is a revision Y (or older) H742/H743/H750/H753, which has no /2 in front of the
 /// converter and a single `BOOST` bit. RM0433 §25.4.3.
@@ -102,6 +104,8 @@ const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [3, 5, 13, 23, 47, 93, 493, 2999];
 const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [5, 7, 15, 25, 49, 95, 495, 3003];
 #[cfg(adc_v3_c5)]
 const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [6, 10, 16, 26, 50, 96, 278, 578];
+#[cfg(adc_v3_g5)]
+const SAMPLE_TIME_HALF_CYCLES: [u32; 8] = [5, 9, 15, 25, 49, 95, 513, 1697];
 
 /// Number of channels (`DIFSEL`/`PCSEL`/`AWDxCR` bits).
 #[cfg(adc_v3_c5)]
@@ -267,9 +271,9 @@ impl AdcRegs for Regs {
                 // A single bit, the low bit of the field, required above 20 MHz.
                 Boost::from_bits((clock > Hertz::mhz(20)) as u8)
             } else if clock <= Hertz::khz(6_250) {
-                Boost::Lt625
+                Boost::Lt6_25
             } else if clock <= Hertz::khz(12_500) {
-                Boost::Lt125
+                Boost::Lt12_5
             } else if clock <= Hertz::mhz(25) {
                 Boost::Lt25
             } else {
@@ -366,7 +370,7 @@ impl AdcRegs for Regs {
         {
             analog_clock(kernel_clock / PRESCALERS[common.ccr().read().presc().to_bits() as usize].divisor())
         }
-        #[cfg(any(adc_v3_n6, adc_v3_c5))]
+        #[cfg(any(adc_v3_n6, adc_v3_c5, adc_v3_g5))]
         {
             let _ = common;
             kernel_clock
@@ -436,7 +440,7 @@ impl AdcRegs for Regs {
             #[cfg(any(adc_v3_u3, adc_v3_c5))]
             assert!(!differential, "this ADC has no differential inputs");
 
-            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
+            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5))]
             self.pcsel().modify(|w| w.set_pcsel(channel, true));
 
             // A differential channel samples its negative input on the channel below it, which
@@ -524,7 +528,7 @@ impl AdcRegs for Regs {
             let dfsdm_cont = matches!(mode, ConversionMode::Dfsdm(None));
             #[cfg(not(dfsdm_adc))]
             let dfsdm_cont = false;
-            #[cfg(not(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5)))]
+            #[cfg(not(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5)))]
             {
                 #[cfg(dfsdm_adc)]
                 let dfsdm = matches!(mode, ConversionMode::Dfsdm(_));
@@ -544,7 +548,7 @@ impl AdcRegs for Regs {
                 #[cfg(all(dfsdm_adc, adc_v3_l4))]
                 w.set_dfsdmcfg(dfsdm);
             }
-            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
+            #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5))]
             w.set_dmngt(match mode {
                 ConversionMode::NoDma => Dmngt::Dr,
                 ConversionMode::Singular => Dmngt::DmaOneShot,
@@ -706,12 +710,12 @@ impl AdcRegs for Regs {
             }
             _ => panic!("this ADC has no watchdog {}", index + 1),
         }
-        #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5))]
+        #[cfg(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5))]
         {
             self.ltr(index).write(|w| w.set_ltr(low));
             self.htr(index).write(|w| w.set_htr(high));
         }
-        #[cfg(not(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5)))]
+        #[cfg(not(any(adc_v3_h7, adc_v3_u5, adc_v3_u3, adc_v3_n6, adc_v3_c5, adc_v3_g5)))]
         self.tr(index).write(|w| {
             w.set_lt(low as u16);
             w.set_ht(high as u16);

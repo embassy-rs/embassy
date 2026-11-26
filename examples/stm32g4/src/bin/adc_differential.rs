@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
 
     info!("adc initialized");
     loop {
-        let measured = adc.blocking_read(differential_channel.reborrow_adc(), SampleTime::Cycles2475);
+        let measured = adc.blocking_read(differential_channel.reborrow_adc(), SampleTime::Cycles247_5);
         info!("data: {}", measured);
         Timer::after_millis(500).await;
     }

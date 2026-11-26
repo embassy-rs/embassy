@@ -10,7 +10,7 @@
 #[cfg_attr(not(feature = "perf"), allow(unused_imports))]
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use paste::paste;
+use pastey::paste;
 macro_rules! define_counters {
     ($( $(#[$attr:meta])* $name:ident),*) => {
         #[cfg_attr(not(feature = "perf"), allow(dead_code))]

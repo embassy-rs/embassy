@@ -370,67 +370,13 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Set flash wait states
     #[cfg(any(stm32l0, stm32l1))]
-    let latency = match (config.voltage_scale, sys_clk.0) {
-        (VoltageScale::Range1, ..=16_000_000) => false,
-        (VoltageScale::Range2, ..=8_000_000) => false,
-        (VoltageScale::Range3, ..=4_200_000) => false,
-        _ => true,
-    };
-    #[cfg(all(stm32l4, not(rcc_l4plus)))]
-    let latency = match hclk1.0 {
-        0..=16_000_000 => 0,
-        0..=32_000_000 => 1,
-        0..=48_000_000 => 2,
-        0..=64_000_000 => 3,
-        _ => 4,
-    };
-    #[cfg(rcc_l4plus)]
-    let latency = match hclk1.0 {
-        // RM0432 Table 12, VCORE Range 1 (boost and normal share these steps).
-        0..=20_000_000 => 0,
-        0..=40_000_000 => 1,
-        0..=60_000_000 => 2,
-        0..=80_000_000 => 3,
-        0..=100_000_000 => 4,
-        _ => 5,
-    };
-    #[cfg(stm32l5)]
-    let latency = match hclk1.0 {
-        // VCORE Range 0 (performance), others TODO
-        0..=20_000_000 => 0,
-        0..=40_000_000 => 1,
-        0..=60_000_000 => 2,
-        0..=80_000_000 => 3,
-        0..=100_000_000 => 4,
-        _ => 5,
-    };
+    let latency = flash_latency(config.voltage_scale, sys_clk.0);
+    #[cfg(any(stm32l4, stm32l5, stm32u0))]
+    let latency = flash_latency(hclk1.0);
     #[cfg(stm32wl)]
-    let latency = match (config.voltage_scale, hclk3.0) {
-        // RM0461 Table 5: Number of wait states according to flash clock (HCLK3) frequency
-        (VoltageScale::Range1, ..=18_000_000) => 0,
-        (VoltageScale::Range1, ..=36_000_000) => 1,
-        (VoltageScale::Range1, _) => 2,
-        (VoltageScale::Range2, ..=6_000_000) => 0,
-        (VoltageScale::Range2, ..=12_000_000) => 1,
-        (VoltageScale::Range2, _) => 2,
-        _ => unreachable!(),
-    };
+    let latency = flash_latency(config.voltage_scale, hclk3.0);
     #[cfg(stm32wb)]
-    let latency = match hclk3.0 {
-        // VOS RANGE1, others TODO.
-        ..=18_000_000 => 0,
-        ..=36_000_000 => 1,
-        ..=54_000_000 => 2,
-        ..=64_000_000 => 3,
-        _ => 4,
-    };
-    #[cfg(stm32u0)]
-    let latency = match hclk1.0 {
-        // VOS RANGE1, others TODO.
-        ..=24_000_000 => 0,
-        ..=48_000_000 => 1,
-        _ => 2,
-    };
+    let latency = flash_latency(hclk3.0);
 
     // RM0432 5.1.8: PWR_CR5 resets to Range 1 normal, which stops at 80 MHz; going above needs boost.
     #[cfg(rcc_l4plus)]
@@ -560,6 +506,262 @@ pub(crate) unsafe fn init(config: Config) {
         sai1_extclk: None,
         sai2_extclk: None,
     );
+}
+
+#[cfg(any(stm32l0, stm32l1))]
+type FlashLatency = bool;
+#[cfg(not(any(stm32l0, stm32l1)))]
+type FlashLatency = u8;
+
+/// Flash wait states for a flash clock of `hz`: SYSCLK on L0/L1, HCLK3 on WB/WL, HCLK1 otherwise.
+#[cfg(any(stm32l0, stm32l1))]
+const fn flash_latency(vos: VoltageScale, hz: u32) -> FlashLatency {
+    match (vos, hz) {
+        (VoltageScale::Range1, ..=16_000_000) => false,
+        (VoltageScale::Range2, ..=8_000_000) => false,
+        (VoltageScale::Range3, ..=4_200_000) => false,
+        _ => true,
+    }
+}
+
+/// Flash wait states for a flash clock of `hz`: SYSCLK on L0/L1, HCLK3 on WB/WL, HCLK1 otherwise.
+#[cfg(stm32wl)]
+const fn flash_latency(vos: VoltageScale, hz: u32) -> FlashLatency {
+    match (vos, hz) {
+        // RM0461 Table 5: Number of wait states according to flash clock (HCLK3) frequency
+        (VoltageScale::Range1, ..=18_000_000) => 0,
+        (VoltageScale::Range1, ..=36_000_000) => 1,
+        (VoltageScale::Range1, _) => 2,
+        (VoltageScale::Range2, ..=6_000_000) => 0,
+        (VoltageScale::Range2, ..=12_000_000) => 1,
+        (VoltageScale::Range2, _) => 2,
+        _ => 2,
+    }
+}
+
+/// Flash wait states for a flash clock of `hz`: SYSCLK on L0/L1, HCLK3 on WB/WL, HCLK1 otherwise.
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32u0))]
+const fn flash_latency(hz: u32) -> FlashLatency {
+    #[cfg(all(stm32l4, not(rcc_l4plus)))]
+    return match hz {
+        0..=16_000_000 => 0,
+        0..=32_000_000 => 1,
+        0..=48_000_000 => 2,
+        0..=64_000_000 => 3,
+        _ => 4,
+    };
+    // RM0432 Table 12, VCORE Range 1 (boost and normal share these steps).
+    // L5: VCORE Range 0 (performance), others TODO
+    #[cfg(any(rcc_l4plus, stm32l5))]
+    return match hz {
+        0..=20_000_000 => 0,
+        0..=40_000_000 => 1,
+        0..=60_000_000 => 2,
+        0..=80_000_000 => 3,
+        0..=100_000_000 => 4,
+        _ => 5,
+    };
+    // VOS RANGE1, others TODO.
+    #[cfg(stm32wb)]
+    return match hz {
+        ..=18_000_000 => 0,
+        ..=36_000_000 => 1,
+        ..=54_000_000 => 2,
+        ..=64_000_000 => 3,
+        _ => 4,
+    };
+    // VOS RANGE1, others TODO.
+    #[cfg(stm32u0)]
+    return match hz {
+        ..=24_000_000 => 0,
+        ..=48_000_000 => 1,
+        _ => 2,
+    };
+}
+
+/// The clocks to bring back after Stop.
+///
+/// Stop turns off HSE, the PLLs, HSI48 and whichever of MSI and HSI16 isn't the wake-up clock,
+/// and the chip wakes up on MSI (at its current range) or HSI16, as chosen by STOPWUCK. L1 has no
+/// STOPWUCK and always wakes up on MSI. The configuration registers, the voltage range and the
+/// flash latency are kept (RM0351 6.3, RM0438 9.4, RM0503 5.3, RM0434 6.3, RM0453 7.3, RM0377
+/// 6.3.9, RM0038 5.1.8). WB and WL5x also reset C2HPRE when waking up on HSI16.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    #[cfg(crs)]
+    hsi48: bool,
+    sw: Sysclk,
+    latency: FlashLatency,
+    /// The flash latency the wake-up clock needs, if higher than `latency`.
+    wake_latency: Option<FlashLatency>,
+    /// L4+ and L5 above 80 MHz: the AHB prescaler must divide by two across the switch.
+    #[cfg(any(rcc_l4plus, stm32l5))]
+    hpre_step: bool,
+    #[cfg(any(stm32wl5x, stm32wb))]
+    c2hpre: AHBPrescaler,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cfgr = RCC.cfgr().read();
+
+        #[cfg(any(stm32wb, stm32wl, stm32u0))]
+        let wake_on_hsi = cfgr.stopwuck();
+        #[cfg(not(any(stm32wb, stm32wl, stm32u0, stm32l1)))]
+        let wake_on_hsi = cfgr.stopwuck() == crate::pac::rcc::vals::Stopwuck::Hsi;
+
+        #[cfg(stm32l0)]
+        let wake_hz = match (wake_on_hsi, RCC.cr().read().hsidiven()) {
+            (true, false) => HSI_FREQ.0,
+            (true, true) => HSI_FREQ.0 / 4,
+            (false, _) => msirange_to_hertz(RCC.icscr().read().msirange()).0,
+        };
+        #[cfg(stm32l1)]
+        let wake_hz = msirange_to_hertz(RCC.icscr().read().msirange()).0;
+        #[cfg(not(any(stm32l0, stm32l1)))]
+        let wake_hz = if wake_on_hsi {
+            HSI_FREQ.0
+        } else {
+            #[cfg(not(stm32wb))]
+            let hz = match RCC.cr().read().msirgsel() {
+                crate::pac::rcc::vals::Msirgsel::Cr => msirange_to_hertz(RCC.cr().read().msirange()).0,
+                // MSISRANGE only goes up to 8 MHz.
+                crate::pac::rcc::vals::Msirgsel::Csr => 8_000_000,
+            };
+            #[cfg(stm32wb)]
+            let hz = msirange_to_hertz(RCC.cr().read().msirange()).0;
+            hz
+        };
+
+        #[cfg(any(stm32l0, stm32l1))]
+        let wake_latency = flash_latency(crate::pac::PWR.cr().read().vos(), wake_hz);
+        #[cfg(stm32wl)]
+        let wake_latency = flash_latency(
+            crate::pac::PWR.cr1().read().vos(),
+            (Hertz(wake_hz) / RCC.extcfgr().read().shdhpre()).0,
+        );
+        #[cfg(stm32wb)]
+        let wake_latency = flash_latency((Hertz(wake_hz) / RCC.extcfgr().read().shdhpre()).0);
+        #[cfg(any(stm32l4, stm32l5, stm32u0))]
+        let wake_latency = flash_latency((Hertz(wake_hz) / cfgr.hpre()).0);
+
+        let latency = FLASH.acr().read().latency();
+
+        Self {
+            cr: RCC.cr().read(),
+            #[cfg(crs)]
+            hsi48: super::hsi48_enabled(),
+            sw: cfgr.sws(),
+            latency,
+            wake_latency: (wake_latency > latency).then_some(wake_latency),
+            #[cfg(any(rcc_l4plus, stm32l5))]
+            hpre_step: unsafe { super::get_freqs() }.sys.to_hertz().unwrap().0 > 80_000_000
+                && cfgr.hpre() == AHBPrescaler::Div1,
+            #[cfg(any(stm32wl5x, stm32wb))]
+            c2hpre: RCC.extcfgr().read().c2hpre(),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            FLASH.acr().modify(|w| w.set_latency(latency));
+            while FLASH.acr().read().latency() != latency {}
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_msion(w.msion() | s.msion());
+        });
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_enable();
+        }
+        loop {
+            let cr = RCC.cr().read();
+            if (cr.hserdy() | !s.hseon()) && (cr.hsirdy() | !s.hsion()) && (cr.msirdy() | !s.msion()) {
+                break;
+            }
+        }
+
+        RCC.cr().modify(|w| {
+            w.set_pllon(w.pllon() | s.pllon());
+            #[cfg(any(stm32l4, stm32l5, stm32wb))]
+            w.set_pllsai1on(w.pllsai1on() | s.pllsai1on());
+            #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+            w.set_pllsai2on(w.pllsai2on() | s.pllsai2on());
+        });
+        loop {
+            let cr = RCC.cr().read();
+            #[allow(unused_mut)]
+            let mut ready = cr.pllrdy() | !s.pllon();
+            #[cfg(any(stm32l4, stm32l5, stm32wb))]
+            {
+                ready &= cr.pllsai1rdy() | !s.pllsai1on();
+            }
+            #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+            {
+                ready &= cr.pllsai2rdy() | !s.pllsai2on();
+            }
+            if ready {
+                break;
+            }
+        }
+        #[cfg(crs)]
+        if self.hsi48 {
+            super::hsi48_wait_ready();
+        }
+
+        if RCC.cfgr().read().sws() != self.sw {
+            #[cfg(any(rcc_l4plus, stm32l5))]
+            if self.hpre_step {
+                RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::Div2));
+            }
+            RCC.cfgr().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr().read().sws() != self.sw {}
+            #[cfg(any(rcc_l4plus, stm32l5))]
+            if self.hpre_step {
+                // RM0432 5.1.8: wait at least 1 us before going to full speed.
+                cortex_m::asm::delay(unsafe { super::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000);
+                RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::Div1));
+            }
+        }
+
+        #[cfg(any(stm32wl5x, stm32wb))]
+        if RCC.extcfgr().read().c2hpre() != self.c2hpre {
+            RCC.extcfgr().modify(|w| w.set_c2hpre(self.c2hpre));
+            while !RCC.extcfgr().read().c2hpref() {}
+        }
+
+        if self.wake_latency.is_some() {
+            FLASH.acr().modify(|w| w.set_latency(self.latency));
+            while FLASH.acr().read().latency() != self.latency {}
+        }
+
+        if !s.hsion() || !s.msion() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_msion(w.msion() & s.msion());
+            });
+        }
+    }
+}
+
+/// Switch the system clock to HSI16 before Stop, as the WB coordination with CPU2 in
+/// `low_power` does. `StopRestore::exit` switches back after Stop.
+#[cfg(all(feature = "low-power", stm32wb))]
+pub(crate) fn stop_switch_to_hsi() {
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
+    RCC.smpscr().modify(|w| w.set_smpssel(crate::pac::rcc::vals::Smps::Hsi));
 }
 
 #[cfg(any(stm32l0, stm32l1))]

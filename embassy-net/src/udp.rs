@@ -9,7 +9,7 @@
 use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
-use xarxa::driver::PacketBuf;
+use xarxa::Buf;
 pub use xarxa::driver::PacketMeta;
 use xarxa::error::InvalidHopLimit;
 #[cfg(feature = "iface-bind")]
@@ -557,17 +557,13 @@ impl<'d> UdpSocket<'d> {
     /// as in [`send_to_with`](Self::send_to_with).
     ///
     /// Errors also return the buffer unchanged.
-    pub async fn send_packet_to(
-        &self,
-        buf: PacketBuf,
-        remote: impl Into<UdpMetadata>,
-    ) -> Result<(), (SendError, PacketBuf)> {
+    pub async fn send_packet_to(&self, buf: Buf, remote: impl Into<UdpMetadata>) -> Result<(), (SendError, Buf)> {
         let remote = remote.into();
         // Each pending attempt restores the packet; success transfers it once.
         let mut buf = Some(buf);
         poll_fn(|cx| {
             self.poll_send(cx, |s| {
-                s.send_packet(unwrap!(buf.take()), remote).map_err(|(err, packet)| {
+                s.send_buf(unwrap!(buf.take()), remote).map_err(|(err, packet)| {
                     buf = Some(packet);
                     err
                 })
@@ -585,11 +581,11 @@ impl<'d> UdpSocket<'d> {
     /// is temporarily blocked; other errors match [`try_send_to`](Self::try_send_to).
     pub fn try_send_packet_to(
         &self,
-        buf: PacketBuf,
+        buf: Buf,
         remote: impl Into<UdpMetadata>,
-    ) -> Result<(), (TryError<SendError>, PacketBuf)> {
+    ) -> Result<(), (TryError<SendError>, Buf)> {
         let remote = remote.into();
-        self.with(|s| wake_if_ok(s.send_packet(buf, remote).map_err(|(err, buf)| (err.into(), buf))))
+        self.with(|s| wake_if_ok(s.send_buf(buf, remote).map_err(|(err, buf)| (err.into(), buf))))
     }
 
     /// Send a datagram to the given remote address, copying the payload from a slice.
@@ -813,9 +809,9 @@ impl<'d> UdpSocket<'d> {
     /// Allocate an empty UDP payload buffer with headroom for the headers.
     ///
     /// Allocation works before binding. Returns `None` if every packet buffer
-    /// is in use. Set the payload length with [`PacketBuf::set_len`] before writing.
-    pub fn try_alloc(&self) -> Option<PacketBuf> {
-        self.with(|s| (s.alloc(), NoWake))
+    /// is in use. Set the payload length with [`DriverBuf::set_len`](crate::driver::DriverBuf::set_len) before writing.
+    pub fn try_alloc(&self) -> Option<Buf> {
+        self.with(|s| (s.alloc_buf(), NoWake))
     }
 }
 

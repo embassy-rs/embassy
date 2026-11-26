@@ -9,19 +9,13 @@ use core::f32::consts::PI;
 
 use common::*;
 use defmt::assert;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::DacChannel;
 use embassy_time::Timer;
 use micromath::F32Ext;
-use panic_probe as _;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();

@@ -17,6 +17,8 @@ use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveE
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`PriorityChannel`].
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Sender<'ch, M, T, K, const N: usize>
 where
     T: Ord,
@@ -127,6 +129,8 @@ where
 }
 
 /// Receive-only access to a [`PriorityChannel`].
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Receiver<'ch, M, T, K, const N: usize>
 where
     T: Ord,
@@ -265,6 +269,8 @@ where
 }
 
 /// Future returned by [`PriorityChannel::receive`] and  [`Receiver::receive`].
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReceiveFuture<'ch, M, T, K, const N: usize>
 where
@@ -289,6 +295,8 @@ where
 }
 
 /// Future returned by [`PriorityChannel::send`] and  [`Sender::send`].
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SendFuture<'ch, M, T, K, const N: usize>
 where
@@ -330,7 +338,9 @@ where
 {
 }
 
-struct ChannelState<T, K, const N: usize> {
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct ChannelState<T: Ord, K: Kind, const N: usize> {
     queue: BinaryHeap<T, K, N>,
     receiver_waker: WakerRegistration,
     senders_waker: WakerRegistration,
@@ -475,6 +485,8 @@ where
 /// Sent data may be reordered based on their priority within the channel.
 /// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
     T: Ord,

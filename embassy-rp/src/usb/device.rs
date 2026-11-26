@@ -1,16 +1,18 @@
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::slice;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use critical_section::Mutex;
+use embassy_hal_internal::iso_helpers::{IsoSchedule, forward};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-    EndpointInterval, EndpointType, Event, Speed, Unsupported,
+    EndpointInterval, EndpointType, Event, IsoEndpointIn, IsoInSlot, IsoWriteError, Speed, Unsupported,
 };
 
 use super::{Dir, In, Instance, Out};
@@ -20,12 +22,80 @@ use crate::{Peri, RegExt, interrupt, pac};
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
 const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
+const ISO_FRAME_SPAN: u32 = 1 << 11;
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_IN_XFERS: Mutex<RefCell<[Option<InXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
 static EP_OUT_XFERS: Mutex<RefCell<[Option<OutXfer>; EP_COUNT]>> = Mutex::new(RefCell::new([const { None }; EP_COUNT]));
+static ISO_IN_STATE: Mutex<RefCell<[IsoInState; EP_COUNT]>> = Mutex::new(RefCell::new([IsoInState::new(); EP_COUNT]));
+static ISO_SOF: Mutex<RefCell<IsoSofState>> = Mutex::new(RefCell::new(IsoSofState {
+    last_sof: 0,
+    seen: false,
+}));
+
+#[derive(Clone, Copy)]
+struct IsoInState {
+    /// True while this endpoint is enabled as an isochronous IN endpoint.
+    enabled: bool,
+    /// True while an isochronous IN packet is armed in DPRAM.
+    armed: bool,
+    /// Frame counter value in `0..ISO_FRAME_SPAN` at which the armed packet expires if uncollected.
+    expiry_frame: u16,
+    /// Locked host polling phase in `0..interval`, or `None` until the first completion.
+    phase: Option<u16>,
+    /// Service interval in frames.
+    interval: u16,
+    /// True while [`IsoEndpointIn::ready`] is waiting on SOF.
+    arm_wait: bool,
+    /// Set on endpoint disable or bus reset so [`IsoEndpointIn::ready`] resets its [`IsoSchedule`].
+    reset: bool,
+}
+
+impl IsoInState {
+    const fn new() -> Self {
+        Self {
+            enabled: false,
+            armed: false,
+            expiry_frame: 0,
+            phase: None,
+            interval: 1,
+            arm_wait: false,
+            reset: true,
+        }
+    }
+
+    fn reset_state(&mut self) {
+        self.armed = false;
+        self.phase = None;
+        self.arm_wait = false;
+        self.reset = true;
+    }
+}
+
+struct IsoSofState {
+    last_sof: u16,
+    seen: bool,
+}
+
+fn update_dev_sof_irq<T: Instance>(cs: critical_section::CriticalSection<'_>) {
+    let active = ISO_IN_STATE
+        .borrow(cs)
+        .borrow()
+        .iter()
+        .any(|s| s.enabled || s.armed || s.arm_wait);
+    if active {
+        if !T::regs().inte().read().dev_sof() {
+            // Acknowledge the DEV_SOF left pending while masked, so the first interrupt is a real SOF.
+            let _ = T::regs().sof_rd().read();
+        }
+        T::regs().inte().write_set(|w| w.set_dev_sof(true));
+    } else {
+        T::regs().inte().write_clear(|w| w.set_dev_sof(true));
+        ISO_SOF.borrow(cs).borrow_mut().seen = false;
+    }
+}
 
 struct OutXfer {
     buf_ptr: *mut u8,
@@ -273,6 +343,16 @@ impl<'d, T: Instance> Driver<'d, T> {
             }
         }
 
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            for s in iso.iter_mut() {
+                *s = IsoInState::new();
+            }
+            let mut sof = ISO_SOF.borrow(cs).borrow_mut();
+            sof.last_sof = 0;
+            sof.seen = false;
+        });
+
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -403,6 +483,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 interval,
             ),
             buf,
+            schedule: IsoSchedule::new(),
         })
     }
 }
@@ -441,6 +522,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                         EP_OUT_WAKERS[i].wake();
                     }
                 }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for (i, state) in iso.iter_mut().enumerate() {
+                    if state.enabled || state.armed || state.arm_wait {
+                        state.enabled = false;
+                        state.reset_state();
+                        EP_IN_WAKERS[i].wake();
+                    }
+                }
+                drop(iso);
+                update_dev_sof_irq::<T>(cs);
             });
             BUS_WAKER.wake();
         }
@@ -488,6 +579,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                                 }
                             }
                         } else {
+                            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                            if iso[i].armed {
+                                iso[i].armed = false;
+                                if iso[i].phase.is_none() {
+                                    let now = ISO_SOF.borrow(cs).borrow().last_sof;
+                                    let interval = iso[i].interval.max(1);
+                                    iso[i].phase = Some(now % interval);
+                                }
+                            }
                             EP_IN_WAKERS[i].wake();
                         }
                     }
@@ -513,6 +613,34 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                         } else {
                             EP_OUT_WAKERS[i].wake();
                         }
+                    }
+                }
+            });
+        }
+
+        if ints.dev_sof() {
+            // Reading SOF_RD acknowledges DEV_SOF on RP2040/RP235x.
+            let now = regs.sof_rd().read().count();
+            critical_section::with(|cs| {
+                {
+                    let mut sof = ISO_SOF.borrow(cs).borrow_mut();
+                    sof.last_sof = now;
+                    sof.seen = true;
+                }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                for i in 1..EP_COUNT {
+                    let state = &mut iso[i];
+                    let mut wake = state.arm_wait;
+                    if state.armed
+                        && forward(u32::from(state.expiry_frame), u32::from(now), ISO_FRAME_SPAN) < ISO_FRAME_SPAN / 2
+                    {
+                        // Drop an uncollected isochronous packet so it is never sent late.
+                        T::dpram().ep_in_buffer_control(i).write(|_| {});
+                        state.armed = false;
+                        wake = true;
+                    }
+                    if wake {
+                        EP_IN_WAKERS[i].wake();
                     }
                 }
             });
@@ -576,7 +704,7 @@ fn rearm_bus_irqs<T: Instance>() {
 /// `max_packet_size` is the max packet size of the endpoint, used to re-arm the buffer
 /// of an OUT endpoint when the stall is cleared. It is ignored for IN endpoints.
 ///
-/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stall`, so that a class
+/// Shared by `Bus::endpoint_set_stalled` and `Endpoint::set_stalled`, so that a class
 /// driver can halt its own endpoint without access to the bus.
 fn set_endpoint_stalled<T: Instance>(ep_addr: EndpointAddress, max_packet_size: u16, stalled: bool) {
     let n = ep_addr.index();
@@ -754,6 +882,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                             xfer.error = Some(EndpointDisabledError);
                         }
                     }
+                    let is_iso = T::dpram().ep_in_control(n - 1).read().endpoint_type()
+                        == pac::usb_dpram::vals::EpControlEndpointType::Isochronous;
+                    {
+                        let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                        iso[n].reset_state();
+                        iso[n].enabled = enabled && is_iso;
+                    }
+                    update_dev_sof_irq::<T>(cs);
                 });
                 EP_IN_WAKERS[n].wake();
             }
@@ -961,6 +1097,7 @@ pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
     buf: EndpointBuffer<T>,
+    schedule: IsoSchedule,
 }
 
 impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
@@ -988,13 +1125,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         T::dpram().ep_in_control(index - 1).read().enable()
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
     }
 }
 
@@ -1023,13 +1159,12 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         T::dpram().ep_out_control(index - 1).read().enable()
     }
 
-    async fn set_stall(&mut self, stalled: bool) -> Result<(), Unsupported> {
+    async fn set_stalled(&mut self, stalled: bool) {
         set_endpoint_stalled::<T>(self.info.addr, self.info.max_packet_size, stalled);
-        Ok(())
     }
 
-    fn is_stalled(&self) -> Result<bool, Unsupported> {
-        Ok(is_endpoint_stalled::<T>(self.info.addr))
+    fn is_stalled(&self) -> bool {
+        is_endpoint_stalled::<T>(self.info.addr)
     }
 }
 
@@ -1156,6 +1291,177 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             })
         })
         .await
+    }
+}
+
+/// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
+pub struct IsoSlot<'a, 'd, T: Instance> {
+    ep: &'a mut Endpoint<'d, T, In>,
+    frame: u32,
+}
+
+impl<T: Instance> IsoInSlot for IsoSlot<'_, '_, T> {
+    fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
+        self.ep.schedule.accept();
+        let index = self.ep.info.addr.index();
+        if data.len() > usize::from(self.ep.info.max_packet_size) {
+            return Err(IsoWriteError::BufferOverflow);
+        }
+
+        let interval = self.ep.iso_interval();
+        let res = critical_section::with(|cs| {
+            if !T::dpram().ep_in_control(index - 1).read().enable() {
+                return Ok(());
+            }
+            let sof = ISO_SOF.borrow(cs).borrow();
+            if !sof.seen || forward(u32::from(sof.last_sof), self.frame, ISO_FRAME_SPAN) != 1 {
+                return Err(IsoWriteError::TooLate);
+            }
+            drop(sof);
+
+            self.ep.buf.write(data);
+            // Full-speed isochronous IN packets always use DATA0 (USB 2.0 §5.6.4).
+            arm_ep_in_buffer::<T>(index, false, data.len() as u16);
+
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            let state = &mut iso[index];
+            state.armed = true;
+            state.interval = interval as u16;
+            // Before phase lock for interval > 1, keep the packet armed across the whole interval
+            // so the host's first IN token locks the phase; afterward drop at the end of the slot.
+            let window = if state.phase.is_some() || interval == 1 {
+                1
+            } else {
+                interval
+            };
+            state.expiry_frame = ((self.frame + window) % ISO_FRAME_SPAN) as u16;
+            drop(iso);
+            update_dev_sof_irq::<T>(cs);
+            Ok(())
+        });
+
+        res
+    }
+}
+
+struct IsoArmWaitGuard<T: Instance> {
+    index: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> Drop for IsoArmWaitGuard<T> {
+    fn drop(&mut self) {
+        critical_section::with(|cs| {
+            ISO_IN_STATE.borrow(cs).borrow_mut()[self.index].arm_wait = false;
+            update_dev_sof_irq::<T>(cs);
+        });
+    }
+}
+
+impl<'d, T: Instance> Endpoint<'d, T, In> {
+    fn iso_interval(&self) -> u32 {
+        self.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2)
+    }
+}
+
+impl<'d, T: Instance> IsoEndpointIn for Endpoint<'d, T, In> {
+    type Slot<'a>
+        = IsoSlot<'a, 'd, T>
+    where
+        Self: 'a;
+
+    async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
+        assert_eq!(
+            self.info.ep_type,
+            EndpointType::Isochronous,
+            "IsoEndpointIn requires an isochronous endpoint"
+        );
+        let index = self.info.addr.index();
+        assert!(index != 0);
+
+        let interval = self.iso_interval();
+        let _guard = IsoArmWaitGuard::<T> {
+            index,
+            _phantom: PhantomData,
+        };
+
+        // Wait until any previous armed packet has been sent or dropped and SOF is live.
+        let now = poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+            critical_section::with(|cs| {
+                if !T::dpram().ep_in_control(index - 1).read().enable() {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+                let sof = ISO_SOF.borrow(cs).borrow();
+                if !iso[index].armed && sof.seen {
+                    iso[index].arm_wait = false;
+                    Poll::Ready(Ok(u32::from(sof.last_sof)))
+                } else {
+                    iso[index].arm_wait = true;
+                    drop(sof);
+                    drop(iso);
+                    update_dev_sof_irq::<T>(cs);
+                    Poll::Pending
+                }
+            })
+        })
+        .await?;
+
+        critical_section::with(|cs| {
+            let mut iso = ISO_IN_STATE.borrow(cs).borrow_mut();
+            if iso[index].reset {
+                iso[index].reset = false;
+                self.schedule.reset();
+            }
+            if let Some(phase) = iso[index].phase {
+                self.schedule.lock_phase(u32::from(phase), interval);
+            }
+        });
+
+        let mut current = now;
+        loop {
+            let offer = self.schedule.offer(current, interval, ISO_FRAME_SPAN);
+            let skipped = offer.skipped;
+            let frame = offer.frame;
+
+            let ready = poll_fn(|cx| {
+                EP_IN_WAKERS[index].register(cx.waker());
+                critical_section::with(|cs| {
+                    if !T::dpram().ep_in_control(index - 1).read().enable() {
+                        return Poll::Ready(Err(EndpointDisabledError));
+                    }
+                    let sof = ISO_SOF.borrow(cs).borrow();
+                    if !sof.seen {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = true;
+                        drop(sof);
+                        update_dev_sof_irq::<T>(cs);
+                        return Poll::Pending;
+                    }
+                    let now = u32::from(sof.last_sof);
+                    let ahead = forward(now, frame, ISO_FRAME_SPAN);
+                    if ahead == 1 {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(Some(now)))
+                    } else if ahead == 0 || ahead > interval {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = false;
+                        Poll::Ready(Ok(None))
+                    } else {
+                        ISO_IN_STATE.borrow(cs).borrow_mut()[index].arm_wait = true;
+                        drop(sof);
+                        update_dev_sof_irq::<T>(cs);
+                        Poll::Pending
+                    }
+                })
+            })
+            .await?;
+
+            if ready.is_some() {
+                return Ok((skipped, IsoSlot { ep: self, frame }));
+            }
+
+            current = critical_section::with(|cs| u32::from(ISO_SOF.borrow(cs).borrow().last_sof));
+        }
     }
 }
 

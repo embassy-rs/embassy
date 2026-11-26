@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "610182af38330770206fc81899d3c89edbfa88fc", features = ["nrf54l15-flpr"] }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "1a98ef999ca8dc8bc681090c2ca1248f4f4a6790", features = ["nrf54l15-flpr"] }
 panic-halt = "1.0"
 embedded-hal = "1.0"
 

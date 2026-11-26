@@ -93,8 +93,9 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();
     // cyw43 receives each frame with its bus headers straight into these buffers.
-    static POOL: StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }> = StaticPool::new();
-    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    static POOL: ConstStaticCell<StaticPool<{ cyw43::RX_BUF_SIZE }, 16, { cyw43::RX_BUF_ALIGN }>> =
+        ConstStaticCell::new(StaticPool::new());
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();

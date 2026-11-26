@@ -179,6 +179,153 @@ impl Default for Config {
     }
 }
 
+/// Flash wait states for a system clock of `hz` at voltage range `vos` (RM0456 Table 54, LPM=0).
+const fn flash_latency(vos: VoltageScale, hz: u32) -> u8 {
+    match vos {
+        // VOS 1 range VCORE 1.26V - 1.40V
+        VoltageScale::Range1 => match hz {
+            ..=32_000_000 => 0,
+            ..=64_000_000 => 1,
+            ..=96_000_000 => 2,
+            ..=128_000_000 => 3,
+            _ => 4,
+        },
+        // VOS 2 range VCORE 1.15V - 1.26V
+        VoltageScale::Range2 => match hz {
+            ..=30_000_000 => 0,
+            ..=60_000_000 => 1,
+            ..=90_000_000 => 2,
+            _ => 3,
+        },
+        // VOS 3 range VCORE 1.05V - 1.15V
+        VoltageScale::Range3 => match hz {
+            ..=24_000_000 => 0,
+            ..=48_000_000 => 1,
+            _ => 2,
+        },
+        // VOS 4 range VCORE 0.95V - 1.05V
+        VoltageScale::Range4 => match hz {
+            ..=12_000_000 => 0,
+            _ => 1,
+        },
+    }
+}
+
+/// The clocks to bring back after Stop.
+///
+/// U5 wakes up on MSIS (capped at 24 MHz) or HSI16, as chosen by STOPWUCK, in voltage range 4
+/// after Stop 2 and 3, with HSE, the PLLs, HSI48, SHSI and the EPOD booster off. The other
+/// configuration registers and the flash latency are kept (RM0456 10.5.2, 10.7, 11.6). So the
+/// latency must cover the wake-up clock in range 4 before Stop.
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    vos: VoltageScale,
+    boost: bool,
+    latency: u8,
+    /// The flash latency the wake-up clock needs in range 4, if higher than `latency`.
+    wake_latency: Option<u8>,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        let cfgr1 = RCC.cfgr1().read();
+        let wake_hz = match cfgr1.stopwuck() {
+            crate::pac::rcc::vals::Stopwuck::Hsi => HSI_FREQ.0,
+            crate::pac::rcc::vals::Stopwuck::Msis => {
+                let range = match RCC.icscr1().read().msirgsel() {
+                    Msirgsel::Icscr1 => msirange_to_hertz(RCC.icscr1().read().msisrange()).0,
+                    // MSISSRANGE only goes up to 4 MHz.
+                    Msirgsel::Csr => 4_000_000,
+                };
+                range.min(24_000_000)
+            }
+        };
+        let latency = FLASH.acr().read().latency();
+        let wake_latency = flash_latency(VoltageScale::Range4, wake_hz);
+        let vosr = PWR.vosr().read();
+        Self {
+            cr: RCC.cr().read(),
+            sw: cfgr1.sws(),
+            vos: vosr.vos(),
+            boost: vosr.boosten(),
+            latency,
+            wake_latency: (wake_latency > latency).then_some(wake_latency),
+        }
+    }
+
+    pub(crate) fn enter(&self) {
+        if let Some(latency) = self.wake_latency {
+            FLASH.acr().modify(|w| w.set_latency(latency));
+            while FLASH.acr().read().latency() != latency {}
+        }
+    }
+
+    pub(crate) fn exit(&self) {
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_msison(w.msison() | s.msison());
+            w.set_msikon(w.msikon() | s.msikon());
+            w.set_hsi48on(w.hsi48on() | s.hsi48on());
+            w.set_shsion(w.shsion() | s.shsion());
+        });
+        loop {
+            let cr = RCC.cr().read();
+            if (cr.hserdy() | !s.hseon())
+                && (cr.hsirdy() | !s.hsion())
+                && (cr.msisrdy() | !s.msison())
+                && (cr.msikrdy() | !s.msikon())
+                && (cr.hsi48rdy() | !s.hsi48on())
+                && (cr.shsirdy() | !s.shsion())
+            {
+                break;
+            }
+        }
+
+        // RM0456 10.5.4: range first, then the booster, whose input (the PLL1 source) is on now.
+        if PWR.vosr().read().vos() != self.vos {
+            PWR.vosr().modify(|w| w.set_vos(self.vos));
+            while !PWR.vosr().read().vosrdy() {}
+        }
+        if self.boost && !PWR.vosr().read().boosten() {
+            PWR.vosr().modify(|w| w.set_boosten(true));
+            while !PWR.vosr().read().boostrdy() {}
+        }
+
+        RCC.cr().modify(|w| {
+            for n in 0..3 {
+                w.set_pllon(n, w.pllon(n) | s.pllon(n));
+            }
+        });
+        for n in 0..3 {
+            while s.pllon(n) && !RCC.cr().read().pllrdy(n) {}
+        }
+
+        if RCC.cfgr1().read().sws() != self.sw {
+            RCC.cfgr1().modify(|w| w.set_sw(self.sw));
+            while RCC.cfgr1().read().sws() != self.sw {}
+        }
+
+        if self.wake_latency.is_some() {
+            FLASH.acr().modify(|w| w.set_latency(self.latency));
+            while FLASH.acr().read().latency() != self.latency {}
+        }
+
+        if !s.hsion() || !s.msison() || !s.msikon() {
+            RCC.cr().modify(|w| {
+                w.set_hsion(w.hsion() & s.hsion());
+                w.set_msison(w.msison() & s.msison());
+                w.set_msikon(w.msikon() & s.msikon());
+            });
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Configure the clock to a safe default state before starting configuration:
 
@@ -428,34 +575,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // The clock source is ready
     // Calculate and set the flash wait states
-    let wait_states = match config.voltage_range {
-        // VOS 1 range VCORE 1.26V - 1.40V
-        VoltageScale::Range1 => match sys_clk.0 {
-            ..=32_000_000 => 0,
-            ..=64_000_000 => 1,
-            ..=96_000_000 => 2,
-            ..=128_000_000 => 3,
-            _ => 4,
-        },
-        // VOS 2 range VCORE 1.15V - 1.26V
-        VoltageScale::Range2 => match sys_clk.0 {
-            ..=30_000_000 => 0,
-            ..=60_000_000 => 1,
-            ..=90_000_000 => 2,
-            _ => 3,
-        },
-        // VOS 3 range VCORE 1.05V - 1.15V
-        VoltageScale::Range3 => match sys_clk.0 {
-            ..=24_000_000 => 0,
-            ..=48_000_000 => 1,
-            _ => 2,
-        },
-        // VOS 4 range VCORE 0.95V - 1.05V
-        VoltageScale::Range4 => match sys_clk.0 {
-            ..=12_000_000 => 0,
-            _ => 1,
-        },
-    };
+    let wait_states = flash_latency(config.voltage_range, sys_clk.0);
 
     FLASH.acr().modify(|w| {
         w.set_latency(wait_states);
@@ -493,7 +613,7 @@ pub(crate) unsafe fn init(config: Config) {
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
             Hertz(16_000_000) => Usbrefcksel::Mhz16,
-            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(19_200_000) => Usbrefcksel::Mhz19_2,
             Hertz(20_000_000) => Usbrefcksel::Mhz20,
             Hertz(24_000_000) => Usbrefcksel::Mhz24,
             Hertz(26_000_000) => Usbrefcksel::Mhz26,
@@ -570,11 +690,11 @@ fn msirange_to_hertz(range: Msirange) -> Hertz {
         Msirange::Range12mhz => Hertz(12_000_000),
         Msirange::Range4mhz => Hertz(4_000_000),
         Msirange::Range2mhz => Hertz(2_000_000),
-        Msirange::Range133mhz => Hertz(1_330_000),
+        Msirange::Range1_33mhz => Hertz(1_330_000),
         Msirange::Range1mhz => Hertz(1_000_000),
-        Msirange::Range3072mhz => Hertz(3_072_000),
-        Msirange::Range1536mhz => Hertz(1_536_000),
-        Msirange::Range1024mhz => Hertz(1_024_000),
+        Msirange::Range3_072mhz => Hertz(3_072_000),
+        Msirange::Range1_536mhz => Hertz(1_536_000),
+        Msirange::Range1_024mhz => Hertz(1_024_000),
         Msirange::Range768khz => Hertz(768_000),
         Msirange::Range400khz => Hertz(400_000),
         Msirange::Range200khz => Hertz(200_000),

@@ -18,8 +18,6 @@ use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::{self, SealedRccPeripheral};
-#[cfg(feature = "low-power")]
-use crate::rtc::Rtc;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
 
 // NOTE regarding ALARM_COUNT:
@@ -124,8 +122,6 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    pub(crate) rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
-    #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
     min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
@@ -134,8 +130,6 @@ pub(crate) struct RtcDriver {
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
-    #[cfg(feature = "low-power")]
-    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
     #[cfg(feature = "low-power")]
     min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
     queue: Mutex::new(RefCell::new(Queue::new()))
@@ -323,12 +317,6 @@ impl super::LPTimeDriver for RtcDriver {
         self.min_stop_pause.borrow(cs).replace(min_stop_pause);
     }
 
-    fn set_rtc(&self, cs: CriticalSection, mut rtc: Rtc) {
-        rtc.stop_wakeup_alarm();
-
-        assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
-    }
-
     fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
         assert!(regs_gp16().cr1().read().cen());
 
@@ -336,12 +324,7 @@ impl super::LPTimeDriver for RtcDriver {
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
             Err(())
         } else {
-            self.rtc
-                .borrow(cs)
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .start_wakeup_alarm(time_until_next_alarm, embassy_time::Instant::from_ticks(self.now()));
+            crate::rtc::start_wakeup_alarm(cs, time_until_next_alarm, embassy_time::Instant::from_ticks(self.now()));
 
             regs_gp16().cr1().modify(|w| w.set_cen(false));
             Ok(())
@@ -349,12 +332,21 @@ impl super::LPTimeDriver for RtcDriver {
     }
 
     fn resume_time(&self, cs: CriticalSection) {
-        assert!(!regs_gp16().cr1().read().cen());
+        let r = regs_gp16();
+        assert!(!r.cr1().read().cen());
 
-        let now = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm();
+        let now = crate::rtc::stop_wakeup_alarm(cs);
         self.set_time(now.map_or(self.now(), |now| now.as_ticks()), cs);
 
-        regs_gp16().cr1().modify(|w| w.set_cen(true));
+        // The restored period and counter already account for any pending rollover.
+        // Clear its flags while the timer is stopped, preserving the alarm flag.
+        r.sr().write(|w| {
+            w.0 = 0xFFFF_FFFF; // Status flags are write-zero-to-clear.
+            w.set_uif(false);
+            w.set_ccif(0, false);
+        });
+
+        r.cr1().modify(|w| w.set_cen(true));
     }
 }
 

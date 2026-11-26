@@ -100,8 +100,8 @@ async fn adc_task<'a, T, D, I>(
             dma.reborrow(),
             irq,
             [
-                (pin1.reborrow_adc(), SampleTime::Cycles25),
-                (pin2.reborrow_adc(), SampleTime::Cycles25),
+                (pin1.reborrow_adc(), SampleTime::Cycles2_5),
+                (pin2.reborrow_adc(), SampleTime::Cycles2_5),
             ]
             .into_iter(),
             None,

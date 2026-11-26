@@ -5,7 +5,6 @@ use core::mem::DropGuard;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
-use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 pub use embedded_hal_1::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 use nxp_pac::lpspi::{Pcspol, Pincfg, Prescale};
@@ -552,6 +551,15 @@ impl<'d> Spi<'d, Dma<'d>> {
     async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<(), IoError> {
         let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
         let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(false);
+                w.set_tdde(false);
+            });
+            let _ = self.info.regs().der().read();
+            self.mode.rx_dma.stop();
+            self.mode.tx_dma.stop();
+        });
 
         unsafe {
             // Clean up channel state
@@ -592,28 +600,16 @@ impl<'d> Spi<'d, Dma<'d>> {
         }
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-            if self.mode.rx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        self.wait_dma_pair().await?;
 
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
             w.set_tdde(false);
         });
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
-
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
-        }
+        let _ = self.info.regs().der().read();
+        self.mode.rx_dma.stop();
+        self.mode.tx_dma.stop();
 
         // Ensure all writes by DMA are visible to the CPU
         // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -625,6 +621,11 @@ impl<'d> Spi<'d, Dma<'d>> {
 
     async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<(), IoError> {
         let peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().der().modify(|w| w.set_tdde(false));
+            let _ = self.info.regs().der().read();
+            self.mode.tx_dma.stop();
+        });
 
         unsafe {
             // Clean up channel state
@@ -653,22 +654,14 @@ impl<'d> Spi<'d, Dma<'d>> {
         }
 
         // Wait for completion asynchronously
-        core::future::poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            if self.mode.tx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        })
-        .await;
+        core::future::poll_fn(|cx| self.mode.tx_dma.poll_complete(cx))
+            .await
+            .map_err(|_| IoError::Other)?;
 
         // Cleanup
         self.info.regs().der().modify(|w| w.set_tdde(false));
-        unsafe {
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
-        }
+        let _ = self.info.regs().der().read();
+        self.mode.tx_dma.stop();
 
         Ok(())
     }
@@ -676,6 +669,15 @@ impl<'d> Spi<'d, Dma<'d>> {
     async fn transfer_dma_chunk(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), IoError> {
         let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
         let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(false);
+                w.set_tdde(false);
+            });
+            let _ = self.info.regs().der().read();
+            self.mode.rx_dma.stop();
+            self.mode.tx_dma.stop();
+        });
 
         unsafe {
             // Clean up channel state
@@ -722,38 +724,16 @@ impl<'d> Spi<'d, Dma<'d>> {
         }
 
         // Wait for completion asynchronously
-        let tx_transfer = core::future::poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            if self.mode.tx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        });
-
-        let rx_transfer = core::future::poll_fn(|cx| {
-            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-            if self.mode.rx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        });
-
-        join(tx_transfer, rx_transfer).await;
+        self.wait_dma_pair().await?;
 
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
             w.set_tdde(false);
         });
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
-
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
-        }
+        let _ = self.info.regs().der().read();
+        self.mode.rx_dma.stop();
+        self.mode.tx_dma.stop();
 
         // Ensure all writes by DMA are visible to the CPU
         // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -766,6 +746,15 @@ impl<'d> Spi<'d, Dma<'d>> {
     async fn transfer_in_place_dma_chunk(&mut self, data: &mut [u8]) -> Result<(), IoError> {
         let rx_peri_addr = self.info.regs().rdr().as_ptr() as *mut u8;
         let tx_peri_addr = self.info.regs().tdr().as_ptr() as *mut u8;
+        let _on_drop = DropGuard::new((), |()| {
+            self.info.regs().der().modify(|w| {
+                w.set_rdde(false);
+                w.set_tdde(false);
+            });
+            let _ = self.info.regs().der().read();
+            self.mode.rx_dma.stop();
+            self.mode.tx_dma.stop();
+        });
 
         unsafe {
             // Clean up channel state
@@ -811,38 +800,16 @@ impl<'d> Spi<'d, Dma<'d>> {
         }
 
         // Wait for completion asynchronously
-        let tx_transfer = core::future::poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            if self.mode.tx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        });
-
-        let rx_transfer = core::future::poll_fn(|cx| {
-            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-            if self.mode.rx_dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
-            }
-        });
-
-        join(tx_transfer, rx_transfer).await;
+        self.wait_dma_pair().await?;
 
         // Cleanup
         self.info.regs().der().modify(|w| {
             w.set_rdde(false);
             w.set_tdde(false);
         });
-        unsafe {
-            self.mode.rx_dma.disable_request();
-            self.mode.rx_dma.clear_done();
-
-            self.mode.tx_dma.disable_request();
-            self.mode.tx_dma.clear_done();
-        }
+        let _ = self.info.regs().der().read();
+        self.mode.rx_dma.stop();
+        self.mode.tx_dma.stop();
 
         // Ensure all writes by DMA are visible to the CPU
         // TODO: ensure this is done internal to the DMA methods so individual drivers
@@ -850,6 +817,23 @@ impl<'d> Spi<'d, Dma<'d>> {
         fence(Ordering::Acquire);
 
         Ok(())
+    }
+
+    async fn wait_dma_pair(&self) -> Result<(), IoError> {
+        use core::task::Poll;
+        core::future::poll_fn(|cx| {
+            // Either error is terminal even if the companion cannot complete.
+            // Poll both channels so an error-only IRQ on the noninterrupting
+            // dummy TX channel also has a registered waiter.
+            let tx = self.mode.tx_dma.poll_complete(cx);
+            let rx = self.mode.rx_dma.poll_complete(cx);
+            match (tx, rx) {
+                (Poll::Ready(Err(_)), _) | (_, Poll::Ready(Err(_))) => Poll::Ready(Err(IoError::Other)),
+                (Poll::Ready(Ok(())), Poll::Ready(Ok(()))) => Poll::Ready(Ok(())),
+                _ => Poll::Pending,
+            }
+        })
+        .await
     }
 }
 

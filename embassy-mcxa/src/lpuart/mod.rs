@@ -132,7 +132,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 #[macro_export]
 macro_rules! impl_lpuart_instance {
     ($n:expr) => {
-        paste::paste! {
+        pastey::paste! {
             impl $crate::lpuart::SealedInstance for $crate::peripherals::[<LPUART $n>] {
                 fn info() -> &'static $crate::lpuart::Info {
                     use $crate::interrupt::typelevel::Interrupt;

@@ -10,7 +10,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 
 use super::{
-    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_GET_LINE_CODING, REQ_SET_CONTROL_LINE_STATE,
+    CDC_PROTOCOL_NONE, CDC_SUBCLASS_ACM, LineCoding, REQ_GET_LINE_CODING, REQ_SEND_BREAK, REQ_SET_CONTROL_LINE_STATE,
     REQ_SET_LINE_CODING, USB_CLASS_CDC, USB_CLASS_CDC_DATA,
 };
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
@@ -18,10 +18,29 @@ use crate::driver::{Driver, Endpoint, EndpointDisabledError, EndpointError, Endp
 use crate::types::InterfaceNumber;
 use crate::{Builder, EndpointOptions, Handler, InterfaceHandler};
 
+macro_rules! bitflags {
+    ($($tt:tt)*) => {
+        #[cfg(feature = "defmt")]
+        defmt::bitflags! { $($tt)* }
+        #[cfg(not(feature = "defmt"))]
+        bitflags::bitflags! { #[derive(Debug, Clone, Copy, PartialEq, Eq)] $($tt)* }
+    };
+}
+
 const CS_INTERFACE: u8 = 0x24;
 const CDC_TYPE_HEADER: u8 = 0x00;
 const CDC_TYPE_ACM: u8 = 0x02;
 const CDC_TYPE_UNION: u8 = 0x06;
+
+/// `bmCapabilities` bit D1: line coding, control line state and SERIAL_STATE.
+const ACM_CAP_LINE: u8 = 1 << 1;
+/// `bmCapabilities` bit D2: SEND_BREAK.
+const ACM_CAP_SEND_BREAK: u8 = 1 << 2;
+
+// SERIAL_STATE notification and the line bits of its UART state (CDC PSTN 1.2 §6.5.4, Table 31).
+const NOTIFY_SERIAL_STATE: u8 = 0x20;
+const SERIAL_STATE_DCD: u16 = 1 << 0;
+const SERIAL_STATE_DSR: u16 = 1 << 1;
 
 const REQ_SEND_ENCAPSULATED_COMMAND: u8 = 0x00;
 #[allow(unused)]
@@ -29,6 +48,7 @@ const REQ_GET_ENCAPSULATED_COMMAND: u8 = 0x01;
 
 /// CDC ACM error.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CdcAcmError {
     /// USB is not connected.
     NotConnected,
@@ -60,14 +80,22 @@ pub struct Config {
     pub out_endpoint_options: EndpointOptions,
     /// Options for the data IN endpoint, which sends data to the host.
     pub in_endpoint_options: EndpointOptions,
+    /// Accept `SEND_BREAK` requests from the host and advertise them in the descriptor. Off by
+    /// default.
+    ///
+    /// Requests are reported by [`ControlChanged::take_break`] and [`CdcAcmClass::take_break`].
+    /// Only enable this if the application handles them: when it is off, Linux tells programs that
+    /// the port can't send a break, instead of accepting breaks that are never handled.
+    pub send_break: bool,
 }
 
 impl Config {
-    /// Create a configuration with default endpoint options.
+    /// Create a configuration with default endpoint options and break support turned off.
     pub const fn new() -> Self {
         Self {
             out_endpoint_options: EndpointOptions::new(),
             in_endpoint_options: EndpointOptions::new(),
+            send_break: false,
         }
     }
 }
@@ -75,6 +103,46 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A break request from the host.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Break {
+    /// Stop the break (the host sent a duration of 0).
+    ///
+    /// This is also reported after a bus reset or when the device is disabled, since the host
+    /// can no longer end the break in those cases.
+    Stop,
+    /// Keep the break going until a [`Break::Stop`] (sent as a duration of 0xFFFF).
+    UntilStopped,
+    /// Send a break for this many milliseconds.
+    Millis(u16),
+}
+
+/// The `bmCapabilities` byte of the ACM functional descriptor.
+const fn acm_capabilities(config: &Config) -> u8 {
+    if config.send_break {
+        ACM_CAP_LINE | ACM_CAP_SEND_BREAK
+    } else {
+        ACM_CAP_LINE
+    }
+}
+
+bitflags! {
+    /// UART events to report to the host with [`Notifier::report`] (CDC PSTN 1.2 Table 31).
+    pub struct SerialEvents: u16 {
+        /// Break received.
+        const BREAK   = 1 << 2;
+        /// Ring signal detected.
+        const RING    = 1 << 3;
+        /// Framing error.
+        const FRAMING = 1 << 4;
+        /// Parity error.
+        const PARITY  = 1 << 5;
+        /// Overrun, the UART lost received data.
+        const OVERRUN = 1 << 6;
     }
 }
 
@@ -113,7 +181,7 @@ impl<'a> State<'a> {
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct CdcAcmClass<'d, D: Driver<'d>> {
-    _comm_ep: D::EndpointIn,
+    notifier: SerialStateWriter<D::EndpointIn>,
     _data_if: InterfaceNumber,
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
@@ -123,14 +191,16 @@ pub struct CdcAcmClass<'d, D: Driver<'d>> {
 struct Control<'a> {
     comm_if: InterfaceNumber,
     data_if: InterfaceNumber,
+    send_break: bool,
     shared: &'a ControlShared,
 }
 
 /// Shared data between Control and CdcAcmClass
 struct ControlShared {
-    line_coding: CriticalSectionMutex<Cell<LineCoding>>,
+    line_coding: CriticalSectionMutex<Cell<Option<LineCoding>>>,
     dtr: AtomicBool,
     rts: AtomicBool,
+    pending_break: CriticalSectionMutex<Cell<Option<Break>>>,
 
     waker: RefCell<WakerRegistration>,
     changed: AtomicBool,
@@ -147,10 +217,15 @@ impl ControlShared {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
-            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding::DEFAULT)),
+            line_coding: CriticalSectionMutex::new(Cell::new(None)),
+            pending_break: CriticalSectionMutex::new(Cell::new(None)),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
+    }
+
+    fn take_break(&self) -> Option<Break> {
+        self.pending_break.lock(Cell::take)
     }
 
     fn changed(&self) -> impl Future<Output = ()> + '_ {
@@ -170,14 +245,32 @@ impl<'a> Control<'a> {
     fn shared(&mut self) -> &'a ControlShared {
         self.shared
     }
+
+    /// Ends a break the host started but can no longer stop, e.g. after a bus reset.
+    fn end_break(&mut self) {
+        if self.send_break {
+            self.shared().pending_break.lock(|x| x.set(Some(Break::Stop)));
+        }
+    }
 }
 
 impl<'d> Handler for Control<'d> {
+    fn enabled(&mut self, enabled: bool) {
+        if !enabled && self.send_break {
+            self.end_break();
+
+            let shared = self.shared();
+            shared.changed.store(true, Ordering::Relaxed);
+            shared.waker.borrow_mut().wake();
+        }
+    }
+
     fn reset(&mut self) {
         let shared = self.shared();
-        shared.line_coding.lock(|x| x.set(LineCoding::default()));
+        shared.line_coding.lock(|x| x.set(None));
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
+        self.end_break();
 
         shared.changed.store(true, Ordering::Relaxed);
         shared.waker.borrow_mut().wake();
@@ -199,7 +292,7 @@ impl<'d> Handler for Control<'d> {
             REQ_SET_LINE_CODING if data.len() >= 7 => {
                 let coding = LineCoding::from_bytes(data[0..7].try_into().unwrap());
                 let shared = self.shared();
-                shared.line_coding.lock(|x| x.set(coding));
+                shared.line_coding.lock(|x| x.set(Some(coding)));
                 debug!("Set line coding to: {:?}", coding);
 
                 shared.changed.store(true, Ordering::Relaxed);
@@ -221,6 +314,22 @@ impl<'d> Handler for Control<'d> {
 
                 Some(OutResponse::Accepted)
             }
+            REQ_SEND_BREAK if self.send_break => {
+                let request = match req.value {
+                    0 => Break::Stop,
+                    0xFFFF => Break::UntilStopped,
+                    ms => Break::Millis(ms),
+                };
+
+                let shared = self.shared();
+                shared.pending_break.lock(|x| x.set(Some(request)));
+                debug!("Send break: {:?}", request);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
+
+                Some(OutResponse::Accepted)
+            }
             _ => Some(OutResponse::Rejected),
         }
     }
@@ -236,7 +345,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(Cell::get);
+                let coding = self.shared().line_coding.lock(Cell::get).unwrap_or_default();
                 assert!(buf.len() >= 7);
                 buf[0..7].copy_from_slice(&coding.to_bytes());
                 Some(InResponse::Accepted(&buf[0..7]))
@@ -276,11 +385,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         alt.descriptor(
             CS_INTERFACE,
             &[
-                CDC_TYPE_ACM, // bDescriptorSubtype
-                0x02,         // bmCapabilities:
-                              // D1: Device supports the request combination of
-                              // Set_Line_Coding, Set_Control_Line_State, Get_Line_Coding,
-                              // and the Notification Serial_State.
+                CDC_TYPE_ACM,              // bDescriptorSubtype
+                acm_capabilities(&config), // bmCapabilities
             ],
         );
         alt.descriptor(
@@ -292,7 +398,8 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
+        // 16 bytes, so that the 10-byte SERIAL_STATE notification fits in one packet.
+        let comm_ep = alt.endpoint_interrupt_in(None, 16, 255);
 
         // Data interface
         let mut iface = func.interface();
@@ -307,13 +414,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             shared: &state.shared,
             comm_if,
             data_if,
+            send_break: config.send_break,
         });
         builder.interface_handler(control);
 
         let control_shared = &state.shared;
 
         CdcAcmClass {
-            _comm_ep: comm_ep,
+            notifier: SerialStateWriter::new(comm_ep, comm_if),
             _data_if: data_if,
             read_ep,
             write_ep,
@@ -327,9 +435,11 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -341,6 +451,51 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Gets the RTS (request to send) state
     pub fn rts(&self) -> bool {
         self.control.rts.load(Ordering::Relaxed)
+    }
+
+    /// Returns the host's latest `SEND_BREAK` request, if it hasn't been taken yet.
+    ///
+    /// Only the newest request is kept, so a [`Break::Stop`] received before the previous
+    /// request is taken replaces a [`Break::UntilStopped`]. After a bus reset or when the device
+    /// is disabled, this returns [`Break::Stop`]. Always returns `None` unless
+    /// [`Config::send_break`] is set.
+    ///
+    /// To be notified of new requests, use [`split_with_control()`](Self::split_with_control).
+    pub fn take_break(&self) -> Option<Break> {
+        self.control.take_break()
+    }
+
+    /// Sets the DCD and DSR lines and notifies the host.
+    ///
+    /// The new levels are kept in place even if sending failed. Every notification, including
+    /// the ones from [`report()`](Self::report), contains them. They are not sent automatically
+    /// after a bus reset, so they need to be set again once the host has reconnected. Linux
+    /// hangs up the port when DCD turns off, unless the port is in `CLOCAL` mode.
+    ///
+    /// This call waits until the host has read the previous notification. The host only polls
+    /// for notifications during the time the port is open, up to 255 ms apart. `Ok` means the
+    /// endpoint has accepted the notification, but does not mean the host has read it already.
+    pub async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.notifier.set_lines(dcd, dsr).await
+    }
+
+    /// Reports UART events to the host in a single notification, along with the current lines.
+    ///
+    /// This notification contains the event bits, use this if they are required. Like
+    /// [`set_lines()`](Self::set_lines), this may have to wait for the host, so events that
+    /// occur in the meantime need to be combined into one call.
+    pub async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.notifier.report(events).await
+    }
+
+    /// Gets the DCD (data carrier detect) level set with [`set_lines()`](Self::set_lines).
+    pub fn dcd(&self) -> bool {
+        self.notifier.dcd()
+    }
+
+    /// Gets the DSR (data set ready) level set with [`set_lines()`](Self::set_lines).
+    pub fn dsr(&self) -> bool {
+        self.notifier.dsr()
     }
 
     /// Writes a single packet into the IN endpoint.
@@ -378,7 +533,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Split the class into sender, receiver and control
     ///
     /// Allows concurrently sending and receiving packets whilst monitoring for
-    /// control changes (dtr, rts)
+    /// control changes (dtr, rts, line coding, break requests)
     pub fn split_with_control(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>) {
         (
             Sender {
@@ -393,11 +548,135 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ControlChanged { control: self.control },
         )
     }
+
+    /// Split the class into sender, receiver, control and notifier
+    ///
+    /// Like [`split_with_control()`](Self::split_with_control), with an additional [`Notifier`]
+    /// to send `SERIAL_STATE` notifications concurrently.
+    pub fn split_with_notifier(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>, Notifier<'d, D>) {
+        (
+            Sender {
+                write_ep: self.write_ep,
+                control: self.control,
+                needs_zlp: false,
+            },
+            Receiver {
+                read_ep: self.read_ep,
+                control: self.control,
+            },
+            ControlChanged { control: self.control },
+            Notifier { writer: self.notifier },
+        )
+    }
+}
+
+/// CDC ACM `SERIAL_STATE` notification sender
+///
+/// Tells the host the state of the DCD and DSR lines and reports UART events such as breaks and
+/// overruns.
+///
+/// A `Notifier` can be obtained with [`CdcAcmClass::split_with_notifier`]
+pub struct Notifier<'d, D: Driver<'d>> {
+    writer: SerialStateWriter<D::EndpointIn>,
+}
+
+impl<'d, D: Driver<'d>> Notifier<'d, D> {
+    /// Sets the DCD and DSR lines and notifies the host.
+    ///
+    /// The new levels are kept in place even if sending failed. Every notification, including
+    /// the ones from [`report()`](Self::report), contains them. They are not sent automatically
+    /// after a bus reset, so they need to be set again once the host has reconnected. Linux
+    /// hangs up the port when DCD turns off, unless the port is in `CLOCAL` mode.
+    ///
+    /// This call waits until the host has read the previous notification. The host only polls
+    /// for notifications during the time the port is open, up to 255 ms apart. `Ok` means the
+    /// endpoint has accepted the notification, but does not mean the host has read it already.
+    pub async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.writer.set_lines(dcd, dsr).await
+    }
+
+    /// Reports UART events to the host in a single notification, along with the current lines.
+    ///
+    /// This notification contains the event bits, use this if they are required. Like
+    /// [`set_lines()`](Self::set_lines), this may have to wait for the host, so events that
+    /// occur in the meantime need to be combined into one call.
+    pub async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.writer.report(events).await
+    }
+
+    /// Gets the DCD (data carrier detect) level set with [`set_lines()`](Self::set_lines).
+    pub fn dcd(&self) -> bool {
+        self.writer.dcd()
+    }
+
+    /// Gets the DSR (data set ready) level set with [`set_lines()`](Self::set_lines).
+    pub fn dsr(&self) -> bool {
+        self.writer.dsr()
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.writer.ep.wait_enabled().await;
+    }
+}
+
+/// Remembers the DCD and DSR levels and writes `SERIAL_STATE` notifications to the interrupt endpoint.
+struct SerialStateWriter<E> {
+    ep: E,
+    comm_if: InterfaceNumber,
+    lines: u16,
+}
+
+impl<E: EndpointIn> SerialStateWriter<E> {
+    fn new(ep: E, comm_if: InterfaceNumber) -> Self {
+        Self { ep, comm_if, lines: 0 }
+    }
+
+    async fn set_lines(&mut self, dcd: bool, dsr: bool) -> Result<(), EndpointDisabledError> {
+        self.lines = 0;
+        if dcd {
+            self.lines |= SERIAL_STATE_DCD;
+        }
+        if dsr {
+            self.lines |= SERIAL_STATE_DSR;
+        }
+        self.send(self.lines).await
+    }
+
+    async fn report(&mut self, events: SerialEvents) -> Result<(), EndpointDisabledError> {
+        self.send(self.lines | events.bits()).await
+    }
+
+    fn dcd(&self) -> bool {
+        self.lines & SERIAL_STATE_DCD != 0
+    }
+
+    fn dsr(&self) -> bool {
+        self.lines & SERIAL_STATE_DSR != 0
+    }
+
+    async fn send(&mut self, state: u16) -> Result<(), EndpointDisabledError> {
+        let [lo, hi] = state.to_le_bytes();
+        let notification = [
+            0xA1,                // bmRequestType
+            NOTIFY_SERIAL_STATE, // bNotification
+            0x00,                // wValue
+            0x00,                // |
+            self.comm_if.0,      // wIndex = interface
+            0x00,                // |
+            0x02,                // wLength
+            0x00,                // |
+            lo,                  // UART state bitmap
+            hi,                  // |
+        ];
+        self.ep.write_transfer(&notification, false).await
+    }
 }
 
 /// CDC ACM Control status change monitor
 ///
-/// You can obtain a `ControlChanged` with [`CdcAcmClass::split_with_control`]
+/// A `ControlChanged` can be obtained with [`CdcAcmClass::split_with_control`] or
+/// [`CdcAcmClass::split_with_notifier`]
 pub struct ControlChanged<'d> {
     control: &'d ControlShared,
 }
@@ -418,9 +697,23 @@ impl<'d> ControlChanged<'d> {
         self.control.rts.load(Ordering::Relaxed)
     }
 
-    /// Gets the current line coding (baud rate, data bits, parity, stop bits).
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding (baud rate, data bits, parity, stop bits) the host has set.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
+    }
+
+    /// Returns the host's latest `SEND_BREAK` request, if it hasn't been taken yet.
+    ///
+    /// Only the newest request is kept, so a [`Break::Stop`] received before the previous
+    /// request is taken replaces a [`Break::UntilStopped`]. After a bus reset or when the device
+    /// is disabled, this returns [`Break::Stop`]. Always returns `None` unless
+    /// [`Config::send_break`] is set.
+    ///
+    /// [`control_changed()`](Self::control_changed) returns whenever the host sends a new request.
+    pub fn take_break(&self) -> Option<Break> {
+        self.control.take_break()
     }
 }
 
@@ -440,9 +733,11 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         self.write_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -522,9 +817,11 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         self.read_ep.info().max_packet_size
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.control.line_coding.lock(Cell::get)
     }
 
@@ -598,9 +895,11 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
         len
     }
 
-    /// Gets the current line coding. The line coding contains information that's mainly relevant
-    /// for USB to UART serial port emulators, and can be ignored if not relevant.
-    pub fn line_coding(&self) -> LineCoding {
+    /// Gets the line coding the host has set. The line coding contains information that's mainly
+    /// relevant for USB to UART serial port emulators, and can be ignored if not relevant.
+    ///
+    /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
+    pub fn line_coding(&self) -> Option<LineCoding> {
         self.receiver.line_coding()
     }
 
@@ -639,7 +938,7 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
             return match self.receiver.read_transfer(&mut buf[..aligned]).await {
                 Ok(n) => Ok(n),
                 Err(EndpointError::BufferOverflow) => unreachable!(),
-                Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
+                Err(_) => Err(CdcAcmError::NotConnected),
             };
         }
 
@@ -650,9 +949,383 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         match self.receiver.read_packet(self.buffer).await {
             Ok(n) => self.end = n,
             Err(EndpointError::BufferOverflow) => unreachable!(),
-            Err(EndpointError::Disabled) => return Err(CdcAcmError::NotConnected),
+            Err(_) => return Err(CdcAcmError::NotConnected),
         }
         self.start = 0;
         Ok(self.read_from_buffer(buf))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use core::cell::{Cell, RefCell};
+    use core::pin::pin;
+    use core::task::{Context, Waker};
+    use std::sync::Arc;
+    use std::task::Wake;
+    use std::vec::Vec;
+
+    use embassy_futures::block_on;
+
+    use super::*;
+    use crate::class::cdc_acm::{ParityType, StopBits};
+    use crate::driver::{Direction, EndpointAddress, EndpointInfo, EndpointInterval, EndpointType};
+
+    const COMM_IF: InterfaceNumber = InterfaceNumber(0);
+
+    fn control(shared: &ControlShared, send_break: bool) -> Control<'_> {
+        Control {
+            comm_if: COMM_IF,
+            data_if: InterfaceNumber(1),
+            send_break,
+            shared,
+        }
+    }
+
+    fn set_line_coding(control: &mut Control<'_>, coding: LineCoding) -> Option<OutResponse> {
+        let req = Request::parse(&[0x21, REQ_SET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_out(req, &coding.to_bytes())
+    }
+
+    fn get_line_coding<'a>(control: &'a mut Control<'_>, buf: &'a mut [u8; 7]) -> Option<InResponse<'a>> {
+        let req = Request::parse(&[0xA1, REQ_GET_LINE_CODING, 0, 0, COMM_IF.0, 0, 7, 0]);
+        control.control_in(req, buf)
+    }
+
+    #[test]
+    fn line_coding_is_none_until_host_sets_it() {
+        let shared = ControlShared::new();
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn line_coding_reports_what_host_set() {
+        let shared = ControlShared::new();
+        let coding = LineCoding::new(115_200, StopBits::One, ParityType::Even, 8);
+
+        assert_eq!(
+            set_line_coding(&mut control(&shared, false), coding),
+            Some(OutResponse::Accepted)
+        );
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+    }
+
+    #[test]
+    fn reset_clears_line_coding() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+        let coding = LineCoding::new(9600, StopBits::One, ParityType::None, 8);
+        set_line_coding(&mut control, coding);
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), Some(coding));
+
+        Handler::reset(&mut control);
+
+        assert_eq!(ControlChanged { control: &shared }.line_coding(), None);
+    }
+
+    #[test]
+    fn get_line_coding_answers_default_until_host_sets_it() {
+        let shared = ControlShared::new();
+        let mut buf = [0; 7];
+
+        // 8000 baud, 1 stop bit, no parity, 8 data bits.
+        assert_eq!(
+            get_line_coding(&mut control(&shared, false), &mut buf),
+            Some(InResponse::Accepted(&[0x40, 0x1f, 0x00, 0x00, 0, 0, 8][..]))
+        );
+    }
+
+    #[test]
+    fn get_line_coding_answers_what_host_set() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+        set_line_coding(
+            &mut control,
+            LineCoding::new(115_200, StopBits::Two, ParityType::Odd, 7),
+        );
+        let mut buf = [0; 7];
+
+        assert_eq!(
+            get_line_coding(&mut control, &mut buf),
+            Some(InResponse::Accepted(&[0x00, 0xc2, 0x01, 0x00, 2, 1, 7][..]))
+        );
+    }
+
+    fn request_break(control: &mut Control<'_>, duration: u16) -> Option<OutResponse> {
+        let [lo, hi] = duration.to_le_bytes();
+        let req = Request::parse(&[0x21, REQ_SEND_BREAK, lo, hi, COMM_IF.0, 0, 0, 0]);
+        control.control_out(req, &[])
+    }
+
+    /// Remembers whether it was woken.
+    struct Woken(AtomicBool);
+
+    impl Wake for Woken {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Checks that `f` wakes up a waiting `control_changed()`.
+    fn assert_wakes_control_changed(shared: &ControlShared, f: impl FnOnce()) {
+        let changed = ControlChanged { control: shared };
+        let woken = Arc::new(Woken(AtomicBool::new(false)));
+        let waker = Waker::from(woken.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = pin!(changed.control_changed());
+        assert!(fut.as_mut().poll(&mut cx).is_pending());
+
+        f();
+
+        assert!(woken.0.load(Ordering::Relaxed));
+        assert!(fut.as_mut().poll(&mut cx).is_ready());
+    }
+
+    #[test]
+    fn send_break_is_rejected_unless_enabled() {
+        let shared = ControlShared::new();
+
+        assert_eq!(
+            request_break(&mut control(&shared, false), 0xFFFF),
+            Some(OutResponse::Rejected)
+        );
+        assert_eq!(ControlChanged { control: &shared }.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_reports_each_request_once() {
+        let shared = ControlShared::new();
+        let changed = ControlChanged { control: &shared };
+
+        assert_eq!(
+            request_break(&mut control(&shared, true), 0xFFFF),
+            Some(OutResponse::Accepted)
+        );
+        assert_eq!(changed.take_break(), Some(Break::UntilStopped));
+        assert_eq!(changed.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_decodes_duration() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        let changed = ControlChanged { control: &shared };
+
+        for (duration, expected) in [
+            (0, Break::Stop),
+            (1, Break::Millis(1)),
+            (250, Break::Millis(250)),
+            (0xFFFE, Break::Millis(0xFFFE)),
+            (0xFFFF, Break::UntilStopped),
+        ] {
+            assert_eq!(request_break(&mut control, duration), Some(OutResponse::Accepted));
+            assert_eq!(changed.take_break(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn later_break_request_replaces_untaken_one() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        let changed = ControlChanged { control: &shared };
+
+        request_break(&mut control, 0xFFFF);
+        request_break(&mut control, 0);
+
+        assert_eq!(changed.take_break(), Some(Break::Stop));
+        assert_eq!(changed.take_break(), None);
+    }
+
+    #[test]
+    fn send_break_wakes_control_changed() {
+        let shared = ControlShared::new();
+
+        assert_wakes_control_changed(&shared, || {
+            request_break(&mut control(&shared, true), 250);
+        });
+    }
+
+    #[test]
+    fn reset_reports_break_stop() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+        request_break(&mut control, 0xFFFF);
+
+        Handler::reset(&mut control);
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), Some(Break::Stop));
+    }
+
+    #[test]
+    fn disabling_reports_break_stop_and_wakes_control_changed() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, true);
+
+        assert_wakes_control_changed(&shared, || Handler::enabled(&mut control, false));
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), Some(Break::Stop));
+    }
+
+    #[test]
+    fn reset_and_disable_report_nothing_unless_enabled() {
+        let shared = ControlShared::new();
+        let mut control = control(&shared, false);
+
+        Handler::reset(&mut control);
+        Handler::enabled(&mut control, false);
+
+        assert_eq!(ControlChanged { control: &shared }.take_break(), None);
+    }
+
+    #[test]
+    fn capabilities_advertise_send_break_only_if_enabled() {
+        let mut config = Config::new();
+        assert_eq!(acm_capabilities(&config), 0x02);
+
+        config.send_break = true;
+        assert_eq!(acm_capabilities(&config), 0x06);
+    }
+
+    /// Interrupt endpoint that records every notification written by this class.
+    struct Recorder<'a> {
+        sent: &'a RefCell<Vec<Vec<u8>>>,
+        enabled: Cell<bool>,
+    }
+
+    impl Endpoint for Recorder<'_> {
+        fn info(&self) -> EndpointInfo {
+            EndpointInfo::new(
+                EndpointAddress::from_parts(1, Direction::In),
+                EndpointType::Interrupt,
+                16,
+                EndpointInterval::from_ms(255),
+            )
+        }
+
+        async fn wait_enabled(&mut self) {}
+
+        fn is_enabled(&self) -> bool {
+            self.enabled.get()
+        }
+
+        async fn set_stalled(&mut self, _: bool) {}
+
+        fn is_stalled(&self) -> bool {
+            false
+        }
+    }
+
+    impl EndpointIn for Recorder<'_> {
+        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+            if !self.enabled.get() {
+                return Err(EndpointDisabledError);
+            }
+            self.sent.borrow_mut().push(buf.to_vec());
+            Ok(())
+        }
+    }
+
+    /// A writer on interface 2, as in a composite device. On interface 0 the tests could not tell
+    /// `wIndex` from `wValue`, since both would be 0.
+    fn writer(sent: &RefCell<Vec<Vec<u8>>>) -> SerialStateWriter<Recorder<'_>> {
+        let recorder = Recorder {
+            sent,
+            enabled: Cell::new(true),
+        };
+        SerialStateWriter::new(recorder, InterfaceNumber(2))
+    }
+
+    #[test]
+    fn set_lines_sends_dcd_and_dsr() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        block_on(writer.set_lines(true, false)).unwrap();
+        assert!(writer.dcd() && !writer.dsr());
+        block_on(writer.set_lines(true, true)).unwrap();
+        block_on(writer.set_lines(false, false)).unwrap();
+
+        // Header: SERIAL_STATE for interface 2, wLength 2. Then the two bytes of UART state.
+        assert_eq!(
+            *sent.borrow(),
+            [
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x01, 0x00],
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x03, 0x00],
+                [0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x00, 0x00],
+            ]
+        );
+    }
+
+    #[test]
+    fn report_sends_events_once_with_the_lines() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        block_on(writer.set_lines(false, true)).unwrap();
+
+        block_on(writer.report(SerialEvents::OVERRUN)).unwrap();
+        block_on(writer.set_lines(true, true)).unwrap();
+
+        let sent = sent.borrow();
+        assert_eq!(sent[1][8..], [0x42, 0x00]);
+        assert_eq!(sent[2][8..], [0x03, 0x00]);
+    }
+
+    #[test]
+    fn report_does_not_repeat_the_previous_events() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        block_on(writer.report(SerialEvents::PARITY)).unwrap();
+        block_on(writer.report(SerialEvents::BREAK)).unwrap();
+
+        assert_eq!(sent.borrow()[1][8..], [0x04, 0x00]);
+    }
+
+    #[test]
+    fn report_sends_several_events_in_one_notification() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        block_on(writer.set_lines(true, false)).unwrap();
+
+        block_on(writer.report(SerialEvents::BREAK | SerialEvents::FRAMING | SerialEvents::OVERRUN)).unwrap();
+
+        let sent = sent.borrow();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1][8..], [0x55, 0x00]);
+    }
+
+    #[test]
+    fn set_lines_keeps_the_levels_when_sending_fails() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+        writer.ep.enabled.set(false);
+
+        assert!(block_on(writer.set_lines(true, false)).is_err());
+
+        writer.ep.enabled.set(true);
+        block_on(writer.report(SerialEvents::BREAK)).unwrap();
+        assert_eq!(*sent.borrow(), [[0xA1, 0x20, 0, 0, 2, 0, 2, 0, 0x05, 0x00]]);
+    }
+
+    #[test]
+    fn report_uses_the_event_bits_from_the_spec() {
+        let sent = RefCell::new(Vec::new());
+        let mut writer = writer(&sent);
+
+        for events in [
+            SerialEvents::BREAK,
+            SerialEvents::RING,
+            SerialEvents::FRAMING,
+            SerialEvents::PARITY,
+            SerialEvents::OVERRUN,
+        ] {
+            block_on(writer.report(events)).unwrap();
+        }
+
+        let bits: Vec<u8> = sent.borrow().iter().map(|n| n[8]).collect();
+        assert_eq!(bits, [0x04, 0x08, 0x10, 0x20, 0x40]);
     }
 }

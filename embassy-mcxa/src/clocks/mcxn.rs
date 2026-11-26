@@ -232,7 +232,7 @@ macro_rules! impl_mcxn_gate {
     ($name:ident, $clk_reg:ident, $rst_reg:ident, $clk_bit:ident, $rst_bit:ident, $group:expr) => {
         impl $crate::clocks::Gate for $crate::peripherals::$name {
             fn enable() -> Result<(), $crate::clocks::ClockError> {
-                ::paste::paste! {
+                ::pastey::paste! {
                     let syscon = $crate::pac::SYSCON0;
                     if syscon.$rst_reg().read().$rst_bit() {
                         return Err($crate::clocks::ClockError::InvalidReadback(
@@ -254,7 +254,7 @@ macro_rules! impl_mcxn_gate {
 
             #[cfg(time_driver_ostimer)]
             unsafe fn initialize() -> Result<(), $crate::clocks::ClockError> {
-                ::paste::paste! {
+                ::pastey::paste! {
                     let syscon = $crate::pac::SYSCON0;
                     let clock = syscon.$clk_reg();
                     let reset = syscon.$rst_reg();

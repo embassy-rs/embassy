@@ -16,7 +16,6 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::{self, EEPROM_SIZE, Eeprom, Error, Flash};
 use embassy_stm32::mode::{Async, Blocking, Mode};
 use embassy_time::{Duration, Instant};
-use panic_probe as _;
 
 teleprobe_meta::timeout!(120);
 
@@ -31,11 +30,7 @@ bind_interrupts!(struct Irqs {
 const AREA: usize = EEPROM_SIZE / 2;
 const LEN: usize = 128;
 
-#[cfg_attr(
-    feature = "stop",
-    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
-)]
-#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
+#[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut p = init();
     info!("EEPROM_SIZE = {}", EEPROM_SIZE);

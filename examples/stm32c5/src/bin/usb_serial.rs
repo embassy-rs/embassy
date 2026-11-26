@@ -89,7 +89,7 @@ impl From<EndpointError> for Disconnected {
     fn from(val: EndpointError) -> Self {
         match val {
             EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+            _ => Disconnected {},
         }
     }
 }

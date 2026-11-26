@@ -78,7 +78,7 @@ impl Default for RngConfig {
             rng_config1 = pac::rng::vals::RngConfig1::ConfigAC;
             rng_config2 = pac::rng::vals::RngConfig2::Recommended;
             rng_config3 = pac::rng::vals::RngConfig3::Recommended;
-            clkdiv = pac::rng::vals::Clkdiv::Div25;
+            clkdiv = pac::rng::vals::Clkdiv::Div32;
         }
 
         #[cfg(not(rng_v4))]

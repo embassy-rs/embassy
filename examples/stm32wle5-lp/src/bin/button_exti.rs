@@ -21,6 +21,8 @@ async fn async_main(_spawner: Spawner) {
     // delay to allow probe-rs to connect for flashing
     cortex_m::asm::delay(1_000_000);
     let mut config = embassy_stm32::Config::default();
+    // The time driver runs from LSI (on by default) so it keeps counting in Stop mode.
+    config.rcc.mux.lptim1sel = embassy_stm32::rcc::mux::Lptimsel::Lsi;
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
     config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     #[cfg(feature = "defmt-serial")]

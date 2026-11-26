@@ -190,6 +190,8 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 /// A slot for sending in the channel
 ///
 /// The slot is only marked as sent when [`SendSlot::send_done`] is called.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SendSlot<'a, M: RawMutex, T> {
     state: &'a Mutex<M, RefCell<State>>,
     value: &'a mut T,
@@ -304,6 +306,8 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 /// A slot for receiving in the channel.
 ///
 /// The slot is only marked as received when [`ReceiveSlot::receive_done`] is called.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReceiveSlot<'a, M: RawMutex, T> {
     state: &'a Mutex<M, RefCell<State>>,
     value: &'a mut T,

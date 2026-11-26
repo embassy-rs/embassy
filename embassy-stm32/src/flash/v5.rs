@@ -34,7 +34,7 @@ macro_rules! reg {
         pac::FLASH.bank($set).$r()
     };
 }
-#[cfg(any(flash_v5_h7rs, flash_v5_c5))]
+#[cfg(any(flash_v5_h7rs, flash_v5_c5, flash_v5_g5))]
 macro_rules! reg {
     ($set:expr, $r:ident) => {{
         let _ = $set;
@@ -183,7 +183,7 @@ pub(super) fn busy() -> bool {
         // RM0477: poll QW rather than BSY, which can pulse several times per operation.
         #[cfg(flash_v5_h7rs)]
         return sr.qw() || sr.wbne();
-        #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5))]
+        #[cfg(any(flash_v5_h5, flash_v5_h50, flash_v5_c5, flash_v5_g5))]
         return sr.bsy() || sr.wbne() || sr.dbne();
     })
 }
@@ -273,6 +273,10 @@ pub(super) fn ecc_clear() {
 
 #[cfg(flash_dual_bank)]
 pub(super) fn banks_swapped() -> bool {
+    // stm32-data does not map a SWAP_BANK field for the G5, so bank swapping is unsupported.
+    #[cfg(flash_v5_g5)]
+    return false;
+    #[cfg(not(flash_v5_g5))]
     pac::FLASH.optcr().read().swap_bank()
 }
 

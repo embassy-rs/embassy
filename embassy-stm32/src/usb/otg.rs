@@ -4,13 +4,12 @@ use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{
     EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
 };
-pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
-    on_interrupt as on_interrupt_impl,
+    Bus as OtgBus, Driver as OtgDriver, OtgInstance, PhyType, State, on_interrupt as on_interrupt_impl,
 };
+pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, Out};
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
@@ -485,7 +484,7 @@ pub(super) fn fsel_from_freq(freq: crate::time::Hertz) -> crate::pac::usbphyc::v
     use crate::pac::usbphyc::vals::Fsel;
 
     match freq.0 {
-        19_200_000 => Fsel::Mhz192,
+        19_200_000 => Fsel::Mhz19_2,
         20_000_000 => Fsel::Mhz20,
         24_000_000 => Fsel::Mhz24,
         _ => panic!(

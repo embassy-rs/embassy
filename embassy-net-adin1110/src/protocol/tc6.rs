@@ -20,7 +20,7 @@
 
 use embedded_hal_async::spi::{Operation, SpiDevice};
 #[cfg(feature = "packetmeta-id")]
-use xarxa_driver::PacketBuf;
+use xarxa_driver::DriverBuf;
 
 use super::Adin1110Protocol;
 use crate::crc32::ETH_FCS;
@@ -613,14 +613,14 @@ impl<SPI: SpiDevice> Tc6<SPI> {
         }
     }
 
-    pub(crate) async fn receive_packet(&mut self, frame: &mut PacketBuf) -> Result<usize, AdinError<SPI::Error>> {
+    pub(crate) async fn receive_packet(&mut self, frame: &mut DriverBuf) -> Result<usize, AdinError<SPI::Error>> {
         let (port, len) = self.read_frame(frame).await?;
         frame.meta_mut().id = u32::from(port);
         Ok(len)
     }
 
     /// Returns `None` without transmitting if the packet id names no port.
-    pub(crate) async fn transmit_packet(&mut self, frame: &PacketBuf) -> Option<Result<(), AdinError<SPI::Error>>> {
+    pub(crate) async fn transmit_packet(&mut self, frame: &DriverBuf) -> Option<Result<(), AdinError<SPI::Error>>> {
         let id = frame.meta().id;
         let Some(port) = self.packet_id_tx_port(id) else {
             error!("TX packet id {:08x} names no port, DROP", id);
@@ -1316,14 +1316,14 @@ mod tests {
     }
 
     #[cfg(feature = "packetmeta-id")]
-    fn new_buf() -> PacketBuf {
+    fn new_buf() -> DriverBuf {
         use xarxa::Pool;
         static POOL: xarxa::StaticPool<1514, 64> = xarxa::StaticPool::new();
         POOL.alloc().unwrap()
     }
 
     #[cfg(feature = "packetmeta-id")]
-    fn packet_with_id(frame: &[u8], id: u32) -> PacketBuf {
+    fn packet_with_id(frame: &[u8], id: u32) -> DriverBuf {
         let mut buf = new_buf();
         buf.set_len(frame.len());
         buf.copy_from_slice(frame);
