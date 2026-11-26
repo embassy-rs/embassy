@@ -11,7 +11,7 @@ use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request, RingBufferError};
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 
 /// DmaCtrl implementation for GPDMA linked-list ring buffers.
 ///
@@ -83,7 +83,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
@@ -129,7 +129,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl::new(channel.reborrow()).reset_complete_count();
 
         Self {
-            _wake_guard: channel.info().wake_guard(),
+            wake_guard: channel.info().wake_guard().into(),
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
@@ -139,6 +139,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         self.channel.request_resume(); // clear SUSP if previously paused
     }
 
@@ -209,12 +210,11 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Stop the ring buffer operation.
+    /// Stop the ring buffer operation and release its low-power Stop blocker.
     /// To resume the transfer, call [`start`](Self::start).
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn stop(&mut self) {
-        self.channel.request_pause()
+        self.channel.pause_and_wait();
+        self.wake_guard.disable();
     }
 
     /// Return whether this transfer is still running.
@@ -258,7 +258,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 /// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
@@ -304,7 +304,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl::new(channel.reborrow()).reset_complete_count();
 
         Self {
-            _wake_guard: channel.info().wake_guard(),
+            wake_guard: channel.info().wake_guard().into(),
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
@@ -314,6 +314,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         self.channel.request_resume(); // clear SUSP if previously paused
     }
 
@@ -368,12 +369,11 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl::new(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Stop the ring buffer operation.
+    /// Stop the ring buffer operation and release its low-power Stop blocker.
     /// To resume the transfer, call [`start`](Self::start).
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn stop(&mut self) {
-        self.channel.request_pause()
+        self.channel.pause_and_wait();
+        self.wake_guard.disable();
     }
 
     /// Return whether DMA is still running.

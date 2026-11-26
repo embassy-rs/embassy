@@ -88,7 +88,7 @@ pub(crate) struct ChannelInfo {
     pub(crate) num: usize,
     #[cfg(gpdma2d)]
     pub(crate) supports_2d: bool,
-    #[cfg(feature = "_dual-core")]
+    #[cfg(any(feature = "_dual-core", feature = "low-power"))]
     pub(crate) irq: pac::Interrupt,
 }
 
@@ -931,6 +931,33 @@ impl<'d> Channel<'d> {
         });
     }
 
+    fn clear_flags(&self) {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        ch.fcr().write(|w| {
+            w.set_dtef(true);
+            w.set_htf(true);
+            w.set_suspf(true);
+            w.set_tcf(true);
+            w.set_tof(true);
+            w.set_ulef(true);
+            w.set_usef(true);
+        });
+
+        #[cfg(feature = "low-power")]
+        {
+            use crate::interrupt::InterruptExt as _;
+            info.irq.unpend();
+        }
+    }
+
+    fn pause_and_wait(&self) {
+        self.request_pause();
+        while self.is_running() {}
+        self.clear_flags();
+    }
+
     /// Resets the channel. The configuration is not preserved.
     ///
     /// Additionally reset causes the channel to unsuspend (resume).
@@ -942,6 +969,7 @@ impl<'d> Channel<'d> {
         while self.is_running() {}
 
         ch.cr().modify(|w| w.set_reset(true));
+        self.clear_flags();
     }
 
     fn is_running(&self) -> bool {

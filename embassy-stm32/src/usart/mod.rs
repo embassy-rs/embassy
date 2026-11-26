@@ -1725,6 +1725,31 @@ impl<'d, M: PeriMode> Drop for UartRx<'d, M> {
 
 fn drop_tx_rx(info: &Info, state: &State) {
     if state.tx_rx_refcount.decrement() == 1 {
+        let r = info.regs;
+        r.cr1().modify(|w| {
+            w.set_rxneie(false);
+            w.set_peie(false);
+            w.set_idleie(false);
+            w.set_tcie(false);
+            w.set_txeie(false);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_uesm(false);
+        });
+        r.cr3().modify(|w| {
+            w.set_eie(false);
+            w.set_dmar(false);
+            w.set_dmat(false);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_wufie(false);
+            #[cfg(usart_v4)]
+            {
+                w.set_rxftie(false);
+                w.set_txftie(false);
+            }
+        });
+        #[cfg(any(usart_v3, usart_v4))]
+        clear_interrupt_flags(r, sr(r).read());
+        info.interrupt.unpend();
         info.rcc.disable();
     }
 }

@@ -444,7 +444,7 @@ fn exit_stop(cs: CriticalSection) {
                 }
                 #[cfg(stm32wba)]
                 {
-                    es.stopf()
+                    es.stop2f()
                 }
             };
 

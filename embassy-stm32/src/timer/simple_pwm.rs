@@ -11,8 +11,9 @@ use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
+use crate::pac::timer::regs;
 use crate::pac::timer::vals::Ccds;
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
 use crate::timer::low_level::DitheringConfig;
@@ -210,6 +211,15 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
     pub ch4: SimplePwmChannel<'d, T>,
 }
 
+struct SavedPwmState<T: GeneralInstance4Channel> {
+    cr1: regs::Cr1Gp16,
+    psc: u16,
+    arr: T::Word,
+    ccmr: [regs::CcmrOutputGp16; 2],
+    ccer: regs::CcerGp16,
+    ccr: [T::Word; 4],
+}
+
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
@@ -217,7 +227,8 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
+    saved_state: Option<SavedPwmState<T>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -252,13 +263,17 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
+        let mut wake_guard: MaybeWakeGuard = T::RCC_INFO.wake_guard().into();
+        wake_guard.enable();
+
         let mut this = Self {
             inner: Timer::new(tim),
             ch1,
             ch2,
             ch3,
             ch4,
-            _wake_guard: T::RCC_INFO.wake_guard(),
+            wake_guard,
+            saved_state: None,
         };
 
         this.inner.set_counting_mode(counting_mode);
@@ -279,6 +294,70 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this.inner.start();
 
         this
+    }
+
+    /// Stop the timer and release the low-power Stop blocker.
+    ///
+    /// Snapshots the timer configuration (counting mode, prescaler, auto-reload,
+    /// output-compare modes, channel enables/polarity, and duty cycles) so
+    /// [`Self::resume`] can transparently restore it if a deep low-power mode
+    /// (such as Stop 2 on STM32WBA/U5) resets the timer register bank.
+    pub fn stop(&mut self) {
+        let gp16 = self.inner.regs_gp16();
+        let mut cr1 = gp16.cr1().read();
+        if cr1.arpe() {
+            cr1.set_cen(false);
+
+            self.saved_state = Some(SavedPwmState {
+                cr1,
+                psc: gp16.psc().read(),
+                arr: self.inner.get_max_compare_value(),
+                ccmr: [gp16.ccmr_output(0).read(), gp16.ccmr_output(1).read()],
+                ccer: gp16.ccer().read(),
+                ccr: [
+                    self.inner.get_compare_value(Channel::Ch1),
+                    self.inner.get_compare_value(Channel::Ch2),
+                    self.inner.get_compare_value(Channel::Ch3),
+                    self.inner.get_compare_value(Channel::Ch4),
+                ],
+            });
+        }
+
+        self.inner.stop();
+        self.wake_guard.disable();
+    }
+
+    /// Re-acquire the low-power Stop blocker and resume the timer.
+    ///
+    /// If the timer register bank was reset during Stop (for example in Stop 2),
+    /// restores the configuration snapshot captured by [`Self::stop`] before
+    /// starting the counter again.
+    pub fn resume(&mut self) {
+        self.wake_guard.enable();
+        critical_section::with(|cs| T::RCC_INFO.enable_with_cs(cs));
+
+        let gp16 = self.inner.regs_gp16();
+        // `SimplePwm` always enables ARPE at construction; reset clears it.
+        if !gp16.cr1().read().arpe() {
+            if let Some(saved) = self.saved_state.take() {
+                gp16.psc().write_value(saved.psc);
+                self.inner.set_max_compare_value(saved.arr);
+                gp16.ccmr_output(0).write_value(saved.ccmr[0]);
+                gp16.ccmr_output(1).write_value(saved.ccmr[1]);
+                self.inner.set_compare_value(Channel::Ch1, saved.ccr[0]);
+                self.inner.set_compare_value(Channel::Ch2, saved.ccr[1]);
+                self.inner.set_compare_value(Channel::Ch3, saved.ccr[2]);
+                self.inner.set_compare_value(Channel::Ch4, saved.ccr[3]);
+                gp16.ccer().write_value(saved.ccer);
+                gp16.cr1().write_value(saved.cr1);
+                self.inner.generate_update_event();
+            }
+        } else {
+            self.saved_state = None;
+        }
+
+        self.inner.enable_outputs();
+        self.inner.start();
     }
 
     /// Get a single channel

@@ -106,7 +106,7 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
-    #[cfg(feature = "_dual-core")]
+    #[cfg(any(feature = "_dual-core", feature = "low-power"))]
     pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: Option<super::DmamuxInfo>,
@@ -959,6 +959,21 @@ impl<'d> Channel<'d> {
         while self.is_running() {}
     }
 
+    fn clear_flags_and_unpend(&self) {
+        self.clear_irqs();
+        #[cfg(feature = "low-power")]
+        {
+            use crate::interrupt::InterruptExt as _;
+            self.info().irq.unpend();
+        }
+    }
+
+    fn pause_and_wait(&self) {
+        self.request_pause();
+        while self.is_running() {}
+        self.clear_flags_and_unpend();
+    }
+
     fn is_running(&self) -> bool {
         let info = self.info();
         match self.info().dma {
@@ -1336,6 +1351,7 @@ impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
         while self.is_running() {}
+        self.channel.clear_flags_and_unpend();
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
