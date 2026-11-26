@@ -365,8 +365,8 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type IsoEndpointOut = Endpoint<'d, Out>;
-    type IsoEndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = IsoEndpoint<'d, Out>;
+    type IsoEndpointIn = IsoEndpoint<'d, In>;
     type Bus = Bus<'d, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
@@ -391,14 +391,30 @@ impl<'d, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, V> {
         &mut self,
         config: &IsoEndpointConfig,
     ) -> Result<Self::IsoEndpointOut, driver::EndpointAllocError> {
-        driver::Driver::alloc_endpoint_out(self, config)
+        let index = self.alloc_out.allocate(EndpointType::Isochronous, config.addr)?;
+        let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
+        let info = EndpointInfo::new(
+            ep_addr,
+            EndpointType::Isochronous,
+            config.max_packet_size,
+            config.interval,
+        );
+        Ok(IsoEndpoint::new(Endpoint::new(self.regs, info)))
     }
 
     fn alloc_iso_endpoint_in(
         &mut self,
         config: &IsoEndpointConfig,
     ) -> Result<Self::IsoEndpointIn, driver::EndpointAllocError> {
-        driver::Driver::alloc_endpoint_in(self, config)
+        let index = self.alloc_in.allocate(EndpointType::Isochronous, config.addr)?;
+        let ep_addr = EndpointAddress::from_parts(index, Direction::In);
+        let info = EndpointInfo::new(
+            ep_addr,
+            EndpointType::Isochronous,
+            config.max_packet_size,
+            config.interval,
+        );
+        Ok(IsoEndpoint::new(Endpoint::new(self.regs, info)))
     }
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
@@ -933,8 +949,6 @@ impl EndpointDir for Out {
 pub struct Endpoint<'d, Dir> {
     regs: pac::usbd::Usbd,
     info: EndpointInfo,
-    schedule: IsoSchedule,
-    iso_written_frame: Option<u32>,
     _phantom: PhantomData<(&'d (), Dir)>,
 }
 
@@ -943,10 +957,47 @@ impl<'d, Dir> Endpoint<'d, Dir> {
         Self {
             regs,
             info,
-            schedule: IsoSchedule::new(),
-            iso_written_frame: None,
             _phantom: PhantomData,
         }
+    }
+}
+
+/// Isochronous USB endpoint.
+pub struct IsoEndpoint<'d, Dir> {
+    ep: Endpoint<'d, Dir>,
+    schedule: IsoSchedule,
+    iso_written_frame: Option<u32>,
+}
+
+impl<'d, Dir> IsoEndpoint<'d, Dir> {
+    fn new(ep: Endpoint<'d, Dir>) -> Self {
+        Self {
+            ep,
+            schedule: IsoSchedule::new(),
+            iso_written_frame: None,
+        }
+    }
+}
+
+impl<'d, Dir: EndpointDir> driver::Endpoint for IsoEndpoint<'d, Dir> {
+    fn info(&self) -> EndpointInfo {
+        self.ep.info()
+    }
+
+    async fn wait_enabled(&mut self) {
+        self.ep.wait_enabled().await
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.ep.is_enabled()
+    }
+
+    async fn set_stalled(&mut self, stalled: bool) {
+        self.ep.set_stalled(stalled).await
+    }
+
+    fn is_stalled(&self) -> bool {
+        self.ep.is_stalled()
     }
 }
 
@@ -1285,18 +1336,18 @@ impl<'d> driver::EndpointIn for Endpoint<'d, In> {
 
 /// Reserved isochronous IN slot returned by [`IsoEndpointIn::ready`].
 pub struct IsoSlot<'a, 'd> {
-    ep: &'a mut Endpoint<'d, In>,
+    ep: &'a mut IsoEndpoint<'d, In>,
     frame: u32,
 }
 
 impl IsoInSlot for IsoSlot<'_, '_> {
     fn write(self, data: &[u8]) -> Result<(), IsoWriteError> {
         self.ep.schedule.accept();
-        if data.len() > usize::from(self.ep.info.max_packet_size) {
+        if data.len() > usize::from(self.ep.ep.info.max_packet_size) {
             return Err(IsoWriteError::BufferOverflow);
         }
 
-        let regs = self.ep.regs;
+        let regs = self.ep.ep.regs;
         let written_frame = critical_section::with(|cs| {
             let now = u32::from(regs.framecntr().read().framecntr());
             if !In::is_enabled(regs, ISO_EP) {
@@ -1319,21 +1370,16 @@ impl IsoInSlot for IsoSlot<'_, '_> {
     }
 }
 
-impl<'d> IsoEndpointIn for Endpoint<'d, In> {
+impl<'d> IsoEndpointIn for IsoEndpoint<'d, In> {
     type Slot<'a>
         = IsoSlot<'a, 'd>
     where
         Self: 'a;
 
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError> {
-        assert_eq!(
-            self.info.ep_type,
-            EndpointType::Isochronous,
-            "IsoEndpointIn requires an isochronous endpoint"
-        );
-        assert_eq!(self.info.addr.index(), ISO_EP);
+        assert_eq!(self.ep.info.addr.index(), ISO_EP);
 
-        if !In::is_enabled(self.regs, ISO_EP) {
+        if !In::is_enabled(self.ep.regs, ISO_EP) {
             return Err(EndpointDisabledError);
         }
         let reset = critical_section::with(|_| {
@@ -1348,19 +1394,19 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
             self.iso_written_frame = None;
         }
 
-        let interval = self.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2);
+        let interval = self.ep.info.interval.frames().clamp(1, ISO_FRAME_SPAN / 2);
 
         // Wait until SOF is live and has advanced past the frame of any previous EasyDMA load
         // so the hardware has latched that packet and freed the EasyDMA staging buffer.
         let now = poll_fn(|cx| {
             In::waker(ISO_EP).register(cx.waker());
-            if !In::is_enabled(self.regs, ISO_EP) {
+            if !In::is_enabled(self.ep.regs, ISO_EP) {
                 return Poll::Ready(Err(EndpointDisabledError));
             }
             if !ISO_SOF_SEEN.load(Ordering::Acquire) {
                 return Poll::Pending;
             }
-            let now = u32::from(self.regs.framecntr().read().framecntr());
+            let now = u32::from(self.ep.regs.framecntr().read().framecntr());
             if self.iso_written_frame == Some(now) {
                 Poll::Pending
             } else {
@@ -1377,13 +1423,13 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
 
             let ready = poll_fn(|cx| {
                 In::waker(ISO_EP).register(cx.waker());
-                if !In::is_enabled(self.regs, ISO_EP) {
+                if !In::is_enabled(self.ep.regs, ISO_EP) {
                     return Poll::Ready(Err(EndpointDisabledError));
                 }
                 if !ISO_SOF_SEEN.load(Ordering::Acquire) {
                     return Poll::Pending;
                 }
-                let now = u32::from(self.regs.framecntr().read().framecntr());
+                let now = u32::from(self.ep.regs.framecntr().read().framecntr());
                 let ahead = forward(now, frame, ISO_FRAME_SPAN);
                 if ahead == 1 {
                     Poll::Ready(Ok(true))
@@ -1399,16 +1445,16 @@ impl<'d> IsoEndpointIn for Endpoint<'d, In> {
                 return Ok((skipped, IsoSlot { ep: self, frame }));
             }
 
-            current = u32::from(self.regs.framecntr().read().framecntr());
+            current = u32::from(self.ep.regs.framecntr().read().framecntr());
         }
     }
 }
 
-impl<'d> IsoEndpointOut for Endpoint<'d, Out> {
+impl<'d> IsoEndpointOut for IsoEndpoint<'d, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         // One packet per service interval.
-        let len = buf.len().min(usize::from(self.info.max_packet_size));
-        driver::EndpointOut::read_transfer(self, &mut buf[..len]).await
+        let len = buf.len().min(usize::from(self.ep.info.max_packet_size));
+        driver::EndpointOut::read_transfer(&mut self.ep, &mut buf[..len]).await
     }
 }
 

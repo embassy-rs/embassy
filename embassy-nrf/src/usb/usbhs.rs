@@ -18,7 +18,7 @@ pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, StateStorage,
+    Bus as OtgBus, Driver as OtgDriver, Endpoint, In, IsoEndpoint, OtgInstance, Out, PhyType, State, StateStorage,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -86,8 +86,8 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
 impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type IsoEndpointOut = Endpoint<'d, Out>;
-    type IsoEndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = IsoEndpoint<'d, Out>;
+    type IsoEndpointIn = IsoEndpoint<'d, In>;
     type Bus = Bus<'d, V>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {

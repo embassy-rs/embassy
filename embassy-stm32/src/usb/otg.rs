@@ -10,7 +10,7 @@ use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
     Bus as OtgBus, Driver as OtgDriver, OtgInstance, PhyType, State, on_interrupt as on_interrupt_impl,
 };
-pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, Out};
+pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, IsoEndpoint, IsoSlot, Out};
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
@@ -268,8 +268,8 @@ impl<'d, T: Instance> Driver<'d, T> {
 impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type IsoEndpointOut = Endpoint<'d, Out>;
-    type IsoEndpointIn = Endpoint<'d, In>;
+    type IsoEndpointOut = IsoEndpoint<'d, Out>;
+    type IsoEndpointIn = IsoEndpoint<'d, In>;
     type Bus = Bus<'d, T>;
 
     fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
