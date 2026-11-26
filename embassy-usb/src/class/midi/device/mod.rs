@@ -865,62 +865,20 @@ mod tests {
         assert!(!state.is_midi2_active());
     }
 
-    use embassy_usb_driver::{
-        Endpoint, EndpointAddress, EndpointDisabledError, EndpointIn, EndpointInfo, EndpointType,
-    };
-
-    /// An IN endpoint that records each transfer and whether it asked for a ZLP.
-    struct Capture {
-        info: EndpointInfo,
-        writes: heapless::Vec<heapless::Vec<u8, 64>, 8>,
-        needs_zlp: heapless::Vec<bool, 8>,
-    }
-
-    impl Endpoint for Capture {
-        fn info(&self) -> EndpointInfo {
-            self.info
-        }
-        async fn wait_enabled(&mut self) {}
-        fn is_enabled(&self) -> bool {
-            true
-        }
-        async fn set_stalled(&mut self, _stalled: bool) {}
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointIn for Capture {
-        async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            self.writes.push(heapless::Vec::from_slice(buf).unwrap()).unwrap();
-            self.needs_zlp.push(needs_zlp).unwrap();
-            Ok(())
-        }
-    }
-
-    fn capture(max_packet_size: u16) -> Capture {
-        Capture {
-            info: EndpointInfo::new(
-                EndpointAddress::from(0x81),
-                EndpointType::Bulk,
-                max_packet_size,
-                EndpointInterval::NONE,
-            ),
-            writes: heapless::Vec::new(),
-            needs_zlp: heapless::Vec::new(),
-        }
-    }
+    use crate::device::test_utils::{TestEndpoint, TestIo};
+    use crate::driver::EndpointType;
 
     #[test]
     fn write_ump_bytes_asks_the_driver_for_a_zlp() {
         use embassy_futures::block_on;
 
         // A transfer that exactly fills its last packet needs a ZLP, and the driver adds it.
-        let mut ep = capture(64);
+        let io = TestIo::default();
+        let mut ep = TestEndpoint::new(&io, 0x81, EndpointType::Bulk, 64);
         block_on(write_bytes(&mut ep, &[0; 64])).unwrap();
-        assert_eq!(ep.writes.len(), 1);
-        assert_eq!(ep.writes[0].len(), 64);
-        assert_eq!(ep.needs_zlp, [true]);
+        assert_eq!(io.data(0x81).len(), 1);
+        assert_eq!(io.data(0x81)[0].len(), 64);
+        assert!(io.writes(0x81)[0].1);
     }
 
     #[test]
@@ -930,75 +888,45 @@ mod tests {
         let quad = UmpPacket::from_u32_quad(0x5000_0001, 2, 3, 4).unwrap();
 
         // 96 bytes: a full transfer, then a short one that needs no ZLP.
-        let mut ep = capture(64);
+        let io = TestIo::default();
+        let mut ep = TestEndpoint::new(&io, 0x81, EndpointType::Bulk, 64);
         block_on(write_umps(&mut ep, &[quad; 6])).unwrap();
         assert_eq!(
-            ep.writes.iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
+            io.data(0x81).iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
             [64, 32]
         );
 
         // Exactly full, so a ZLP follows.
-        let mut ep = capture(64);
+        let io = TestIo::default();
+        let mut ep = TestEndpoint::new(&io, 0x81, EndpointType::Bulk, 64);
         block_on(write_umps(&mut ep, &[quad; 4])).unwrap();
         assert_eq!(
-            ep.writes.iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
+            io.data(0x81).iter().map(|w| w.len()).collect::<heapless::Vec<_, 4>>(),
             [64, 0]
         );
 
         // Too large for the endpoint: refused before anything is sent.
-        let mut ep = capture(8);
+        let io = TestIo::default();
+        let mut ep = TestEndpoint::new(&io, 0x81, EndpointType::Bulk, 8);
         assert!(matches!(
             block_on(write_umps(&mut ep, &[quad])),
             Err(EndpointError::BufferOverflow)
         ));
-        assert!(ep.writes.is_empty());
+        assert!(io.data(0x81).is_empty());
     }
 
     #[test]
     fn wait_connection_ends_when_only_one_of_the_endpoints_is_enabled() {
         use embassy_futures::block_on;
-        use embassy_usb_driver::{Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 
-        // `Never` is the OUT endpoint after switching to an IN-only setting.
-        struct Never(EndpointInfo);
-        struct Enabled(EndpointInfo);
-        impl Endpoint for Never {
-            fn info(&self) -> EndpointInfo {
-                self.0
-            }
-            async fn wait_enabled(&mut self) {
-                core::future::pending::<()>().await
-            }
-            fn is_enabled(&self) -> bool {
-                false
-            }
-            async fn set_stalled(&mut self, _stalled: bool) {}
-            fn is_stalled(&self) -> bool {
-                false
-            }
-        }
-        impl Endpoint for Enabled {
-            fn info(&self) -> EndpointInfo {
-                self.0
-            }
-            async fn wait_enabled(&mut self) {}
-            fn is_enabled(&self) -> bool {
-                true
-            }
-            async fn set_stalled(&mut self, _stalled: bool) {}
-            fn is_stalled(&self) -> bool {
-                false
-            }
-        }
-        let info = EndpointInfo::new(
-            EndpointAddress::from(0x01),
-            EndpointType::Bulk,
-            64,
-            EndpointInterval::NONE,
-        );
+        // `never` is the OUT endpoint after switching to an IN-only setting.
+        let io = TestIo::default();
+        io.set_enabled(0x01, false);
+        let never = || TestEndpoint::new(&io, 0x01, EndpointType::Bulk, 64);
+        let enabled = || TestEndpoint::new(&io, 0x81, EndpointType::Bulk, 64);
 
-        block_on(wait_any_enabled(&mut Some(Never(info)), &mut Some(Enabled(info))));
-        block_on(wait_any_enabled(&mut Some(Enabled(info)), &mut Some(Never(info))));
-        block_on(wait_any_enabled(&mut None::<Never>, &mut None::<Never>));
+        block_on(wait_any_enabled(&mut Some(never()), &mut Some(enabled())));
+        block_on(wait_any_enabled(&mut Some(enabled()), &mut Some(never())));
+        block_on(wait_any_enabled(&mut None::<TestEndpoint>, &mut None::<TestEndpoint>));
     }
 }

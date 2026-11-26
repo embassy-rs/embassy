@@ -835,20 +835,15 @@ impl<'d, D: Driver<'d>> UsbtmcClass<'d, D> {
 mod tests {
     extern crate std;
 
-    use core::cell::RefCell;
     use std::boxed::Box;
-    use std::rc::Rc;
     use std::vec::Vec;
 
     use embassy_futures::block_on;
-    use embassy_usb_driver::EndpointInterval;
 
     use super::*;
     use crate::control::{Recipient, Request, RequestType};
-    use crate::driver::{
-        Bus, Direction, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo,
-        EndpointType, Event, Unsupported,
-    };
+    use crate::device::test_utils::{TestDriver, TestEndpoint, TestIo};
+    use crate::driver::{Direction, EndpointError, EndpointType};
 
     #[test]
     fn test_control_capabilities() {
@@ -1054,196 +1049,11 @@ mod tests {
 
     // Bulk-OUT stall on messages the class cannot parse.
 
-    #[derive(Default)]
-    struct MockState {
-        out_stalled: Cell<bool>,
-        in_stalled: Cell<bool>,
-        /// Number of `set_stalled` calls, so a test can tell "not called" from "cleared".
-        out_stall_calls: Cell<u32>,
-        in_stall_calls: Cell<u32>,
-        fail_read: Cell<bool>,
-        packets: RefCell<Vec<Vec<u8>>>,
-        written: RefCell<Vec<Vec<u8>>>,
-    }
-
-    struct MockEndpoint {
-        info: EndpointInfo,
-        state: Rc<MockState>,
-        dir: Direction,
-    }
-
-    impl Endpoint for MockEndpoint {
-        fn info(&self) -> EndpointInfo {
-            self.info
-        }
-
-        async fn wait_enabled(&mut self) {}
-
-        fn is_enabled(&self) -> bool {
-            true
-        }
-
-        async fn set_stalled(&mut self, stalled: bool) {
-            match self.dir {
-                Direction::Out => {
-                    self.state.out_stall_calls.set(self.state.out_stall_calls.get() + 1);
-                    self.state.out_stalled.set(stalled);
-                }
-                Direction::In => {
-                    self.state.in_stall_calls.set(self.state.in_stall_calls.get() + 1);
-                    self.state.in_stalled.set(stalled);
-                }
-            }
-        }
-
-        fn is_stalled(&self) -> bool {
-            match self.dir {
-                Direction::Out => self.state.out_stalled.get(),
-                Direction::In => self.state.in_stalled.get(),
-            }
-        }
-    }
-
-    impl EndpointOut for MockEndpoint {
-        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-            if self.state.fail_read.get() {
-                return Err(EndpointError::Disabled);
-            }
-            let packet = self.state.packets.borrow_mut().remove(0);
-            buf[..packet.len()].copy_from_slice(&packet);
-            Ok(packet.len())
-        }
-    }
-
-    impl EndpointIn for MockEndpoint {
-        async fn write_transfer(&mut self, buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            self.state.written.borrow_mut().push(buf.to_vec());
-            Ok(())
-        }
-    }
-
-    struct MockDriver;
-
-    impl<'d> Driver<'d> for MockDriver {
-        type EndpointOut = MockEndpoint;
-        type EndpointIn = MockEndpoint;
-        type Bus = Unused;
-
-        fn alloc_endpoint_out(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn alloc_endpoint_in(&mut self, _: &EndpointConfig) -> Result<MockEndpoint, EndpointAllocError> {
-            unreachable!()
-        }
-
-        fn start(self, _: u16) -> Unused {
-            unreachable!()
-        }
-    }
-
-    struct Unused;
-
-    impl Endpoint for Unused {
-        fn info(&self) -> EndpointInfo {
-            unreachable!()
-        }
-
-        async fn wait_enabled(&mut self) {
-            unreachable!()
-        }
-
-        fn is_enabled(&self) -> bool {
-            unreachable!()
-        }
-
-        async fn set_stalled(&mut self, _: bool) {
-            unreachable!()
-        }
-
-        fn is_stalled(&self) -> bool {
-            unreachable!()
-        }
-    }
-
-    impl EndpointOut for Unused {
-        async fn read_transfer(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-    }
-
-    impl EndpointIn for Unused {
-        async fn write_transfer(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-    }
-
-    impl Bus for Unused {
-        fn control_max_packet_size(&self) -> usize {
-            unreachable!()
-        }
-        async fn control_data_out(&mut self, _: &mut [u8]) -> Result<usize, EndpointError> {
-            unreachable!()
-        }
-        async fn control_data_in(&mut self, _: &[u8], _: bool) -> Result<(), EndpointDisabledError> {
-            unreachable!()
-        }
-        async fn control_accept(&mut self) {
-            unreachable!()
-        }
-        async fn control_reject(&mut self) {
-            unreachable!()
-        }
-        async fn control_accept_set_address(&mut self, _: u8) {
-            unreachable!()
-        }
-        async fn enable(&mut self) {
-            unreachable!()
-        }
-
-        async fn disable(&mut self) {
-            unreachable!()
-        }
-
-        async fn poll(&mut self) -> Event {
-            unreachable!()
-        }
-
-        async fn endpoint_set_enabled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_enabled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn endpoint_set_stalled(&mut self, _: EndpointAddress, _: bool) {
-            unreachable!()
-        }
-
-        fn endpoint_is_stalled(&mut self, _: EndpointAddress) -> bool {
-            unreachable!()
-        }
-
-        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            unreachable!()
-        }
-    }
-
-    fn class(state: &Rc<MockState>) -> UsbtmcClass<'static, MockDriver> {
+    fn class(state: &TestIo) -> UsbtmcClass<'static, TestDriver> {
         let shared: &'static ControlShared = Box::leak(Box::new(ControlShared::new(Capabilities::default(), true)));
-        let info = |addr| EndpointInfo::new(addr, EndpointType::Bulk, 64, EndpointInterval::NONE);
         UsbtmcClass {
-            read_ep: MockEndpoint {
-                info: info(EndpointAddress::from(0x01)),
-                state: state.clone(),
-                dir: Direction::Out,
-            },
-            write_ep: MockEndpoint {
-                info: info(EndpointAddress::from(0x81)),
-                state: state.clone(),
-                dir: Direction::In,
-            },
+            read_ep: TestEndpoint::new(state, 0x01, EndpointType::Bulk, 64),
+            write_ep: TestEndpoint::new(state, 0x81, EndpointType::Bulk, 64),
             int_ep: None,
             shared,
             pending_request_in: None,
@@ -1258,7 +1068,7 @@ mod tests {
         h
     }
 
-    fn read_fails(tmc: &mut UsbtmcClass<'_, MockDriver>, buf: &mut [u8]) -> UsbtmcError {
+    fn read_fails(tmc: &mut UsbtmcClass<'_, TestDriver>, buf: &mut [u8]) -> UsbtmcError {
         match block_on(tmc.read_message(buf)) {
             Ok(_) => panic!("expected the read to fail"),
             Err(e) => e,
@@ -1267,8 +1077,8 @@ mod tests {
 
     #[test]
     fn unexpected_msg_id_stalls_bulk_out() {
-        let state = Rc::new(MockState::default());
-        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let state = TestIo::default();
+        state.push_read(0x01, &Vec::from([0x42_u8; 12]));
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1284,10 +1094,10 @@ mod tests {
 
     #[test]
     fn invalid_tag_stalls_bulk_out() {
-        let state = Rc::new(MockState::default());
+        let state = TestIo::default();
         let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 0);
         packet[2] = 0x00; // bTagInverse must be !bTag
-        state.packets.borrow_mut().push(packet);
+        state.push_read(0x01, &packet);
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1297,8 +1107,8 @@ mod tests {
 
     #[test]
     fn short_packet_stalls_bulk_out() {
-        let state = Rc::new(MockState::default());
-        state.packets.borrow_mut().push(Vec::from([0x01_u8, 0x01, 0xfe, 0x00]));
+        let state = TestIo::default();
+        state.push_read(0x01, &Vec::from([0x01_u8, 0x01, 0xfe, 0x00]));
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1308,10 +1118,10 @@ mod tests {
 
     #[test]
     fn too_small_buffer_stalls_bulk_out() {
-        let state = Rc::new(MockState::default());
+        let state = TestIo::default();
         let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 100);
         packet.extend_from_slice(&[0u8; 4]);
-        state.packets.borrow_mut().push(packet);
+        state.push_read(0x01, &packet);
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 16];
@@ -1321,11 +1131,11 @@ mod tests {
 
     #[test]
     fn truncated_message_stalls_bulk_out() {
-        let state = Rc::new(MockState::default());
+        let state = TestIo::default();
         let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 8);
         packet.extend_from_slice(&[0xaa; 4]);
-        state.packets.borrow_mut().push(packet);
-        state.packets.borrow_mut().push(Vec::new()); // the host ends the message early
+        state.push_read(0x01, &packet);
+        state.push_read(0x01, &Vec::new()); // the host ends the message early
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1335,8 +1145,8 @@ mod tests {
 
     #[test]
     fn endpoint_error_does_not_stall() {
-        let state = Rc::new(MockState::default());
-        state.fail_read.set(true);
+        let state = TestIo::default();
+        state.push_read_error(0x01, EndpointError::Disabled);
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1349,10 +1159,10 @@ mod tests {
 
     #[test]
     fn valid_message_does_not_stall() {
-        let state = Rc::new(MockState::default());
+        let state = TestIo::default();
         let mut packet = header(MSG_ID_DEV_DEP_MSG_OUT, 1, 3);
         packet.extend_from_slice(b"abc\0");
-        state.packets.borrow_mut().push(packet);
+        state.push_read(0x01, &packet);
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1365,8 +1175,8 @@ mod tests {
 
     #[test]
     fn clear_request_clears_stall() {
-        let state = Rc::new(MockState::default());
-        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let state = TestIo::default();
+        state.push_read(0x01, &Vec::from([0x42_u8; 12]));
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1387,8 +1197,8 @@ mod tests {
         // Clearing a halt resets that endpoint's data toggle. Clearing Bulk-IN after a
         // Bulk-OUT-only stall would reset the IN toggle behind the host's back, and the
         // host would discard the next reply as a retransmission.
-        let state = Rc::new(MockState::default());
-        state.packets.borrow_mut().push(Vec::from([0x42_u8; 12]));
+        let state = TestIo::default();
+        state.push_read(0x01, &Vec::from([0x42_u8; 12]));
         let mut tmc = class(&state);
 
         let mut buf = [0u8; 64];
@@ -1396,26 +1206,26 @@ mod tests {
             read_fails(&mut tmc, &mut buf),
             UsbtmcError::UnexpectedMsgId(0x42)
         ));
-        let in_calls = state.in_stall_calls.get();
+        let in_calls = state.stall_calls(0x81);
 
         block_on(tmc.clear_stall());
-        assert!(!state.out_stalled.get());
-        assert_eq!(state.in_stall_calls.get(), in_calls);
+        assert!(!state.is_stalled(0x01));
+        assert_eq!(state.stall_calls(0x81), in_calls);
     }
 
     #[test]
     fn stall_halts_both_endpoints() {
-        let state = Rc::new(MockState::default());
+        let state = TestIo::default();
         let mut tmc = class(&state);
 
         block_on(tmc.stall());
         assert!(tmc.is_stalled());
-        assert!(state.out_stalled.get());
-        assert!(state.in_stalled.get());
+        assert!(state.is_stalled(0x01));
+        assert!(state.is_stalled(0x81));
 
         block_on(tmc.clear_stall());
         assert!(!tmc.is_stalled());
-        assert!(!state.out_stalled.get());
-        assert!(!state.in_stalled.get());
+        assert!(!state.is_stalled(0x01));
+        assert!(!state.is_stalled(0x81));
     }
 }

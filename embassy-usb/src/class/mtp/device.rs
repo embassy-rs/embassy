@@ -744,189 +744,16 @@ impl<'a, 'd, D: Driver<'d>> DataInWriter<'a, 'd, D> {
 
 #[cfg(test)]
 mod tests {
-    extern crate std;
-
-    use core::cell::RefCell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
-
     use embassy_futures::block_on;
-    use embassy_usb_driver::{
-        Bus, Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError,
-        EndpointOut, EndpointType, Event, Speed, Unsupported,
-    };
 
     use super::*;
     use crate::device::Config as DeviceConfig;
-
-    #[derive(Default)]
-    struct MockBusInner {
-        out_packets: VecDeque<std::vec::Vec<u8>>,
-        in_transfers: std::vec::Vec<(std::vec::Vec<u8>, bool)>,
-        int_transfers: std::vec::Vec<(std::vec::Vec<u8>, bool)>,
-    }
-
-    struct MockDriver {
-        inner: Rc<RefCell<MockBusInner>>,
-        mps: u16,
-    }
-
-    impl MockDriver {
-        fn new(mps: u16) -> (Self, Rc<RefCell<MockBusInner>>) {
-            let inner = Rc::new(RefCell::new(MockBusInner::default()));
-            (
-                Self {
-                    inner: inner.clone(),
-                    mps,
-                },
-                inner,
-            )
-        }
-    }
-
-    struct MockOut {
-        info: crate::driver::EndpointInfo,
-        inner: Rc<RefCell<MockBusInner>>,
-    }
-
-    struct MockIn {
-        info: crate::driver::EndpointInfo,
-        inner: Rc<RefCell<MockBusInner>>,
-        is_int: bool,
-    }
-
-    struct MockBus;
-
-    impl Bus for MockBus {
-        async fn enable(&mut self) {}
-        async fn disable(&mut self) {}
-        async fn poll(&mut self) -> Event {
-            core::future::pending().await
-        }
-        fn control_max_packet_size(&self) -> usize {
-            64
-        }
-        async fn control_data_out(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
-            Err(EndpointError::Disabled)
-        }
-        async fn control_data_in(&mut self, _data: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            Err(EndpointDisabledError)
-        }
-        async fn control_accept(&mut self) {}
-        async fn control_reject(&mut self) {}
-        async fn control_accept_set_address(&mut self, _addr: u8) {}
-        async fn endpoint_set_enabled(&mut self, _ep_addr: EndpointAddress, _enabled: bool) {}
-        fn endpoint_is_enabled(&mut self, _ep_addr: EndpointAddress) -> bool {
-            true
-        }
-        async fn endpoint_set_stalled(&mut self, _ep_addr: EndpointAddress, _stalled: bool) {}
-        fn endpoint_is_stalled(&mut self, _ep_addr: EndpointAddress) -> bool {
-            false
-        }
-        async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-            Err(Unsupported)
-        }
-    }
-
-    impl Endpoint for MockOut {
-        fn info(&self) -> crate::driver::EndpointInfo {
-            self.info
-        }
-        async fn wait_enabled(&mut self) {}
-        fn is_enabled(&self) -> bool {
-            true
-        }
-        async fn set_stalled(&mut self, _stalled: bool) {}
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointOut for MockOut {
-        async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-            let pkt = self
-                .inner
-                .borrow_mut()
-                .out_packets
-                .pop_front()
-                .ok_or(EndpointError::Disabled)?;
-            if pkt.len() > buf.len() {
-                return Err(EndpointError::BufferOverflow);
-            }
-            buf[..pkt.len()].copy_from_slice(&pkt);
-            Ok(pkt.len())
-        }
-    }
-
-    impl Endpoint for MockIn {
-        fn info(&self) -> crate::driver::EndpointInfo {
-            self.info
-        }
-        async fn wait_enabled(&mut self) {}
-        fn is_enabled(&self) -> bool {
-            true
-        }
-        async fn set_stalled(&mut self, _stalled: bool) {}
-        fn is_stalled(&self) -> bool {
-            false
-        }
-    }
-
-    impl EndpointIn for MockIn {
-        async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-            let mut inner = self.inner.borrow_mut();
-            let target = if self.is_int {
-                &mut inner.int_transfers
-            } else {
-                &mut inner.in_transfers
-            };
-            target.push((buf.to_vec(), needs_zlp));
-            Ok(())
-        }
-    }
-
-    impl<'a> Driver<'a> for MockDriver {
-        type EndpointOut = MockOut;
-        type EndpointIn = MockIn;
-        type Bus = MockBus;
-
-        fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
-            Ok(MockOut {
-                info: crate::driver::EndpointInfo::new(
-                    config.addr.unwrap_or(EndpointAddress::from(0x01)),
-                    config.ep_type,
-                    self.mps,
-                    config.interval,
-                ),
-                inner: self.inner.clone(),
-            })
-        }
-
-        fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
-            let is_int = config.ep_type == EndpointType::Interrupt;
-            Ok(MockIn {
-                info: crate::driver::EndpointInfo::new(
-                    config
-                        .addr
-                        .unwrap_or(EndpointAddress::from(if is_int { 0x82 } else { 0x81 })),
-                    config.ep_type,
-                    if is_int { config.max_packet_size } else { self.mps },
-                    config.interval,
-                ),
-                inner: self.inner.clone(),
-                is_int,
-            })
-        }
-
-        fn start(self, _control_max_packet_size: u16) -> Self::Bus {
-            let _ = Speed::Full;
-            MockBus
-        }
-    }
+    use crate::device::test_utils::TestDriver;
+    use crate::driver::Direction;
 
     #[test]
     fn descriptors_and_msos_compatible_id() {
-        let (driver, _) = MockDriver::new(64);
+        let driver = TestDriver::default();
         let mut state = State::new();
         let mut config_descriptor = [0u8; 256];
         let mut bos_descriptor = [0u8; 256];
@@ -1037,7 +864,8 @@ mod tests {
 
     #[test]
     fn bulk_command_data_streaming_and_zlp_round_trip() {
-        let (driver, inner) = MockDriver::new(64);
+        let driver = TestDriver::default();
+        let inner = driver.io();
         let mut state = State::new();
         let mut config_descriptor = [0u8; 256];
         let mut bos_descriptor = [0u8; 16];
@@ -1054,6 +882,10 @@ mod tests {
         );
         let mut mtp = MtpClass::new(&mut builder, &mut state, Config::new());
         let _usb = builder.build();
+        // Configured by the host.
+        for addr in [0x01, 0x81, 0x82] {
+            inner.set_enabled(addr, true);
+        }
 
         // Enqueue:
         // 1) A 64-byte Data-OUT packet (12-byte header + 52-byte payload) followed by trailing ZLP
@@ -1075,12 +907,9 @@ mod tests {
         let mut cmd_pkt = [0u8; MAX_COMMAND_LEN];
         let cmd_len = cmd.encode(&mut cmd_pkt).unwrap();
 
-        {
-            let mut guard = inner.borrow_mut();
-            guard.out_packets.push_back(data_pkt.to_vec());
-            guard.out_packets.push_back(std::vec::Vec::new()); // host trailing ZLP
-            guard.out_packets.push_back(cmd_pkt[..cmd_len].to_vec());
-        }
+        inner.push_read(0x01, &data_pkt);
+        inner.push_read(0x01, &[]); // host trailing ZLP
+        inner.push_read(0x01, &cmd_pkt[..cmd_len]);
 
         let mut pkt_buf = [0u8; 64];
         let mut payload_out = [0u8; 64];
@@ -1108,14 +937,15 @@ mod tests {
                 .unwrap();
         });
 
-        let guard = inner.borrow();
+        let in_transfers = inner.writes(0x81);
+        let int_transfers = inner.writes(0x82);
         // Expect 2x 64-byte chunks + 1 empty ZLP + 1 response
-        assert_eq!(guard.in_transfers.len(), 4);
-        assert_eq!(guard.in_transfers[0].0.len(), 64);
-        assert_eq!(guard.in_transfers[1].0.len(), 64);
-        assert_eq!(guard.in_transfers[2].0.len(), 0); // trailing ZLP
-        assert_eq!(guard.in_transfers[3].0.len(), 12); // ResponseBlock::ok(10)
-        assert_eq!(guard.int_transfers.len(), 1);
-        assert_eq!(guard.int_transfers[0].0.len(), 12);
+        assert_eq!(in_transfers.len(), 4);
+        assert_eq!(in_transfers[0].0.len(), 64);
+        assert_eq!(in_transfers[1].0.len(), 64);
+        assert_eq!(in_transfers[2].0.len(), 0); // trailing ZLP
+        assert_eq!(in_transfers[3].0.len(), 12); // ResponseBlock::ok(10)
+        assert_eq!(int_transfers.len(), 1);
+        assert_eq!(int_transfers[0].0.len(), 12);
     }
 }

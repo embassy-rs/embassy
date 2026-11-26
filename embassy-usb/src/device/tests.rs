@@ -1,243 +1,15 @@
 extern crate std;
 
 use core::cell::Cell;
-use core::future::pending;
-use std::rc::Rc;
 
 use embassy_futures::block_on;
 
 use super::*;
 use crate::control::{OutResponse, Recipient};
 use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{
-    Direction, Endpoint, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointIn,
-    EndpointInfo, EndpointInterval, EndpointOut, Speed, Unsupported,
-};
+use crate::device::test_utils::{Response, TestBus, TestDriver, TestEndpoint};
+use crate::driver::{Direction, Endpoint, EndpointAllocError, EndpointConfig, EndpointInterval, Speed};
 use crate::types::InterfaceNumber;
-
-#[derive(Default)]
-struct TestDriver {
-    bus: TestBus,
-}
-
-struct TestEndpoint {
-    info: EndpointInfo,
-    stalled: Rc<Cell<bool>>,
-}
-
-impl<'d> Driver<'d> for TestDriver {
-    type EndpointOut = TestEndpoint;
-    type EndpointIn = TestEndpoint;
-    type Bus = TestBus;
-
-    fn alloc_endpoint_in(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        let addr = config.addr.unwrap_or_else(|| {
-            let index = (1..9).find(|&i| self.bus.endpoints[i * 2 + 1].is_none()).unwrap();
-            EndpointAddress::from_parts(index, Direction::In)
-        });
-        assert!(addr.is_in());
-        self.bus.allocate(addr, *config)
-    }
-
-    fn alloc_endpoint_out(&mut self, config: &EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        let addr = config.addr.unwrap_or_else(|| {
-            let index = (1..9).find(|&i| self.bus.endpoints[i * 2].is_none()).unwrap();
-            EndpointAddress::from_parts(index, Direction::Out)
-        });
-        assert!(addr.is_out());
-        self.bus.allocate(addr, *config)
-    }
-
-    fn start(mut self, control_max_packet_size: u16) -> TestBus {
-        self.bus.started_with = control_max_packet_size;
-        self.bus
-    }
-}
-
-impl Endpoint for TestEndpoint {
-    fn info(&self) -> EndpointInfo {
-        self.info
-    }
-
-    async fn wait_enabled(&mut self) {
-        unreachable!()
-    }
-
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    async fn set_stalled(&mut self, stalled: bool) {
-        self.stalled.set(stalled);
-    }
-
-    fn is_stalled(&self) -> bool {
-        self.stalled.get()
-    }
-}
-
-impl EndpointIn for TestEndpoint {
-    async fn write_transfer(&mut self, _buf: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        unreachable!()
-    }
-}
-
-impl EndpointOut for TestEndpoint {
-    async fn read_transfer(&mut self, _buf: &mut [u8]) -> Result<usize, EndpointError> {
-        unreachable!()
-    }
-}
-
-struct TestBus {
-    /// The response to the last control request.
-    response: Option<Response>,
-    /// The control endpoint size passed to `Driver::start`.
-    started_with: u16,
-    /// The data stage of the next control OUT request.
-    out_data: [u8; 8],
-    /// Events that `poll()` returns, before it waits forever.
-    events: std::collections::VecDeque<Event>,
-    endpoints: [Option<EndpointInfo>; 32],
-    configs: [Option<EndpointConfig>; 32],
-    enabled: [bool; 32],
-    /// Shared with the endpoint handles, so a class stall is visible on the bus.
-    stalled: [Rc<Cell<bool>>; 32],
-    halt_calls: usize,
-}
-
-impl Default for TestBus {
-    fn default() -> Self {
-        Self {
-            response: None,
-            started_with: 0,
-            out_data: [0; 8],
-            events: Default::default(),
-            endpoints: [None; 32],
-            configs: [None; 32],
-            enabled: [false; 32],
-            stalled: core::array::from_fn(|_| Rc::new(Cell::new(false))),
-            halt_calls: 0,
-        }
-    }
-}
-
-impl TestBus {
-    fn slot(addr: EndpointAddress) -> usize {
-        // Model a controller with nine endpoint register pairs, including EP0.
-        assert!(addr.index() < 9);
-        addr.index() * 2 + usize::from(addr.is_in())
-    }
-
-    fn allocate(&mut self, addr: EndpointAddress, config: EndpointConfig) -> Result<TestEndpoint, EndpointAllocError> {
-        let info = {
-            let mut info = EndpointInfo::new(addr, config.ep_type, config.max_packet_size, config.interval);
-            info.max_burst = config.max_burst;
-            info.additional_transactions = config.additional_transactions;
-            info
-        };
-        let slot = Self::slot(addr);
-        assert!(self.endpoints[slot].replace(info).is_none());
-        self.configs[slot] = Some(config);
-        Ok(TestEndpoint {
-            info,
-            stalled: self.stalled[slot].clone(),
-        })
-    }
-
-    fn check_halt(&mut self, addr: EndpointAddress) -> usize {
-        let slot = Self::slot(addr);
-        let endpoint = self.endpoints[slot].unwrap();
-        assert!(self.enabled[slot]);
-        assert!(matches!(endpoint.ep_type, EndpointType::Bulk | EndpointType::Interrupt));
-        self.halt_calls += 1;
-        slot
-    }
-}
-
-impl Bus for TestBus {
-    async fn enable(&mut self) {}
-
-    async fn disable(&mut self) {
-        self.enabled.fill(false);
-    }
-
-    async fn poll(&mut self) -> Event {
-        match self.events.pop_front() {
-            Some(event) => event,
-            None => pending().await,
-        }
-    }
-
-    fn control_max_packet_size(&self) -> usize {
-        64
-    }
-
-    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        // Drivers wait for a data packet here, so a request without a data stage must not call it.
-        assert!(
-            !buf.is_empty(),
-            "control_data_out called for a request without a data stage"
-        );
-        buf.fill(0);
-        let len = buf.len().min(self.out_data.len());
-        buf[..len].copy_from_slice(&self.out_data[..len]);
-        Ok(buf.len())
-    }
-
-    async fn control_data_in(&mut self, data: &[u8], _needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        let status = match data {
-            [b] => u16::from(*b),
-            [lo, hi] => u16::from_le_bytes([*lo, *hi]),
-            _ => panic!("control IN test response must be 1 or 2 bytes, got {}", data.len()),
-        };
-        self.response = Some(Response::Status(status));
-        Ok(())
-    }
-
-    async fn control_accept(&mut self) {
-        self.response = Some(Response::Accepted);
-    }
-
-    async fn control_reject(&mut self) {
-        self.response = Some(Response::Rejected);
-    }
-
-    async fn control_accept_set_address(&mut self, _addr: u8) {
-        self.control_accept().await;
-    }
-
-    async fn endpoint_set_enabled(&mut self, addr: EndpointAddress, enabled: bool) {
-        let slot = Self::slot(addr);
-        assert!(self.endpoints[slot].is_some());
-        self.enabled[slot] = enabled;
-    }
-
-    fn endpoint_is_enabled(&mut self, addr: EndpointAddress) -> bool {
-        let slot = Self::slot(addr);
-        self.enabled[slot]
-    }
-
-    async fn endpoint_set_stalled(&mut self, addr: EndpointAddress, stalled: bool) {
-        let slot = self.check_halt(addr);
-        self.stalled[slot].set(stalled);
-    }
-
-    fn endpoint_is_stalled(&mut self, addr: EndpointAddress) -> bool {
-        let slot = self.check_halt(addr);
-        self.stalled[slot].get()
-    }
-
-    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Response {
-    Accepted,
-    Status(u16),
-    Rejected,
-}
 
 fn with_device_fullspeed(f: impl FnOnce(&mut UsbDevice<'_, TestDriver>)) {
     with_config(Config::new(0x1234, 0x5678), f)
@@ -597,7 +369,7 @@ fn interface_requests_require_configured_state() {
         assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Rejected);
         assert_eq!(request(usb, 0x81, Request::GET_STATUS, 0, 0, 2), Response::Rejected);
         // The rejected SET_INTERFACE must not enable alternate setting 1.
-        assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+        assert!(!usb.bus.io.is_enabled(0x83));
 
         assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
         assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
@@ -872,8 +644,8 @@ fn set_configuration_resets_alt_settings() {
     assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
     assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
     assert_eq!(seen.get(), Some((0, 0)));
-    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
-    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+    assert!(usb.bus.io.is_enabled(0x01));
+    assert!(!usb.bus.io.is_enabled(0x83));
 
     // Deconfiguring and configuring again also starts from alternate setting zero.
     assert_eq!(request(usb, 0x01, Request::SET_INTERFACE, 1, 0, 0), Response::Accepted);
@@ -881,8 +653,8 @@ fn set_configuration_resets_alt_settings() {
     assert_eq!(seen.get(), Some((0, 0)));
     assert_eq!(request(usb, 0, Request::SET_CONFIGURATION, 1, 0, 0), Response::Accepted);
     assert_eq!(request(usb, 0x81, Request::GET_INTERFACE, 0, 0, 1), Response::Status(0));
-    assert!(usb.bus.enabled[TestBus::slot(0x01.into())]);
-    assert!(!usb.bus.enabled[TestBus::slot(0x83.into())]);
+    assert!(usb.bus.io.is_enabled(0x01));
+    assert!(!usb.bus.io.is_enabled(0x83));
 }
 
 #[cfg(all(feature = "device", feature = "host", feature = "class-ccid"))]
@@ -2121,22 +1893,21 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
     drop(function);
     let mut usb = builder.build();
 
-    let slot = |addr: EndpointAddress| addr.index() * 2 + usize::from(addr.is_in());
     let in_addr = shared_in.info().addr;
     let out_addr = alt1_out.info().addr;
 
     // Enumeration selects alternate setting 0: only the shared endpoint is enabled.
     configure(&mut usb);
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(!usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(!usb.bus.io.is_enabled(out_addr));
 
     // Selecting alternate setting 1 enables both endpoints.
     assert_eq!(
         request(&mut usb, 1, Request::SET_INTERFACE, 1, 0, 0),
         Response::Accepted
     );
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(usb.bus.io.is_enabled(out_addr));
 
     // Going back to alternate setting 0 must keep the shared endpoint enabled and
     // disable the endpoint that only exists in alternate setting 1.
@@ -2144,8 +1915,8 @@ fn shared_endpoints_stay_enabled_across_alternate_settings() {
         request(&mut usb, 1, Request::SET_INTERFACE, 0, 0, 0),
         Response::Accepted
     );
-    assert!(usb.bus.enabled[slot(in_addr)]);
-    assert!(!usb.bus.enabled[slot(out_addr)]);
+    assert!(usb.bus.io.is_enabled(in_addr));
+    assert!(!usb.bus.io.is_enabled(out_addr));
 }
 
 #[cfg(feature = "class-midi")]
@@ -2311,12 +2082,8 @@ fn test_midi2_device_enumeration_and_control() {
         OutResponse::Accepted
     );
 
-    let slot = |addr: u8| {
-        let addr = EndpointAddress::from(addr);
-        addr.index() * 2 + usize::from(addr.is_in())
-    };
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switch interface 1 to Alternate Setting 1 (MIDI 2.0)
     let set_alt_req = Request {
@@ -2332,8 +2099,8 @@ fn test_midi2_device_enumeration_and_control() {
         block_on(usb.inner.handle_control_out(&mut usb.bus, set_alt_req, &[])),
         OutResponse::Accepted
     );
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switching back to MIDI 1.0 must not disable the shared endpoints.
     let set_alt0_req = Request {
@@ -2344,8 +2111,8 @@ fn test_midi2_device_enumeration_and_control() {
         block_on(usb.inner.handle_control_out(&mut usb.bus, set_alt0_req, &[])),
         OutResponse::Accepted
     );
-    assert!(usb.bus.enabled[slot(0x81)]);
-    assert!(usb.bus.enabled[slot(0x01)]);
+    assert!(usb.bus.io.is_enabled(0x81));
+    assert!(usb.bus.io.is_enabled(0x01));
 
     // Switch interface 1 to invalid Alternate Setting 2
     let set_alt_invalid = Request {
