@@ -697,7 +697,7 @@ pub mod config {
                 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
                 flpr_reset: FlprReset::Reset,
                 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
-                grtc_reset_interrupts: false,
+                grtc_reset_interrupts: true,
             }
         }
     }
