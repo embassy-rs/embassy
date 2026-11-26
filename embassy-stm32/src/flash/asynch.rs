@@ -79,10 +79,7 @@ impl<'d> Flash<'d, Async> {
 pub(super) async fn op(op: Op<'_>) -> Result<(), Error> {
     op.check()?;
     // Stop mode is not allowed while a flash operation is ongoing.
-    let _wake = crate::rcc::WakeGuard::new(
-        #[cfg(feature = "low-power")]
-        crate::rcc::StopMode::Stop1,
-    );
+    let _wake = crate::rcc::WakeGuard::no_stop();
     // Drop a pending interrupt left over by the previous operation.
     FlashInterrupt::unpend();
     let _guard = OpGuard::start(op, true);

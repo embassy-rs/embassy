@@ -60,7 +60,11 @@ unsafe fn on_interrupt(r: Regs, s: &'static State) {
             w.set_eie(false);
             // disable DMA Rx Request
             w.set_dmar(false);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_wufie(false);
         });
+        #[cfg(any(usart_v3, usart_v4))]
+        r.icr().write(|w| w.set_wuf(true));
     } else if cr1.idleie() && sr.idle() {
         // IDLE detected: no more data will come
         r.cr1().modify(|w| {
@@ -73,12 +77,31 @@ unsafe fn on_interrupt(r: Regs, s: &'static State) {
             // disable Transmission complete interrupt
             w.set_tcie(false);
         });
-    } else if cr1.rxneie() {
-        // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
-
-        // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
     } else {
-        return;
+        #[cfg(any(usart_v3, usart_v4))]
+        if cr3.wufie() && sr.wuf() {
+            r.icr().write(|w| w.set_wuf(true));
+            r.cr3().modify(|w| w.set_wufie(false));
+            r.cr1().modify(|w| w.set_rxneie(false));
+        } else if cr1.rxneie() {
+            if !cr3.dmar() {
+                r.cr1().modify(|w| w.set_rxneie(false));
+                r.cr3().modify(|w| w.set_wufie(false));
+            }
+            // When DMAR is set, RXNE is auto-cleared by the DMA controller and the
+            // listener decides whether to disable RXNE detection (e.g. RingBufferedUartRx).
+        } else {
+            return;
+        }
+
+        #[cfg(not(any(usart_v3, usart_v4)))]
+        if cr1.rxneie() {
+            // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
+
+            // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
+        } else {
+            return;
+        }
     }
 
     compiler_fence(Ordering::SeqCst);
@@ -1046,9 +1069,20 @@ impl<'d> UartRx<'d, Async> {
         )
     }
 
+    fn can_stop(&self) -> bool {
+        #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+        {
+            self.info.rcc.is_wake_capable() && !self.info.rcc.surviving_stop_modes().is_empty()
+        }
+        #[cfg(not(all(feature = "low-power", any(usart_v3, usart_v4))))]
+        {
+            false
+        }
+    }
+
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let _scoped_wake_guard = WakeGuard::no_stop();
+        let _scoped_wake_guard = (!self.can_stop()).then(WakeGuard::no_stop);
 
         self.inner_read(buffer, false).await?;
 
@@ -1060,7 +1094,7 @@ impl<'d> UartRx<'d, Async> {
     /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
     /// bits of each received word are zero.
     pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
-        let _scoped_wake_guard = WakeGuard::no_stop();
+        let _scoped_wake_guard = (!self.can_stop()).then(WakeGuard::no_stop);
 
         self.inner_read(buffer, false).await?;
 
@@ -1072,7 +1106,7 @@ impl<'d> UartRx<'d, Async> {
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
     /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let _scoped_wake_guard = WakeGuard::no_stop();
+        let _scoped_wake_guard = (!self.can_stop()).then(WakeGuard::no_stop);
 
         self.inner_read(buffer, true).await
     }
@@ -1087,7 +1121,7 @@ impl<'d> UartRx<'d, Async> {
     /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
     /// bits of each received word are zero.
     pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
-        let _scoped_wake_guard = WakeGuard::no_stop();
+        let _scoped_wake_guard = (!self.can_stop()).then(WakeGuard::no_stop);
 
         self.inner_read(buffer, true).await
     }
@@ -1124,12 +1158,16 @@ impl<'d> UartRx<'d, Async> {
                 w.set_peie(false);
                 // disable idle line interrupt
                 w.set_idleie(false);
+                #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+                w.set_uesm(false);
             });
             r.cr3().clear_bits(|w| {
                 // disable Error Interrupt: (Frame error, Noise error, Overrun error)
                 w.set_eie(false);
                 // disable DMA Rx Request
                 w.set_dmar(false);
+                #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+                w.set_wufie(false);
             });
         });
 
@@ -1158,6 +1196,76 @@ impl<'d> UartRx<'d, Async> {
         }
         if idle_pending && taken > 0 {
             return Ok(ReadCompletionEvent::Idle(taken));
+        }
+
+        #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+        let mut taken = taken;
+        #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+        let mut _burst_wake_guard = None;
+        #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+        if self.can_stop() {
+            let cur_sr = sr(r).read();
+            let has_err = cur_sr.pe() || cur_sr.fe() || cur_sr.ne() || cur_sr.ore();
+            if taken == 0 && !idle_pending && !has_err {
+                // Allow Stop mode while waiting for the first byte, then block Stop
+                // once DMA takes over until IDLE or buffer completion.
+                let stop_guard = self.info.rcc.stop_wake_guard();
+                let wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
+                self.info.rcc.enable_stop_and_autonomous();
+
+                r.icr().write(|w| w.set_wuf(true));
+                r.cr3().set_bits(|w| {
+                    w.set_eie(true);
+                    w.set_wufie(true);
+                });
+                r.cr1().set_bits(|w| {
+                    w.set_uesm(true);
+                    w.set_rxneie(true);
+                });
+                compiler_fence(Ordering::SeqCst);
+
+                let s = self.state;
+                poll_fn(|cx| {
+                    s.rx_waker.register(cx.waker());
+                    let cur_sr = sr(r).read();
+                    if cur_sr.rxne()
+                        || cur_sr.wuf()
+                        || cur_sr.pe()
+                        || cur_sr.fe()
+                        || cur_sr.ne()
+                        || cur_sr.ore()
+                        || (enable_idle_line_detection && cur_sr.idle())
+                        || !r.cr1().read().rxneie()
+                    {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+
+                r.cr1().clear_bits(|w| {
+                    w.set_rxneie(false);
+                    w.set_uesm(false);
+                });
+                r.cr3().clear_bits(|w| {
+                    w.set_wufie(false);
+                });
+                drop(wake_source);
+                drop(stop_guard);
+
+                _burst_wake_guard = Some(WakeGuard::no_stop());
+                let idle_after_wake = enable_idle_line_detection && sr(r).read().idle();
+                taken = take_received(r, buffer, !self.detect_previous_overrun);
+                if taken == buffer_len {
+                    return Ok(ReadCompletionEvent::DmaCompleted);
+                }
+                if idle_after_wake && taken > 0 {
+                    return Ok(ReadCompletionEvent::Idle(taken));
+                }
+            } else {
+                _burst_wake_guard = Some(WakeGuard::no_stop());
+            }
         }
 
         let ch = self.rx_dma.as_mut().unwrap();
@@ -2684,6 +2792,8 @@ fn configure(
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
         w.set_hdsel(half_duplex);
+        #[cfg(any(usart_v3, usart_v4))]
+        w.set_wus(vals::Wus::Rxne);
 
         if config.irda_enable {
             w.set_scen(false);
@@ -2691,9 +2801,13 @@ fn configure(
         }
     });
 
+    #[cfg(any(usart_v3, usart_v4))]
+    let uesm = r.cr1().read().uesm();
     let mut w: crate::pac::usart::regs::Cr1 = Default::default();
     // enable uart
     w.set_ue(true);
+    #[cfg(any(usart_v3, usart_v4))]
+    w.set_uesm(uesm);
 
     if half_duplex {
         // The te and re bits will be set by write, read and flush methods.

@@ -30,11 +30,39 @@ fn stop_ready(stop_mode: StopMode) -> bool {
     })
 }
 
+#[cfg(any(feature = "stm32h503rb", feature = "stm32h563zi"))]
+const EXPECTED_STOP_MODE: StopMode = StopMode::Stop0;
+#[cfg(any(
+    feature = "stm32f303ze",
+    feature = "stm32f429zi",
+    feature = "stm32f446re",
+    feature = "stm32f767zi",
+    feature = "stm32g071rb",
+    feature = "stm32g491re",
+    feature = "stm32l073rz",
+    feature = "stm32l152re",
+    feature = "stm32wba52cg"
+))]
+const EXPECTED_STOP_MODE: StopMode = StopMode::Stop1;
+#[cfg(any(
+    feature = "stm32l496zg",
+    feature = "stm32l4a6zg",
+    feature = "stm32l4r5zi",
+    feature = "stm32l552ze",
+    feature = "stm32wb55rg",
+    feature = "stm32wba65ri",
+    feature = "stm32wl55jc",
+    feature = "stm32u083rc"
+))]
+const EXPECTED_STOP_MODE: StopMode = StopMode::Stop2;
+#[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
+const EXPECTED_STOP_MODE: StopMode = StopMode::Stop3;
+
 #[embassy_executor::task]
 async fn task_1() {
     for _ in 0..9 {
         info!("task 1: waiting for 500ms...");
-        assert!(stop_ready(StopMode::Stop2));
+        assert!(stop_ready(EXPECTED_STOP_MODE));
         Timer::after_millis(500).await;
         // Run on the restored clocks for a while: if they're wrong, the timer drifts from the RTC.
         block_for(Duration::from_millis(20));
@@ -45,7 +73,7 @@ async fn task_1() {
 async fn task_2(reader: RtcReader<'static>, start_rtc: DateTime, start: Instant) {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
-        assert!(stop_ready(StopMode::Stop2));
+        assert!(stop_ready(EXPECTED_STOP_MODE));
         Timer::after_millis(1000).await;
         block_for(Duration::from_millis(20));
     }

@@ -90,16 +90,11 @@ pub(crate) struct ChannelInfo {
     pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
-    #[cfg(feature = "low-power")]
-    pub(crate) stop_mode: crate::rcc::StopMode,
 }
 
 impl ChannelInfo {
     fn wake_guard(&self) -> WakeGuard {
-        WakeGuard::new(
-            #[cfg(feature = "low-power")]
-            self.stop_mode,
-        )
+        WakeGuard::no_stop()
     }
 }
 

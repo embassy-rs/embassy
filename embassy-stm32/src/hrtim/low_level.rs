@@ -15,6 +15,7 @@ impl<'d, T: Instance> Drop for HrTimer<'d, T> {
 /// Low-level HRTIM driver.
 pub struct HrTimer<'d, T: Instance> {
     _tim: Peri<'d, T>,
+    _wake_guard: rcc::WakeGuard,
 }
 
 impl<'d, T: Instance> HrTimer<'d, T> {
@@ -22,7 +23,10 @@ impl<'d, T: Instance> HrTimer<'d, T> {
     pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        Self { _tim: tim }
+        Self {
+            _tim: tim,
+            _wake_guard: rcc::WakeGuard::no_stop(),
+        }
     }
 
     /// Get access to the timer registers.

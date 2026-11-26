@@ -261,6 +261,23 @@ impl StopRestore {
             RCC.cr().modify(|w| w.set_hsion(false));
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        #[cfg(crs)]
+        let hsi48 = self.hsi48;
+        #[cfg(not(crs))]
+        let hsi48 = false;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion(),
+            hsi48,
+            pll: s.pllon(),
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 pub(crate) unsafe fn init(config: Config) {

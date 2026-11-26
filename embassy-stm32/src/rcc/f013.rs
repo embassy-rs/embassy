@@ -214,6 +214,18 @@ impl StopRestore {
             RCC.cr().modify(|w| w.set_hsion(false));
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion(),
+            pll: s.pllon(),
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 /// Initialize and Set the clock frequencies

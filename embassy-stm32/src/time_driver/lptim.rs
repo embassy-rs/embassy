@@ -4,7 +4,7 @@
 use core::cell::Cell;
 use core::cell::RefCell;
 #[cfg(feature = "low-power")]
-use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{AtomicBool, AtomicU8};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
@@ -156,12 +156,15 @@ pub(crate) struct RtcDriver {
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool,
-    /// Whether the driver prevents Stop mode because its clock does not run in Stop.
+    /// Bitmask of Stop modes prevented because LPTIM/clock cannot survive them.
     #[cfg(feature = "low-power")]
-    stop_blocked: AtomicBool,
+    stop_blocked: AtomicU8,
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
     min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
+    #[cfg(feature = "low-power")]
+    /// Original alarm timestamp when `pause_time` brings the compare wakeup forward for exit latency.
+    saved_alarm_deadline: Mutex<CriticalSectionRawMutex, Cell<u64>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -171,9 +174,11 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool::new(false),
     #[cfg(feature = "low-power")]
-    stop_blocked: AtomicBool::new(false),
+    stop_blocked: AtomicU8::new(0),
     #[cfg(feature = "low-power")]
     min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
+    #[cfg(feature = "low-power")]
+    saved_alarm_deadline: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(u64::MAX)),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
@@ -277,35 +282,8 @@ impl RtcDriver {
                 crate::pac::EXTI.imr(0).modify(|w| w.set_line(F4_F7_EXTI_LINE, true));
             }
 
-            // U5/U3: the LP timer used as time driver must remain functional in
-            // STOP mode so it can wake the CPU. Two RCC bits are required:
-            //  - SRDAMR.*amen: autonomous mode enable, so the peripheral can
-            //    request its kernel clock (LSE/LSI) while in STOP.
-            //  - APB3SMENR.*smen: keep the APB bus clock available in STOP so
-            //    the NVIC interrupt reaches the CPU.
-            // Without these, the LPTIM keeps its registers but its interrupt
-            // cannot wake the core from STOP, hanging the executor.
-            #[cfg(stm32u5)]
-            {
-                #[cfg(time_driver_lptim1)]
-                {
-                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim1amen(true));
-                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim1smen(true));
-                }
-                #[cfg(time_driver_lptim3)]
-                {
-                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim3amen(true));
-                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim3smen(true));
-                }
-            }
-            // U3 has no autonomous mode register; APB3STPENR keeps the clock in STOP.
-            #[cfg(stm32u3)]
-            {
-                #[cfg(time_driver_lptim1)]
-                crate::pac::RCC.apb3stpenr().modify(|w| w.set_lptim1stpen(true));
-                #[cfg(time_driver_lptim3)]
-                crate::pac::RCC.apb3stpenr().modify(|w| w.set_lptim3stpen(true));
-            }
+            // Keep bus/autonomous Stop clocks enabled so LPTIM keeps counting and can wake from Stop.
+            T::RCC_INFO.enable_stop_and_autonomous();
         }
     }
 
@@ -316,8 +294,8 @@ impl RtcDriver {
     }
 
     /// Check the LPTIM kernel clock selected in `config.rcc.mux`. Panics if the driver can't run
-    /// from it. With `low-power`, prevents Stop mode if the clock stops in Stop.
-    fn check_clock(&self, _cs: CriticalSection) {
+    /// from it. With `low-power`, prevents Stop modes that the clock does not survive.
+    fn check_clock(&self, cs: CriticalSection) {
         // A clock that isn't running makes `T::frequency()` panic in `init_timer`.
 
         #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
@@ -330,21 +308,24 @@ impl RtcDriver {
 
         #[cfg(feature = "low-power")]
         {
-            let runs_in_stop = time_driver_clock::is_lsi() || time_driver_clock::is_lse();
-            let blocked = self.stop_blocked.load(Ordering::Relaxed);
-            if !runs_in_stop && !blocked {
-                warn!(
-                    "time driver: the LPTIM clock ({}) stops in Stop mode, so Stop mode is disabled. \
-                    Select LSI or LSE for the LPTIM in `config.rcc.mux` to allow Stop.",
-                    time_driver_clock::name()
-                );
-                rcc::increment_stop_refcount(_cs, rcc::StopMode::Stop1);
-                self.stop_blocked.store(true, Ordering::Relaxed);
-            } else if runs_in_stop && blocked {
-                rcc::decrement_stop_refcount(_cs, rcc::StopMode::Stop1);
-                self.stop_blocked.store(false, Ordering::Relaxed);
+            let allowed = T::RCC_INFO.surviving_stop_modes();
+            let new_blocked = rcc::StopModes::ALL.without(allowed).0;
+            let old_blocked = self.stop_blocked.load(Ordering::Relaxed);
+            if new_blocked != old_blocked {
+                self.stop_blocked.store(new_blocked, Ordering::Relaxed);
+                rcc::decrement_stop_blockers(cs, rcc::StopModes(old_blocked));
+                rcc::increment_stop_blockers(cs, rcc::StopModes(new_blocked));
+                if allowed.is_empty() {
+                    warn!(
+                        "time driver: the LPTIM clock ({}) stops in Stop mode, so Stop mode is disabled. \
+                        Select LSI or LSE for the LPTIM in `config.rcc.mux` to allow Stop.",
+                        time_driver_clock::name()
+                    );
+                }
             }
         }
+        #[cfg(not(feature = "low-power"))]
+        let _ = cs;
     }
 
     pub(crate) fn on_interrupt(&self) {
@@ -455,6 +436,10 @@ impl RtcDriver {
 
 #[cfg(feature = "low-power")]
 impl super::LPTimeDriver for RtcDriver {
+    fn has_pending_alarm(&self, cs: CriticalSection) -> bool {
+        self.alarm.borrow(cs).timestamp.get() != u64::MAX
+    }
+
     /// Compute the approximate amount of time until the next alarm
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
         let now = self.now() + 32;
@@ -463,7 +448,7 @@ impl super::LPTimeDriver for RtcDriver {
     }
 
     /// Set the stopped flag or return an error if the time until the next alarm is less than the minimum stop pause
-    fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+    fn pause_time(&self, cs: CriticalSection, exit_latency: embassy_time::Duration) -> Result<(), ()> {
         trace!("pause_time");
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
@@ -471,22 +456,52 @@ impl super::LPTimeDriver for RtcDriver {
                 "time_until_next_alarm < self.min_stop_pause ({})",
                 time_until_next_alarm
             );
-            Err(())
-        } else {
-            self.is_stopped.store(true, Ordering::Relaxed);
-            Ok(())
+            return Err(());
         }
+
+        let exit_ticks = exit_latency.as_ticks();
+        if self.has_pending_alarm(cs) && exit_ticks > 2 {
+            let deadline = self.alarm.borrow(cs).timestamp.get();
+            let wakeup = deadline.saturating_sub(exit_ticks);
+            if wakeup > self.now() {
+                if !self.set_alarm(cs, wakeup) {
+                    if !self.set_alarm(cs, deadline) {
+                        self.trigger_alarm(cs);
+                    }
+                    return Err(());
+                }
+                self.saved_alarm_deadline.borrow(cs).set(deadline);
+            }
+        }
+
+        self.is_stopped.store(true, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Reset the stopped flag
-    fn resume_time(&self, _cs: CriticalSection) {
+    fn resume_time(&self, cs: CriticalSection) {
         trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
+        let saved = self.saved_alarm_deadline.borrow(cs).replace(u64::MAX);
+        if saved != u64::MAX {
+            regs_lptim().icr().write(|w| w.set_cccf(0, true));
+            if !self.set_alarm(cs, saved) {
+                self.trigger_alarm(cs);
+            }
+        }
     }
 
     fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
         trace!("set_min_stop_pause: {} ticks", min_stop_pause.as_ticks());
         self.min_stop_pause.borrow(cs).replace(min_stop_pause);
+    }
+
+    fn min_stop_pause(&self, cs: CriticalSection) -> embassy_time::Duration {
+        self.min_stop_pause.borrow(cs).get()
+    }
+
+    fn driver_overhead_us(&self) -> u32 {
+        30
     }
 }
 

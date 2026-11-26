@@ -455,6 +455,33 @@ impl StopRestore {
             RCC.cr().modify(|w| w.set_hsion(false));
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        #[allow(unused_mut)]
+        let mut pll = s.pllon();
+        #[cfg(not(stm32f410))]
+        {
+            pll |= s.plli2son();
+        }
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+        {
+            pll |= s.pllsaion();
+        }
+        #[cfg(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7))]
+        let overdrive = self.overdrive;
+        #[cfg(not(any(stm32f446, stm32f4x9, stm32f427, stm32f437, stm32f7)))]
+        let overdrive = false;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion(),
+            pll,
+            overdrive,
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 struct PllInput {

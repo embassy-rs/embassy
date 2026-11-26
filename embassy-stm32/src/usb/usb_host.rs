@@ -281,6 +281,7 @@ foreach_interrupt!(
 /// USB host driver.
 pub struct UsbHost<'d, I: Instance> {
     phantom: PhantomData<&'d mut I>,
+    _wake_guard: crate::rcc::WakeGuard,
     // first free address in EP mem, in bytes.
     // ep_mem_free: u16,
 }
@@ -321,6 +322,7 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
         I::host_state().used_blocks.store(0, Ordering::Relaxed);
         Self {
             phantom: PhantomData,
+            _wake_guard: crate::rcc::WakeGuard::no_stop(),
             // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
             // control_channel_in: Channel::new(0, 0, 0, 0),
             // control_channel_out: Channel::new(0, 0, 0, 0),

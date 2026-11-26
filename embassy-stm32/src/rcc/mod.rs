@@ -53,16 +53,10 @@ pub use crate::_generated::{Clocks, mux};
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
-/// Must be written within a critical section
+/// Number of active `WakeGuard`s blocking each Stop mode (`Stop0..Stop3`).
 ///
-/// May be read without a critical section
-pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
-
-#[cfg(feature = "low-power")]
-/// Must be written within a critical section
-///
-/// May be read without a critical section
-pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
+/// Must be written within a critical section.
+static mut STOP_BLOCKERS: [u32; 4] = [0; 4];
 
 /// The clocks to bring back after Stop, captured by `init_rcc`.
 #[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
@@ -153,6 +147,55 @@ unsafe fn set_stop_restore(restore: Option<StopRestore>) {
         .write(MaybeUninit::new(restore));
 }
 
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ClockRestoreTiming {
+    pub hse_osc: bool,
+    pub hse_bypass: bool,
+    pub hsi: bool,
+    pub msi: bool,
+    pub hsi48: bool,
+    pub pll: bool,
+    pub vos: bool,
+    pub overdrive: bool,
+    pub hpre_step: bool,
+}
+
+#[cfg(feature = "low-power")]
+impl ClockRestoreTiming {
+    /// Conservative software-observed RCC clock-restoration latency in microseconds
+    /// after Stop exit (`StopRestore::exit()`).
+    pub(crate) const fn exit_latency_us(self) -> u32 {
+        let mut us = if self.hse_osc {
+            2_000
+        } else if self.hse_bypass {
+            5
+        } else {
+            0
+        };
+        let rc_osc = if self.hsi || self.msi { 10 } else { 0 };
+        if rc_osc > us {
+            us = rc_osc;
+        }
+        if self.overdrive {
+            us += 50;
+        } else if self.vos {
+            us += 30;
+        }
+        us += if self.pll {
+            100
+        } else if self.hsi48 {
+            60
+        } else {
+            0
+        };
+        if self.hpre_step {
+            us += 2;
+        }
+        us
+    }
+}
+
 /// Prepare the clocks for Stop. Call right before entering Stop.
 ///
 /// Stop turns off the PLLs and the high-speed oscillators except the wake-up one, and the chip
@@ -187,47 +230,82 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
 }
 
 #[cfg(feature = "low-power")]
-/// Get the current stop mode
-pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
+pub(crate) fn stop_restore_exit_latency_us() -> u32 {
+    unsafe { get_stop_restore() }.map_or(0, |restore| restore.exit_latency_us())
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn get_power_mode(_cs: CriticalSection) -> Option<&'static crate::_generated::power::PowerModeEntry> {
     // If rcc is not initialized, then we're not ready to stop
     unsafe { get_stop_restore()? };
+    if !crate::_generated::power::HAS_POWER {
+        return None;
+    }
 
-    // We cannot enter standby because we will lose program state.
-    if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
-        Some(StopMode::Stop2)
-    } else if unsafe { REFCOUNT_STOP1 == 0 } {
-        Some(StopMode::Stop1)
-    } else {
-        //trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
-        //    REFCOUNT_STOP1
-        //});
-        None
+    // `MODES` is ordered shallowest -> deepest; pick the deepest mode with zero blockers.
+    let modes = crate::_generated::power::MODES;
+    let mut i = modes.len();
+    while i > 0 {
+        i -= 1;
+        let m = &modes[i];
+        let idx = m.kind.depth() as usize;
+        if unsafe { STOP_BLOCKERS[idx] } == 0 {
+            return Some(m);
+        }
+    }
+    None
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn select_power_mode(
+    _cs: CriticalSection,
+    time_until_next_alarm_us: Option<u64>,
+    driver_overhead_us: u32,
+) -> Option<(&'static crate::_generated::power::PowerModeEntry, u32)> {
+    unsafe { get_stop_restore()? };
+    if !crate::_generated::power::HAS_POWER {
+        return None;
+    }
+
+    let clock_us = stop_restore_exit_latency_us();
+    let modes = crate::_generated::power::MODES;
+    let mut i = modes.len();
+    while i > 0 {
+        i -= 1;
+        let m = &modes[i];
+        let idx = m.kind.depth() as usize;
+        if unsafe { STOP_BLOCKERS[idx] } == 0 {
+            let exit_us = m.exit_latency_us.saturating_add(clock_us);
+            let required_us = m.min_residency_us as u64 + exit_us as u64 + driver_overhead_us as u64;
+            if time_until_next_alarm_us.is_none_or(|avail| avail >= required_us) {
+                return Some((m, exit_us));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(feature = "low-power")]
+/// Get the deepest Stop mode currently permitted by active [`WakeGuard`]s.
+pub fn get_stop_mode(cs: CriticalSection) -> Option<StopMode> {
+    get_power_mode(cs).map(|m| m.kind)
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn increment_stop_blockers(_cs: CriticalSection, blocked: StopModes) {
+    for (idx, count) in unsafe { (&raw mut STOP_BLOCKERS).as_mut().unwrap() }.iter_mut().enumerate() {
+        if (blocked.0 & (1 << idx)) != 0 {
+            *count += 1;
+        }
     }
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
-    match stop_mode {
-        StopMode::Standby => {}
-        StopMode::Stop2 => unsafe {
-            REFCOUNT_STOP2 += 1;
-        },
-        StopMode::Stop1 => unsafe {
-            REFCOUNT_STOP1 += 1;
-        },
-    }
-}
-
-#[cfg(feature = "low-power")]
-pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
-    match stop_mode {
-        StopMode::Standby => {}
-        StopMode::Stop2 => unsafe {
-            REFCOUNT_STOP2 -= 1;
-        },
-        StopMode::Stop1 => unsafe {
-            REFCOUNT_STOP1 -= 1;
-        },
+pub(crate) fn decrement_stop_blockers(_cs: CriticalSection, blocked: StopModes) {
+    for (idx, count) in unsafe { (&raw mut STOP_BLOCKERS).as_mut().unwrap() }.iter_mut().enumerate() {
+        if (blocked.0 & (1 << idx)) != 0 {
+            *count -= 1;
+        }
     }
 }
 
@@ -240,6 +318,46 @@ pub(crate) trait SealedRccPeripheral {
 
 #[allow(private_bounds)]
 pub trait RccPeripheral: SealedRccPeripheral + 'static {}
+
+/// Bitmask of Stop modes (`Stop0`..`Stop3`) supported by a peripheral or kernel clock.
+#[cfg(feature = "low-power")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct StopModes(pub u8);
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+impl StopModes {
+    pub const NONE: Self = Self(0);
+    pub const STOP0: Self = Self(1 << 0);
+    pub const STOP1: Self = Self(1 << 1);
+    pub const STOP2: Self = Self(1 << 2);
+    pub const STOP3: Self = Self(1 << 3);
+    pub const ALL: Self = Self(0b1111);
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn contains(self, mode: StopMode) -> bool {
+        let bit = mode.bit();
+        bit != 0 && (self.0 & bit) != 0
+    }
+
+    pub const fn intersect(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    pub const fn without(self, allowed: Self) -> Self {
+        Self(self.0 & !allowed.0)
+    }
+}
+
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+pub(crate) fn const_stop_modes<const MASK: u8>() -> StopModes {
+    StopModes(MASK)
+}
 
 /// Runtime information necessary to reset, enable and disable a peripheral.
 pub(crate) struct RccInfo {
@@ -255,41 +373,86 @@ pub(crate) struct RccInfo {
     /// If this peripheral shares the same xxxRSTR bit and xxxEN bit with other peripherals, we
     /// maintain a refcount in `crate::_generated::REFCOUNTS` at this index.
     refcount_idx: Option<RefcountIndex>,
-    /// Stop mode of the peripheral, used to maintain `REFCOUNT_STOP1` and `REFCOUNT_STOP2`.
+    /// Offset in 32-bit words of the xxxSMENR/LPENR/STPENR register into RCC, or 0xff if absent.
     #[cfg(feature = "low-power")]
-    stop_mode: StopMode,
+    stop_enable_offset_or_0xff: u8,
+    /// Position of the Stop clock enable bit.
+    #[cfg(feature = "low-power")]
+    stop_enable_bit: u8,
+    /// Offset in 32-bit words of the xxxAMR autonomous enable register into RCC, or 0xff if absent.
+    #[cfg(feature = "low-power")]
+    autonomous_enable_offset_or_0xff: u8,
+    /// Position of the autonomous enable bit.
+    #[cfg(feature = "low-power")]
+    autonomous_enable_bit: u8,
+    /// Stop modes supported by this peripheral instance.
+    #[cfg(feature = "low-power")]
+    lp_modes: StopModes,
+    /// Capability flags: bit 0 = autonomous, bit 1 = wake_capable.
+    #[cfg(feature = "low-power")]
+    lp_flags: u8,
+    /// EXTI wakeup line if this peripheral wakes over a dedicated EXTI line.
+    #[cfg(feature = "low-power")]
+    wake_exti: Option<u8>,
+    /// Returns Stop modes in which the peripheral's currently selected kernel clock survives.
+    #[cfg(feature = "low-power")]
+    kernel_stop_modes: fn() -> StopModes,
 }
 
 /// Specifies a limit for the stop mode of the peripheral or the stop mode to be entered.
-/// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
+/// E.g. if `StopMode::Stop1` is selected in [`WakeGuard::new`], Stop 1 and deeper modes are prevented.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopMode {
+    /// Stop 0 mode (main regulator active)
+    Stop0,
     #[default]
     /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
     Stop1,
     /// Peripheral prevents chip from entering Stop2 or executor will enter Stop2
     Stop2,
+    /// Peripheral prevents chip from entering Stop3 or executor will enter Stop3
+    Stop3,
     /// Peripheral does not prevent chip from entering Stop
     Standby,
 }
 
 #[cfg(feature = "low-power")]
 impl StopMode {
-    /// Return whether this stop mode is at least another stop mode.
+    const fn depth(self) -> u8 {
+        match self {
+            Self::Stop0 => 0,
+            Self::Stop1 => 1,
+            Self::Stop2 => 2,
+            Self::Stop3 => 3,
+            Self::Standby => 4,
+        }
+    }
+
+    pub(crate) const fn bit(self) -> u8 {
+        match self {
+            Self::Stop0 => 1 << 0,
+            Self::Stop1 => 1 << 1,
+            Self::Stop2 => 1 << 2,
+            Self::Stop3 => 1 << 3,
+            Self::Standby => 0,
+        }
+    }
+
+    /// Return whether this stop mode is at least as deep as another stop mode.
     pub const fn at_least(&self, other: StopMode) -> bool {
-        match other {
-            Self::Stop1 => true,
-            Self::Stop2 => match *self {
-                Self::Stop2 | Self::Standby => true,
-                _ => false,
-            },
-            Self::Standby => match *self {
-                Self::Standby => true,
-                _ => false,
-            },
+        self.depth() >= other.depth()
+    }
+
+    const fn blocked_modes(self) -> StopModes {
+        match self {
+            Self::Stop0 => StopModes::ALL,
+            Self::Stop1 => StopModes(StopModes::STOP1.0 | StopModes::STOP2.0 | StopModes::STOP3.0),
+            Self::Stop2 => StopModes(StopModes::STOP2.0 | StopModes::STOP3.0),
+            Self::Stop3 => StopModes::STOP3,
+            Self::Standby => StopModes::NONE,
         }
     }
 }
@@ -298,18 +461,33 @@ impl RccInfo {
     /// Safety:
     /// - `reset_offset_and_bit`, if set, must correspond to valid xxxRST bit
     /// - `enable_offset_and_bit` must correspond to valid xxxEN bit
-    /// - `stop_mode` must be valid
+    #[allow(clippy::too_many_arguments)]
     pub(crate) const unsafe fn new(
         reset_offset_and_bit: Option<(u8, u8)>,
         enable_offset_and_bit: (u8, u8),
         refcount_idx: Option<RefcountIndex>,
-        #[cfg(feature = "low-power")] stop_mode: StopMode,
+        #[cfg(feature = "low-power")] stop_enable_offset_and_bit: Option<(u8, u8)>,
+        #[cfg(feature = "low-power")] autonomous_enable_offset_and_bit: Option<(u8, u8)>,
+        #[cfg(feature = "low-power")] lp_modes: StopModes,
+        #[cfg(feature = "low-power")] lp_flags: u8,
+        #[cfg(feature = "low-power")] wake_exti: Option<u8>,
+        #[cfg(feature = "low-power")] kernel_stop_modes: fn() -> StopModes,
     ) -> Self {
         let (reset_offset_or_0xff, reset_bit) = match reset_offset_and_bit {
             Some((offset, bit)) => (offset, bit),
             None => (0xff, 0xff),
         };
         let (enable_offset, enable_bit) = enable_offset_and_bit;
+        #[cfg(feature = "low-power")]
+        let (stop_enable_offset_or_0xff, stop_enable_bit) = match stop_enable_offset_and_bit {
+            Some((offset, bit)) => (offset, bit),
+            None => (0xff, 0xff),
+        };
+        #[cfg(feature = "low-power")]
+        let (autonomous_enable_offset_or_0xff, autonomous_enable_bit) = match autonomous_enable_offset_and_bit {
+            Some((offset, bit)) => (offset, bit),
+            None => (0xff, 0xff),
+        };
         Self {
             reset_offset_or_0xff,
             reset_bit,
@@ -317,20 +495,26 @@ impl RccInfo {
             enable_bit,
             refcount_idx,
             #[cfg(feature = "low-power")]
-            stop_mode,
+            stop_enable_offset_or_0xff,
+            #[cfg(feature = "low-power")]
+            stop_enable_bit,
+            #[cfg(feature = "low-power")]
+            autonomous_enable_offset_or_0xff,
+            #[cfg(feature = "low-power")]
+            autonomous_enable_bit,
+            #[cfg(feature = "low-power")]
+            lp_modes,
+            #[cfg(feature = "low-power")]
+            lp_flags,
+            #[cfg(feature = "low-power")]
+            wake_exti,
+            #[cfg(feature = "low-power")]
+            kernel_stop_modes,
         }
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) {
-        self.enable_and_reset_with_cs_inner(cs, false);
-    }
-
-    pub(crate) fn enable_and_reset_with_cs_no_refcount(&self, cs: CriticalSection) {
-        self.enable_and_reset_with_cs_inner(cs, true);
-    }
-
-    fn enable_and_reset_with_cs_inner(&self, cs: CriticalSection, no_refcount: bool) {
         if let Some(refcount_idx) = self.refcount_idx {
             let refcount_idx = refcount_idx as usize;
             let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
@@ -360,29 +544,18 @@ impl RccInfo {
             }
         }
 
-        self.enable_with_cs_inner(cs, no_refcount);
-    }
-
-    pub(crate) fn enable_with_cs(&self, cs: CriticalSection) {
-        self.enable_with_cs_inner(cs, false);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn enable_with_cs_no_refcount(&self, cs: CriticalSection) {
-        self.enable_with_cs_inner(cs, true);
+        self.enable_with_cs(cs);
     }
 
     // TODO: should this be `unsafe`?
-    fn enable_with_cs_inner(&self, cs: CriticalSection, no_refcount: bool) {
+    pub(crate) fn enable_with_cs(&self, _cs: CriticalSection) {
         // set the xxxEN bit
-        let already_enabled = unsafe {
+        unsafe {
             let val = self.enable_ptr().read_volatile();
             self.enable_ptr().write_volatile(val | 1u32 << self.enable_bit);
 
             trace!("rcc: enabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
-
-            (val & 1u32 << self.enable_bit) > 0
-        };
+        }
 
         // we must wait two peripheral clock cycles before the clock is active
         // this seems to work, but might be incorrect
@@ -401,14 +574,10 @@ impl RccInfo {
                 reset_ptr.write_volatile(val & !(1u32 << self.reset_bit));
             }
         }
-
-        if !already_enabled && !no_refcount {
-            self.increment_minimum_stop_refcount_with_cs(cs);
-        }
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn disable_with_cs(&self, cs: CriticalSection) {
+    pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) {
         if let Some(refcount_idx) = self.refcount_idx {
             let refcount_idx = refcount_idx as usize;
             let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
@@ -419,34 +588,10 @@ impl RccInfo {
         }
 
         // clear the xxxEN bit
-        let already_disabled = unsafe {
+        unsafe {
             let val = self.enable_ptr().read_volatile();
             self.enable_ptr().write_volatile(val & !(1u32 << self.enable_bit));
             trace!("rcc: disabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
-
-            (val & 1u32 << self.enable_bit) == 0
-        };
-
-        if !already_disabled {
-            self.decrement_minimum_stop_refcount_with_cs(cs);
-        }
-    }
-
-    #[allow(dead_code)]
-    fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
-            _ => {}
-        }
-    }
-
-    #[allow(dead_code)]
-    fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
-        #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
-            _ => {}
         }
     }
 
@@ -460,56 +605,125 @@ impl RccInfo {
         critical_section::with(|cs| self.disable_with_cs(cs))
     }
 
+    /// Block entering any Stop mode while an active peripheral transaction requires
+    /// system/bus clocks.
     #[allow(dead_code)]
     pub(crate) fn wake_guard(&self) -> WakeGuard {
-        WakeGuard::new(
-            #[cfg(feature = "low-power")]
-            self.stop_mode,
-        )
+        WakeGuard::no_stop()
+    }
+
+    /// Stop modes supported by both this peripheral and its active kernel clock.
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) fn surviving_stop_modes(&self) -> StopModes {
+        self.lp_modes.intersect((self.kernel_stop_modes)())
+    }
+
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) const fn is_wake_capable(&self) -> bool {
+        (self.lp_flags & (1 << 1)) != 0
+    }
+
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) const fn is_autonomous(&self) -> bool {
+        (self.lp_flags & (1 << 0)) != 0
+    }
+
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) const fn wake_exti(&self) -> Option<u8> {
+        self.wake_exti
+    }
+
+    /// Acquire a `WakeGuard` capping Stop to the modes in which this peripheral
+    /// and its currently selected kernel clock survive (blocking Stop completely
+    /// if none survive).
+    #[allow(dead_code)]
+    pub(crate) fn stop_wake_guard(&self) -> WakeGuard {
+        #[cfg(feature = "low-power")]
+        {
+            WakeGuard::for_modes(self.surviving_stop_modes())
+        }
+        #[cfg(not(feature = "low-power"))]
+        {
+            WakeGuard::no_stop()
+        }
+    }
+
+    /// Enable the peripheral's Stop-mode clock gating bit (`*SMENR`/`*LPENR`/`*STPENR`)
+    /// and autonomous-mode bit (`*AMR`) if present.
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) fn enable_stop_and_autonomous(&self) {
+        if self.stop_enable_offset_or_0xff != 0xff {
+            unsafe {
+                let ptr = self.reg_ptr(self.stop_enable_offset_or_0xff, true);
+                let val = ptr.read_volatile();
+                ptr.write_volatile(val | (1u32 << self.stop_enable_bit));
+            }
+        }
+        if self.autonomous_enable_offset_or_0xff != 0xff {
+            unsafe {
+                let ptr = self.reg_ptr(self.autonomous_enable_offset_or_0xff, false);
+                let val = ptr.read_volatile();
+                ptr.write_volatile(val | (1u32 << self.autonomous_enable_bit));
+            }
+        }
     }
 
     const fn reset_ptr(&self) -> Option<*mut u32> {
         if self.reset_offset_or_0xff != 0xff {
-            Some(unsafe { (RCC.as_ptr() as *mut u32).add(self.reset_offset_or_0xff as _) })
+            Some(self.reg_ptr(self.reset_offset_or_0xff, false))
         } else {
             None
         }
     }
 
     const fn enable_ptr(&self) -> *mut u32 {
-        #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
-        unsafe {
-            (RCC.as_ptr() as *mut u32).add(self.enable_offset as _).add(0x100 / 4)
-        }
+        self.reg_ptr(self.enable_offset, true)
+    }
 
-        #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
-        unsafe {
-            (RCC.as_ptr() as *mut u32).add(self.enable_offset as _)
+    const fn reg_ptr(&self, offset: u8, _mirror_wl_cm0p: bool) -> *mut u32 {
+        #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+        if _mirror_wl_cm0p {
+            return unsafe { (RCC.as_ptr() as *mut u32).add(offset as _).add(0x100 / 4) };
         }
+        unsafe { (RCC.as_ptr() as *mut u32).add(offset as _) }
     }
 }
 
 pub struct WakeGuard {
     #[cfg(feature = "low-power")]
-    stop_mode: StopMode,
+    blocked: StopModes,
 }
 
 impl WakeGuard {
     pub fn new(#[cfg(feature = "low-power")] stop_mode: StopMode) -> Self {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| increment_stop_refcount(cs, stop_mode));
+        let blocked = stop_mode.blocked_modes();
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| increment_stop_blockers(cs, blocked));
 
         Self {
             #[cfg(feature = "low-power")]
-            stop_mode,
+            blocked,
         }
     }
 
+    #[cfg(feature = "low-power")]
+    pub(crate) fn for_modes(allowed: StopModes) -> Self {
+        let blocked = StopModes::ALL.without(allowed);
+        critical_section::with(|cs| increment_stop_blockers(cs, blocked));
+        Self { blocked }
+    }
+
     /// Keeps the chip out of every Stop mode.
-    pub(crate) fn no_stop() -> Self {
+    pub fn no_stop() -> Self {
         Self::new(
             #[cfg(feature = "low-power")]
-            StopMode::Stop1,
+            StopMode::Stop0,
         )
     }
 }
@@ -517,7 +731,7 @@ impl WakeGuard {
 impl Drop for WakeGuard {
     fn drop(&mut self) {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
+        critical_section::with(|cs| decrement_stop_blockers(cs, self.blocked));
     }
 }
 
@@ -528,7 +742,7 @@ impl From<WakeGuard> for MaybeWakeGuard {
 
         MaybeWakeGuard {
             #[cfg(feature = "low-power")]
-            stop_mode: wake_guard.stop_mode,
+            blocked: wake_guard.blocked,
             #[cfg(feature = "low-power")]
             enabled: false,
         }
@@ -537,7 +751,7 @@ impl From<WakeGuard> for MaybeWakeGuard {
 
 pub struct MaybeWakeGuard {
     #[cfg(feature = "low-power")]
-    stop_mode: StopMode,
+    blocked: StopModes,
     #[cfg(feature = "low-power")]
     enabled: bool,
 }
@@ -546,14 +760,14 @@ impl MaybeWakeGuard {
     pub fn enable(&mut self) {
         #[cfg(feature = "low-power")]
         if !core::mem::replace(&mut self.enabled, true) {
-            critical_section::with(|cs| increment_stop_refcount(cs, self.stop_mode));
+            critical_section::with(|cs| increment_stop_blockers(cs, self.blocked));
         }
     }
 
     pub fn disable(&mut self) {
         #[cfg(feature = "low-power")]
         if core::mem::replace(&mut self.enabled, false) {
-            critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
+            critical_section::with(|cs| decrement_stop_blockers(cs, self.blocked));
         }
     }
 }
@@ -616,15 +830,10 @@ pub fn frequency<T: RccPeripheral>() -> Hertz {
     T::frequency()
 }
 
-/// Enables and resets peripheral `T` without incrementing refcount.
-///
-/// # Safety
-///
-/// Peripheral must not be in use.
-// TODO: should this be `unsafe`?
+/// Enables and resets peripheral `T` without touching low-power state.
 #[allow(dead_code)]
 pub(crate) fn enable_and_reset_with_cs_no_refcount<T: RccPeripheral>(cs: CriticalSection) {
-    let _ = T::RCC_INFO.enable_and_reset_with_cs_no_refcount(cs);
+    T::RCC_INFO.enable_and_reset_with_cs(cs);
 }
 
 /// Enables and resets peripheral `T`.
@@ -634,17 +843,13 @@ pub(crate) fn enable_and_reset_with_cs_no_refcount<T: RccPeripheral>(cs: Critica
 /// Peripheral must not be in use.
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
-    let _ = T::RCC_INFO.enable_and_reset_with_cs(cs);
+    T::RCC_INFO.enable_and_reset_with_cs(cs);
 }
 
-/// Enables and clears the reset for peripheral `T` without incrementing refcount.
-///
-/// # Safety
-///
-/// The peripheral can be in use since this does not reset it
+/// Enables and clears the reset for peripheral `T` without touching low-power state.
 #[allow(dead_code)]
 pub(crate) fn enable_with_cs_no_refcount<T: RccPeripheral>(cs: CriticalSection) {
-    T::RCC_INFO.enable_with_cs_no_refcount(cs);
+    T::RCC_INFO.enable_with_cs(cs);
 }
 
 /// Enables and clears the reset for peripheral `T`.
@@ -742,4 +947,43 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 #[allow(unused)]
 pub(crate) fn raw_prescaler(freq_in: u32, freq_max: u32) -> u32 {
     freq_in.saturating_sub(1) / freq_max
+}
+
+#[cfg(all(test, feature = "low-power"))]
+mod tests {
+    use super::ClockRestoreTiming;
+
+    #[test]
+    fn clock_restore_latency_reflects_oscillators_and_pll() {
+        let rc_only = ClockRestoreTiming {
+            hsi: true,
+            ..Default::default()
+        };
+        assert_eq!(rc_only.exit_latency_us(), 10);
+
+        let hsi_pll = ClockRestoreTiming {
+            hsi: true,
+            pll: true,
+            hpre_step: true,
+            ..Default::default()
+        };
+        assert_eq!(hsi_pll.exit_latency_us(), 112);
+
+        let hse_bypass_pll = ClockRestoreTiming {
+            hse_bypass: true,
+            hsi: true,
+            pll: true,
+            ..Default::default()
+        };
+        assert_eq!(hse_bypass_pll.exit_latency_us(), 110);
+
+        let hse_crystal_pll_vos = ClockRestoreTiming {
+            hse_osc: true,
+            hsi: true,
+            pll: true,
+            vos: true,
+            ..Default::default()
+        };
+        assert_eq!(hse_crystal_pll_vos.exit_latency_us(), 2_130);
+    }
 }

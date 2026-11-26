@@ -80,11 +80,17 @@ pub(super) fn invalidate_anchor() {
     critical_section::with(|cs| ANCHOR.borrow(cs).set(None));
 }
 
-/// Start the wakeup alarm and with a duration that is as close to but less than the requested duration
+/// Start the wakeup alarm with a duration that is as close to but less than the requested duration,
+/// minus `exit_latency` so clock restoration finishes by the target deadline.
 ///
 /// `now` is the current time of the time driver, which must be stopped right after this
 /// call and stay stopped until `stop_wakeup_alarm`.
-pub(crate) fn start_wakeup_alarm(cs: CriticalSection, requested_duration: Duration, now: Instant) {
+pub(crate) fn start_wakeup_alarm(
+    cs: CriticalSection,
+    requested_duration: Duration,
+    now: Instant,
+    exit_latency: Duration,
+) {
     let anchor = ANCHOR.borrow(cs);
     let max_anchor_age = Duration::from_secs(MAX_ANCHOR_AGE_SECONDS as u64);
     if anchor
@@ -98,7 +104,10 @@ pub(crate) fn start_wakeup_alarm(cs: CriticalSection, requested_duration: Durati
     }
 
     let rtc_hz: u32 = Rtc::frequency().0;
-    let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
+    let requested_duration = requested_duration
+        .as_ticks()
+        .saturating_sub(exit_latency.as_ticks())
+        .clamp(0, u32::MAX as u64);
     let rtc_ticks: u32 = (requested_duration * rtc_hz as u64 / TICK_HZ).clamp(0, u32::MAX as u64) as u32;
     let (wucksel, prescaler) = wucksel_compute_min(rtc_ticks / u16::MAX as u32, rtc_hz);
 
@@ -201,18 +210,10 @@ impl Rtc<'_> {
                 EXTI.cpu(0).imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
             }
         }
-        #[cfg(stm32u5)]
-        {
-            use crate::pac::RCC;
-            RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
-            RCC.apb3smenr().modify(|w| w.set_rtcapbsmen(true));
-        }
-        #[cfg(stm32wba)]
-        {
-            use crate::pac::RCC;
-            // RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
-            RCC.apb7smenr().modify(|w| w.set_rtcapbsmen(true));
-        }
+        #[cfg(all(feature = "low-power", stm32u5))]
+        <RTC as crate::rcc::SealedRccPeripheral>::RCC_INFO.enable_stop_and_autonomous();
+        #[cfg(all(feature = "low-power", stm32wba))]
+        crate::pac::RCC.apb7smenr().modify(|w| w.set_rtcapbsmen(true));
     }
 }
 

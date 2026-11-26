@@ -1318,6 +1318,7 @@ impl<'d> Sdmmc<'d> {
         micros: u64,
         check: impl Fn(crate::pac::sdmmc::regs::Star) -> bool,
     ) -> Result<(), Error> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let regs = self.info.regs;
         try_until(async || check(regs.star().read()), micros)
             .await
@@ -1394,6 +1395,7 @@ impl<'d> Sdmmc<'d> {
     #[inline]
     #[allow(unused)]
     async fn complete_datapath_transfer(&self, mut transfer: WrappedTransfer<'_>, block: bool) -> Result<(), Error> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let res = poll_fn(|cx| {
             // Compiler might not be sufficiently constrained here
             // https://github.com/embassy-rs/embassy/issues/4723
@@ -1446,6 +1448,7 @@ impl<'d> Sdmmc<'d> {
     where
         R: ::sdio::Response,
     {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         trace!("cmd arg: 0x{:x} 0x{:x}", cmd, arg);
 
         self.clear_interrupt_flags();
@@ -1657,6 +1660,8 @@ impl<'d> MmcBus for Sdmmc<'d> {
         if self._d1.is_none() || self._d1.as_ref().unwrap().is_low() {
             return Ok(());
         }
+
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
 
         let _guard = DropGuard::new((), |()| {
             self.info.regs.dctrl().modify(|w| w.set_sdioen(false));

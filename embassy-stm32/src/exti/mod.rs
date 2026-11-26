@@ -426,6 +426,8 @@ struct ExtiInputFuture<'a> {
     pin: u8,
     waker: &'static AtomicWaker,
     drop: bool,
+    #[cfg(feature = "low-power")]
+    _wake_source: crate::low_power::WakeSource,
     phantom: PhantomData<&'a mut ()>,
 }
 
@@ -437,6 +439,8 @@ impl<'a> ExtiInputFuture<'a> {
             pin: pin.pin.pin.pin(),
             waker,
             drop,
+            #[cfg(feature = "low-power")]
+            _wake_source: crate::low_power::WakeSource::new(crate::low_power::WakeClass::Exti),
             phantom: PhantomData,
         }
     }

@@ -435,7 +435,10 @@ pub struct Config {
     pub rtc: rtc::RtcConfig,
 
     #[cfg(feature = "low-power")]
-    /// Minimum time to stop
+    /// Optional extra minimum sleep duration floor before entering Stop mode (defaults to 0 ms).
+    ///
+    /// Per-mode silicon residency/exit latency and runtime RCC clock-restoration latency are already
+    /// enforced automatically when selecting the deepest suitable Stop mode.
     pub min_stop_pause: embassy_time::Duration,
 
     /// Enable debug during sleep and stop.
@@ -576,7 +579,7 @@ impl Default for Config {
             #[cfg(feature = "low-power")]
             rtc: Default::default(),
             #[cfg(feature = "low-power")]
-            min_stop_pause: embassy_time::Duration::from_millis(250),
+            min_stop_pause: embassy_time::Duration::from_millis(0),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(dbgmcu)]

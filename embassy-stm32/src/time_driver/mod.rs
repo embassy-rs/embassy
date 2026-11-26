@@ -20,14 +20,23 @@ impl AlarmState {
 
 #[cfg(feature = "low-power")]
 pub(crate) trait LPTimeDriver {
+    /// Compute whether an alarm is currently pending in the time driver
+    fn has_pending_alarm(&self, cs: CriticalSection) -> bool;
+
     /// Compute the approximate amount of time until the next alarm
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration;
 
-    /// Set the minimum pause time beyond which the executor will enter a low-power state.
+    /// Set the minimum pause floor beyond which the executor will enter a low-power state.
     fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration);
 
+    /// User-configured minimum pause floor.
+    fn min_stop_pause(&self, cs: CriticalSection) -> embassy_time::Duration;
+
+    /// Time-driver stop/resume overhead in microseconds (beyond RCC clock restoration).
+    fn driver_overhead_us(&self) -> u32;
+
     /// Pause the timer if ready; return err if not
-    fn pause_time(&self, cs: CriticalSection) -> Result<(), ()>;
+    fn pause_time(&self, cs: CriticalSection, exit_latency: embassy_time::Duration) -> Result<(), ()>;
 
     /// Resume the timer with the given offset
     fn resume_time(&self, cs: CriticalSection);

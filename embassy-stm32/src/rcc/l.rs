@@ -751,6 +751,43 @@ impl StopRestore {
             });
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        #[cfg(stm32wl)]
+        let hse_bypass = s.hsebyppwr();
+        #[cfg(not(stm32wl))]
+        let hse_bypass = s.hsebyp();
+        #[cfg(crs)]
+        let hsi48 = self.hsi48;
+        #[cfg(not(crs))]
+        let hsi48 = false;
+        #[allow(unused_mut)]
+        let mut pll = s.pllon();
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
+        {
+            pll |= s.pllsai1on();
+        }
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+        {
+            pll |= s.pllsai2on();
+        }
+        #[cfg(any(rcc_l4plus, stm32l5))]
+        let hpre_step = self.hpre_step;
+        #[cfg(not(any(rcc_l4plus, stm32l5)))]
+        let hpre_step = false;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !hse_bypass,
+            hse_bypass: s.hseon() && hse_bypass,
+            hsi: s.hsion(),
+            msi: s.msion(),
+            hsi48,
+            pll,
+            hpre_step,
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 /// Switch the system clock to HSI16 before Stop, as the WB coordination with CPU2 in

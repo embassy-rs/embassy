@@ -494,6 +494,7 @@ impl<'d, M: Mode> Rng<'d, M> {
 impl<'d> Rng<'d, Async> {
     /// Fill the given slice with random values.
     pub async fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         for chunk in dest.chunks_mut(4) {
             let mut bits = self.regs().sr().read();
             if !bits.seis() && !bits.ceis() && !bits.drdy() {

@@ -237,7 +237,9 @@ impl<'a> IpccTxChannel<'a> {
 
     /// Wait for the tx channel to become clear
     pub async fn flush(&mut self) {
-        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
+        let _scoped_wake_guard = IPCC::RCC_INFO.stop_wake_guard();
+        #[cfg(feature = "low-power")]
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let regs = IPCC::regs();
         let core = CoreId::current();
 
@@ -325,7 +327,9 @@ impl<'a> IpccRxChannel<'a> {
 
     /// Receive data from an IPCC channel. The closure is called to read the data when appropriate.
     pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>) -> R {
-        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
+        let _scoped_wake_guard = IPCC::RCC_INFO.stop_wake_guard();
+        #[cfg(feature = "low-power")]
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let regs = IPCC::regs();
         let core = CoreId::current();
 

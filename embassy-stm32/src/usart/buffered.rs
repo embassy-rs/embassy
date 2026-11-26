@@ -48,11 +48,20 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
             *byte = rdr(r).read_volatile();
         } else {
             r.cr1().modify(|w| w.set_rxneie(false));
+            #[cfg(usart_v3)]
+            if state.stop_wake_enabled() {
+                r.cr3().modify(|w| w.set_wufie(false));
+            }
         }
     } else if cfg!(any(usart_v1, usart_v2)) && (sr_val.ore() || sr_val.idle()) {
         rdr(r).read_volatile();
     };
     clear_interrupt_flags(r, sr_val);
+
+    #[cfg(any(usart_v3, usart_v4))]
+    let woken = sr_val.wuf();
+    #[cfg(not(any(usart_v3, usart_v4)))]
+    let woken = false;
 
     if sr_val.pe() {
         warn!("Parity error");
@@ -77,7 +86,15 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
                 if let Some(byte) = rx_iter.next() {
                     *byte = rdr(r).read_volatile();
                 } else {
-                    r.cr3().modify(|w| w.set_rxftie(false));
+                    r.cr3().modify(|w| {
+                        w.set_rxftie(false);
+                        if state.stop_wake_enabled() {
+                            w.set_wufie(false);
+                        }
+                    });
+                    if state.stop_wake_enabled() {
+                        r.cr1().modify(|w| w.set_rxneie(false));
+                    }
                     break;
                 }
             }
@@ -96,7 +113,10 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     }
 
     if sr_val.idle() {
+        state.release_rx_lock();
         state.rx_waker.wake();
+    } else if sr_val.rxne() || woken {
+        state.acquire_rx_lock();
     }
 
     // With `usart_v4` hardware FIFO is enabled and Transmission complete (TC)
@@ -118,6 +138,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
             });
 
             state.tx_done.store(true, Ordering::Release);
+            state.release_tx_lock();
             state.tx_waker.wake();
         } else {
             r.cr1().modify(|w| w.set_tcie(false));
@@ -173,10 +194,63 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
 /// Clear `tx_done` and commit `n` bytes to the TX buffer in one critical section. Otherwise a TC interrupt for earlier
 /// data can report done between the two steps, and `flush` returns before the new bytes go out.
 fn commit_tx(state: &State, tx_writer: &mut Writer<'_>, n: usize) {
-    critical_section::with(|_| {
+    critical_section::with(|cs| {
         state.tx_done.store(false, Ordering::Release);
         tx_writer.push_done(n);
+        if n > 0 {
+            state.acquire_tx_lock_cs(cs);
+        }
     });
+}
+
+fn can_stop(info: &Info) -> bool {
+    #[cfg(all(feature = "low-power", any(usart_v3, usart_v4)))]
+    {
+        let _ = info;
+        info.rcc.is_wake_capable() && !info.rcc.surviving_stop_modes().is_empty()
+    }
+    #[cfg(not(all(feature = "low-power", any(usart_v3, usart_v4))))]
+    {
+        let _ = info;
+        false
+    }
+}
+
+fn reenable_rx_interrupts(info: &Info, state: &State) {
+    let _stop_wake = state.stop_wake_enabled();
+    #[cfg(not(usart_v4))]
+    info.regs.cr1().set_bits(|w| w.set_rxneie(true));
+    #[cfg(usart_v4)]
+    {
+        info.regs.cr3().set_bits(|w| w.set_rxftie(true));
+        if _stop_wake {
+            info.regs.cr1().set_bits(|w| w.set_rxneie(true));
+        }
+    }
+    #[cfg(any(usart_v3, usart_v4))]
+    if _stop_wake {
+        info.regs.cr3().set_bits(|w| w.set_wufie(true));
+    }
+}
+
+fn configure_rx_interrupts(info: &Info, state: &State) {
+    let _stop_wake = state.stop_wake_enabled();
+    info.regs.cr1().modify(|w| {
+        #[cfg(not(usart_v4))]
+        w.set_rxneie(true);
+        #[cfg(usart_v4)]
+        w.set_rxneie(_stop_wake);
+        w.set_idleie(true);
+        #[cfg(any(usart_v3, usart_v4))]
+        w.set_uesm(_stop_wake);
+    });
+    #[cfg(usart_v4)]
+    info.regs.cr3().modify(|w| w.set_rxftie(true));
+    #[cfg(any(usart_v3, usart_v4))]
+    if _stop_wake {
+        info.regs.icr().write(|w| w.set_wuf(true));
+        info.regs.cr3().modify(|w| w.set_wufie(true));
+    }
 }
 
 pub(super) struct State {
@@ -188,6 +262,12 @@ pub(super) struct State {
     tx_rx_refcount: AtomicU8,
     half_duplex_readback: AtomicBool,
     eager_reads: AtomicUsize,
+    #[cfg(feature = "low-power")]
+    stop_wake: AtomicBool,
+    #[cfg(feature = "low-power")]
+    tx_no_stop: AtomicBool,
+    #[cfg(feature = "low-power")]
+    rx_no_stop: AtomicBool,
 }
 
 impl State {
@@ -201,7 +281,75 @@ impl State {
             tx_rx_refcount: AtomicU8::new(0),
             half_duplex_readback: AtomicBool::new(false),
             eager_reads: AtomicUsize::new(0),
+            #[cfg(feature = "low-power")]
+            stop_wake: AtomicBool::new(false),
+            #[cfg(feature = "low-power")]
+            tx_no_stop: AtomicBool::new(false),
+            #[cfg(feature = "low-power")]
+            rx_no_stop: AtomicBool::new(false),
         }
+    }
+
+    fn set_stop_wake(&self, enabled: bool) {
+        #[cfg(feature = "low-power")]
+        {
+            self.release_tx_lock();
+            self.release_rx_lock();
+            self.stop_wake.store(enabled, Ordering::Relaxed);
+        }
+        #[cfg(not(feature = "low-power"))]
+        let _ = enabled;
+    }
+
+    fn stop_wake_enabled(&self) -> bool {
+        #[cfg(feature = "low-power")]
+        {
+            self.stop_wake.load(Ordering::Relaxed)
+        }
+        #[cfg(not(feature = "low-power"))]
+        {
+            false
+        }
+    }
+
+    fn acquire_tx_lock_cs(&self, cs: critical_section::CriticalSection<'_>) {
+        #[cfg(feature = "low-power")]
+        if self.stop_wake.load(Ordering::Relaxed) && !self.tx_no_stop.load(Ordering::Relaxed) {
+            self.tx_no_stop.store(true, Ordering::Relaxed);
+            crate::rcc::increment_stop_blockers(cs, crate::rcc::StopModes::ALL);
+        }
+        #[cfg(not(feature = "low-power"))]
+        let _ = cs;
+    }
+
+    fn release_tx_lock(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| {
+            if self.tx_no_stop.load(Ordering::Relaxed) {
+                self.tx_no_stop.store(false, Ordering::Relaxed);
+                crate::rcc::decrement_stop_blockers(cs, crate::rcc::StopModes::ALL);
+            }
+        });
+    }
+
+    fn acquire_rx_lock(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| {
+            if self.stop_wake.load(Ordering::Relaxed) && !self.rx_no_stop.load(Ordering::Relaxed) {
+                self.rx_no_stop.store(true, Ordering::Relaxed);
+                crate::rcc::increment_stop_blockers(cs, crate::rcc::StopModes::ALL);
+            }
+        });
+    }
+
+    fn release_rx_lock(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| {
+            if self.rx_no_stop.load(Ordering::Relaxed) {
+                self.rx_no_stop.store(false, Ordering::Relaxed);
+                crate::rcc::decrement_stop_blockers(cs, crate::rcc::StopModes::ALL);
+            }
+        });
     }
 }
 
@@ -222,6 +370,7 @@ pub struct BufferedUartTx<'d> {
     cts: Option<Flex<'d>>,
     de: Option<Flex<'d>>,
     is_borrowed: bool,
+    _wake_guard: Option<crate::rcc::WakeGuard>,
 }
 
 /// Rx-only buffered UART
@@ -234,6 +383,7 @@ pub struct BufferedUartRx<'d> {
     rx: Option<Flex<'d>>,
     rts: Option<Flex<'d>>,
     is_borrowed: bool,
+    _wake_guard: Option<crate::rcc::WakeGuard>,
 }
 
 impl<'d> SetConfig for BufferedUart<'d> {
@@ -484,6 +634,9 @@ impl<'d> BufferedUart<'d> {
             Ordering::Relaxed,
         );
 
+        let can_stop = can_stop(info);
+        state.set_stop_wake(can_stop);
+
         let mut this = Self {
             rx: BufferedUartRx {
                 info,
@@ -492,6 +645,11 @@ impl<'d> BufferedUart<'d> {
                 rx,
                 rts,
                 is_borrowed: false,
+                _wake_guard: Some(if can_stop {
+                    info.rcc.stop_wake_guard()
+                } else {
+                    crate::rcc::WakeGuard::no_stop()
+                }),
             },
             tx: BufferedUartTx {
                 info,
@@ -501,6 +659,11 @@ impl<'d> BufferedUart<'d> {
                 cts,
                 de,
                 is_borrowed: false,
+                _wake_guard: if can_stop {
+                    None
+                } else {
+                    Some(crate::rcc::WakeGuard::no_stop())
+                },
             },
         };
         this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
@@ -521,6 +684,10 @@ impl<'d> BufferedUart<'d> {
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
+        #[cfg(feature = "low-power")]
+        if state.stop_wake_enabled() {
+            info.rcc.enable_stop_and_autonomous();
+        }
 
         assert!(!tx_buffer.is_empty());
         let len = tx_buffer.len();
@@ -561,9 +728,8 @@ impl<'d> BufferedUart<'d> {
             false,
         )?;
 
+        configure_rx_interrupts(info, state);
         info.regs.cr1().modify(|w| {
-            w.set_rxneie(cfg!(not(usart_v4)));
-            w.set_idleie(true);
             #[cfg(usart_v4)]
             w.set_txeie(false);
 
@@ -600,6 +766,7 @@ impl<'d> BufferedUart<'d> {
                     cts: self.tx.cts.as_mut().map(|p| p.clone_unchecked()),
                     de: self.tx.de.as_mut().map(|p| p.clone_unchecked()),
                     is_borrowed: true,
+                    _wake_guard: None,
                 },
                 BufferedUartRx {
                     info: self.rx.info,
@@ -608,6 +775,7 @@ impl<'d> BufferedUart<'d> {
                     rx: self.rx.rx.as_mut().map(|p| p.clone_unchecked()),
                     rts: self.rx.rts.as_mut().map(|p| p.clone_unchecked()),
                     is_borrowed: true,
+                    _wake_guard: None,
                 },
             )
         }
@@ -622,13 +790,7 @@ impl<'d> BufferedUart<'d> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        self.rx.info.regs.cr1().modify(|w| {
-            #[cfg(not(usart_v4))]
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
-        #[cfg(usart_v4)]
-        self.rx.info.regs.cr3().modify(|w| w.set_rxftie(true));
+        configure_rx_interrupts(self.rx.info, self.rx.state);
 
         Ok(())
     }
@@ -711,6 +873,12 @@ impl<'d> BufferedUartRx<'d> {
     ///
     /// Returns the number of bytes read, which is at least 1 if `buf` is not empty.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        #[cfg(feature = "low-power")]
+        let _wake_source = self
+            .state
+            .stop_wake_enabled()
+            .then(|| crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral));
+
         poll_fn(move |cx| {
             let state = self.state;
             let mut rx_reader = unsafe { state.rx_buf.reader() };
@@ -724,10 +892,7 @@ impl<'d> BufferedUartRx<'d> {
 
                 let do_pend = state.rx_buf.is_full();
                 rx_reader.pop_done(data_len);
-                #[cfg(not(usart_v4))]
-                self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
-                #[cfg(usart_v4)]
-                self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
+                reenable_rx_interrupts(self.info, state);
 
                 if do_pend {
                     self.info.interrupt.pend();
@@ -763,10 +928,7 @@ impl<'d> BufferedUartRx<'d> {
 
                 let do_pend = state.rx_buf.is_full();
                 rx_reader.pop_done(data_len);
-                #[cfg(not(usart_v4))]
-                self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
-                #[cfg(usart_v4)]
-                self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
+                reenable_rx_interrupts(self.info, state);
 
                 if do_pend {
                     self.info.interrupt.pend();
@@ -782,6 +944,12 @@ impl<'d> BufferedUartRx<'d> {
     ///
     /// Call [`consume`](Self::consume) to mark bytes as read.
     pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+        #[cfg(feature = "low-power")]
+        let _wake_source = self
+            .state
+            .stop_wake_enabled()
+            .then(|| crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral));
+
         poll_fn(move |cx| {
             let state = self.state;
             let mut rx_reader = unsafe { state.rx_buf.reader() };
@@ -803,10 +971,7 @@ impl<'d> BufferedUartRx<'d> {
         let mut rx_reader = unsafe { state.rx_buf.reader() };
         let full = state.rx_buf.is_full();
         rx_reader.pop_done(amt);
-        #[cfg(not(usart_v4))]
-        self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
-        #[cfg(usart_v4)]
-        self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
+        reenable_rx_interrupts(self.info, state);
         if full {
             self.info.interrupt.pend();
         }
@@ -826,13 +991,7 @@ impl<'d> BufferedUartRx<'d> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        self.info.regs.cr1().modify(|w| {
-            #[cfg(not(usart_v4))]
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
-        #[cfg(usart_v4)]
-        self.info.regs.cr3().modify(|w| w.set_rxftie(true));
+        configure_rx_interrupts(self.info, self.state);
 
         Ok(())
     }
@@ -932,13 +1091,7 @@ impl<'d> BufferedUartTx<'d> {
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure(self.info, self.kernel_clock, config)?;
 
-        self.info.regs.cr1().modify(|w| {
-            #[cfg(not(usart_v4))]
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
-        #[cfg(usart_v4)]
-        self.info.regs.cr3().modify(|w| w.set_rxftie(true));
+        configure_rx_interrupts(self.info, self.state);
 
         Ok(())
     }
@@ -958,6 +1111,20 @@ impl<'d> Drop for BufferedUartRx<'d> {
     fn drop(&mut self) {
         if !self.is_borrowed {
             let state = self.state;
+            self.info.regs.cr1().modify(|w| {
+                w.set_re(false);
+                w.set_rxneie(false);
+                w.set_idleie(false);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_uesm(false);
+            });
+            #[cfg(any(usart_v3, usart_v4))]
+            self.info.regs.cr3().modify(|w| {
+                #[cfg(usart_v4)]
+                w.set_rxftie(false);
+                w.set_wufie(false);
+            });
+
             unsafe {
                 state.rx_buf.deinit();
 
@@ -967,6 +1134,7 @@ impl<'d> Drop for BufferedUartRx<'d> {
                     self.info.interrupt.disable();
                 }
             }
+            state.release_rx_lock();
 
             drop_tx_rx(self.info, state);
         } else {
@@ -980,6 +1148,14 @@ impl<'d> Drop for BufferedUartTx<'d> {
     fn drop(&mut self) {
         if !self.is_borrowed {
             let state = self.state;
+            self.info.regs.cr1().modify(|w| {
+                w.set_tcie(false);
+                #[cfg(not(usart_v4))]
+                w.set_txeie(false);
+            });
+            #[cfg(usart_v4)]
+            self.info.regs.cr3().modify(|w| w.set_txftie(false));
+
             unsafe {
                 state.tx_buf.deinit();
 
@@ -989,6 +1165,7 @@ impl<'d> Drop for BufferedUartTx<'d> {
                     self.info.interrupt.disable();
                 }
             }
+            state.release_tx_lock();
             drop_tx_rx(self.info, state);
         } else {
             mem::forget(self.tx.take());

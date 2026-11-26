@@ -43,7 +43,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::Flash;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::{Config as RccConfig, StopMode, WakeGuard};
+use embassy_stm32::rcc::{Config as RccConfig, WakeGuard};
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::fus::StackType;
 use panic_probe as _;
@@ -105,7 +105,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("STM32WB55 FUS OTA");
 
-    let _guard = WakeGuard::new(StopMode::Stop1);
+    let _guard = WakeGuard::no_stop();
 
     let mut flash = Flash::new_blocking(p.FLASH, Default::default());
 

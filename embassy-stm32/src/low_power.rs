@@ -67,9 +67,67 @@ use critical_section::CriticalSection;
 
 #[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 use crate::interrupt;
+use crate::_generated::power::{DIALECT, Dialect, PowerModeEntry};
 pub use crate::rcc::StopMode;
-use crate::rcc::get_stop_mode;
+use crate::rcc::{StopModes, select_power_mode};
 use crate::time_driver::{LPTimeDriver, get_driver};
+
+/// Classification of an armed wake-up source that can bring the core out of Stop mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WakeClass {
+    /// Wake-up alarm from the low-power time driver / RTC.
+    Time,
+    /// Wake-up edge from EXTI GPIO input wait.
+    Exti,
+    /// Wake-up event from a Stop-capable peripheral.
+    Peripheral,
+}
+
+static WAKE_SOURCES: embassy_sync::blocking_mutex::Mutex<
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    [core::cell::Cell<u16>; 3],
+> = embassy_sync::blocking_mutex::Mutex::const_new(
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex::new(),
+    [
+        core::cell::Cell::new(0),
+        core::cell::Cell::new(0),
+        core::cell::Cell::new(0),
+    ],
+);
+
+/// RAII token registering an armed wake-up source for Stop mode.
+///
+/// While at least one [`WakeSource`] is active (or the time driver has a pending
+/// timer alarm), [`sleep`] may enter Stop mode; otherwise it degrades to plain `WFI`.
+pub struct WakeSource {
+    class: WakeClass,
+}
+
+impl WakeSource {
+    /// Register an armed wake-up source of `class` until dropped.
+    pub fn new(class: WakeClass) -> Self {
+        WAKE_SOURCES.lock(|sources| {
+            let cell = &sources[class as usize];
+            cell.set(cell.get() + 1);
+        });
+        Self { class }
+    }
+}
+
+impl Drop for WakeSource {
+    fn drop(&mut self) {
+        WAKE_SOURCES.lock(|sources| {
+            let cell = &sources[self.class as usize];
+            cell.set(cell.get() - 1);
+        });
+    }
+}
+
+fn has_armed_wake_source(cs: CriticalSection) -> bool {
+    let registered = WAKE_SOURCES.borrow(cs).iter().any(|c| c.get() > 0);
+    registered || get_driver().has_pending_alarm(cs)
+}
 
 #[cfg(all(feature = "rt", not(feature = "_lp-time-driver")))]
 foreach_interrupt! {
@@ -81,24 +139,8 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba, stm32wb, stm32wl, stm32u0))]
-use crate::pac::pwr::vals::Lpms;
-
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba, stm32wb, stm32wl, stm32u0))]
-impl Into<Lpms> for StopMode {
-    fn into(self) -> Lpms {
-        match self {
-            StopMode::Stop1 => Lpms::Stop1,
-            #[cfg(any(feature = "stm32wba65ri", not(stm32wba)))]
-            StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
-            #[cfg(all(stm32wba, not(feature = "stm32wba65ri")))]
-            StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
-        }
-    }
-}
-
-/// Enter stop mode
-fn enter_stop(stop_mode: StopMode) -> Result<(), ()> {
+/// Configure PWR registers to enter the selected Stop `entry`.
+fn enter_stop(entry: &PowerModeEntry) -> Result<(), ()> {
     #[cfg(stm32wb)]
     let mutex = {
         use crate::hsem::get_hsem;
@@ -137,247 +179,289 @@ fn enter_stop(stop_mode: StopMode) -> Result<(), ()> {
         sem3_mutex
     };
 
-    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32u0, stm32wb, stm32wba, stm32wl))]
-    {
-        #[cfg(not(feature = "_core-cm0p"))]
-        crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
-        #[cfg(feature = "_core-cm0p")]
-        crate::pac::PWR.c2cr1().modify(|m| m.set_lpms(stop_mode.into()));
-    }
-    #[cfg(stm32h5)]
-    crate::pac::PWR.pmcr().modify(|v| {
-        use crate::pac::pwr::vals;
-        v.set_lpms(vals::Lpms::Stop);
-        v.set_svos(vals::Svos::Scale3);
-    });
+    match DIALECT {
+        Dialect::Classic => {
+            #[cfg(stm32l0)]
+            {
+                use crate::pac::pwr::vals;
+                crate::pac::PWR.cr().modify(|w| {
+                    w.set_pdds(vals::Pdds::StopMode);
+                    w.set_lpsdsr(if entry.selector != 0 {
+                        vals::Mode::LowPowerMode
+                    } else {
+                        vals::Mode::MainMode
+                    });
+                });
+            }
 
-    #[cfg(stm32l0)]
-    {
-        use crate::pac::pwr::vals;
-        crate::pac::PWR.cr().modify(|w| {
-            w.set_pdds(vals::Pdds::StopMode);
-            w.set_lpsdsr(vals::Mode::LowPowerMode);
-        });
-    }
+            #[cfg(stm32l1)]
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+                w.set_lpsdsr(entry.selector != 0);
+            });
 
-    #[cfg(stm32l1)]
-    crate::pac::PWR.cr().modify(|w| {
-        w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
-        w.set_lpsdsr(true);
-    });
+            #[cfg(any(stm32f4, stm32f7))]
+            crate::pac::PWR.cr1().modify(|w| {
+                w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+                w.set_lpds(entry.selector != 0);
+            });
 
-    #[cfg(any(stm32f4, stm32f7))]
-    crate::pac::PWR.cr1().modify(|w| {
-        w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
-        w.set_lpds(true);
-    });
+            #[cfg(stm32f3)]
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+                w.set_lpds(entry.selector != 0);
+            });
+        }
+        Dialect::LpmsScr => {
+            #[cfg(any(stm32g0, stm32g4))]
+            crate::pac::PWR.cr1().modify(|w| w.set_lpms(entry.selector));
 
-    #[cfg(stm32f3)]
-    crate::pac::PWR.cr().modify(|w| {
-        w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
-        w.set_lpds(true);
-    });
-
-    // Stop 0 and Stop 1 have the same peripherals and wake-up sources (RM0444 4.3), Stop 1
-    // only turns the main regulator off.
-    #[cfg(stm32g0)]
-    crate::pac::PWR.cr1().modify(|w| w.set_lpms(0b001));
-
-    #[cfg(stm32g4)]
-    {
-        // G4's stop modes are numbered the opposite way round from the L4/U5 families, and
-        // there is no Stop 2 at all: RM0440 §6.3.6/§6.3.7 define "Stop 0" as the main
-        // regulator staying on (fastest wake, higher current) and "Stop 1" as the main
-        // regulator being off with only the low-power regulator running (lowest current,
-        // slower wake). Table 41 in the RM uses a single merged "Stop 0/1" column, i.e. the
-        // two modes have *identical* peripheral availability and wake-up sources - the only
-        // difference is regulator current versus latency.
-        //
-        // Therefore every stop request maps to LPMS = 0b001 (G4 "Stop 1"), the lowest-current
-        // stop available: there is nothing to gain from the shallower G4 "Stop 0" here.
-        // LPMS = 0b011 is Standby and 0b1xx is Shutdown; neither is ever entered from here
-        // because both lose program state (see `rcc::get_stop_mode`).
-        crate::pac::PWR.cr1().modify(|w| w.set_lpms(0b001));
-        let _ = stop_mode;
+            #[cfg(any(stm32l4, stm32l5, stm32u0))]
+            crate::pac::PWR
+                .cr1()
+                .modify(|w| w.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
+        }
+        Dialect::LpmsSrWuscr => {
+            #[cfg(any(stm32u3, stm32u5, stm32wba))]
+            crate::pac::PWR
+                .cr1()
+                .modify(|w| w.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
+        }
+        Dialect::Extscr => {
+            #[cfg(any(stm32wb, stm32wl))]
+            {
+                #[cfg(not(feature = "_core-cm0p"))]
+                crate::pac::PWR
+                    .cr1()
+                    .modify(|m| m.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
+                #[cfg(feature = "_core-cm0p")]
+                crate::pac::PWR
+                    .c2cr1()
+                    .modify(|m| m.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
+            }
+        }
+        Dialect::PmcrSvos => {
+            #[cfg(stm32h5)]
+            crate::pac::PWR.pmcr().modify(|v| {
+                use crate::pac::pwr::vals;
+                v.set_lpms(vals::Lpms::from_bits(entry.selector));
+                if let Some(svos) = entry.min_svos {
+                    v.set_svos(vals::Svos::from_bits(svos));
+                }
+            });
+        }
+        Dialect::DomainPdds | Dialect::Wb0Deepstop => {}
     }
 
     #[cfg(stm32wb)]
     drop(mutex);
 
-    let _ = stop_mode;
-
     Ok(())
 }
 
-/// Clear any previous stop flags
-fn clear_flags() {
-    #[cfg(stm32wl)]
-    crate::pac::PWR.extscr().modify(|w| {
-        #[cfg(not(feature = "_core-cm0p"))]
-        w.set_c1cssf(true);
-        #[cfg(feature = "_core-cm0p")]
-        w.set_c2cssf(true);
-    });
-    #[cfg(stm32wb)]
-    // CPU1 clears its own Stop/Standby flags (each core owns its own bits, as on
-    // stm32wl). C1STOPF is only ever set when the system actually entered Stop mode,
-    // so clearing it before each entry is what lets `exit_stop` distinguish a real
-    // system Stop (clocks gone) from a mere CPU1 deepsleep in which the clocks were
-    // left untouched. CPU2's flags are left alone - they belong to CPU2.
-    crate::pac::PWR.extscr().modify(|w| w.set_c1cssf(true));
-    #[cfg(stm32wba)]
-    crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
-    #[cfg(stm32wba)]
-    // Clear WKUP1..WKUP8 pending flags (CWUFx) before stop entry.
-    crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
-
-    // LPSDSR also puts the regulator in low-power mode in Sleep, which needs the system clock
-    // at or below MSI range 1 (RM0377 6.3.8), so it's only set for Stop.
-    #[cfg(stm32l0)]
-    crate::pac::PWR.cr().modify(|w| {
-        w.set_cwuf(true);
-        w.set_lpsdsr(crate::pac::pwr::vals::Mode::MainMode);
-    });
-
-    // L1 doesn't enter Stop with WUF set (RM0038 5.3.7), and LPSDSR makes Sleep Low-power
-    // sleep, which needs the system clock at or below MSI range 1 (RM0038 5.3.6).
-    #[cfg(stm32l1)]
-    crate::pac::PWR.cr().modify(|w| {
-        w.set_cwuf(true);
-        w.set_lpsdsr(false);
-    });
-
-    #[cfg(stm32f3)]
-    crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
-
-    #[cfg(stm32g4)]
-    // G4 keeps its wake-up flags (WUF1..WUF5) in PWR_SR1 and the standby flag (SBF) there
-    // too; both are cleared by writing ones to PWR_SCR. A stale flag left over from a
-    // previous wake must not survive into the next entry. Writes are used rather than
-    // `modify` so we don't depend on the read-back value of a write-one-to-clear register.
-    crate::pac::PWR.scr().write(|w| {
-        w.set_cwuf1(true);
-        w.set_cwuf2(true);
-        w.set_cwuf3(true);
-        w.set_cwuf4(true);
-        w.set_cwuf5(true);
-        w.set_csbf(true);
-    });
+/// Read back hardware `STOPF` / `C1STOPF` / `C2STOPF` flags if supported by this chip's
+/// PWR dialect. Returns `Some(true)` if Stop was actually entered, `Some(false)` if WFI
+/// returned without entering Stop, or `None` if hardware provides no readable Stop flag.
+fn did_enter_stop() -> Option<bool> {
+    match DIALECT {
+        Dialect::LpmsSrWuscr => {
+            #[cfg(any(stm32u3, stm32u5, stm32wba))]
+            return Some(crate::pac::PWR.sr().read().stopf());
+            #[allow(unreachable_code)]
+            None
+        }
+        Dialect::PmcrSvos => {
+            #[cfg(stm32h5)]
+            return Some(crate::pac::PWR.pmsr().read().stopf());
+            #[allow(unreachable_code)]
+            None
+        }
+        Dialect::Extscr => {
+            #[cfg(stm32wl)]
+            {
+                let es = crate::pac::PWR.extscr().read();
+                #[cfg(not(feature = "_core-cm0p"))]
+                return Some(es.c1stopf() || es.c1stop2f());
+                #[cfg(feature = "_core-cm0p")]
+                return Some(es.c2stopf() || es.c2stop2f());
+            }
+            #[cfg(stm32wb)]
+            return Some(crate::pac::PWR.extscr().read().c1stopf());
+            #[allow(unreachable_code)]
+            None
+        }
+        Dialect::LpmsScr => {
+            #[cfg(stm32u0)]
+            return Some(crate::pac::PWR.sr1().read().stopf().to_bits() != 0);
+            #[allow(unreachable_code)]
+            None
+        }
+        Dialect::Classic | Dialect::DomainPdds | Dialect::Wb0Deepstop => None,
+    }
 }
 
-/// Exit stop mode: restore the clocks, clear the flags, reinitialize the timer if required and resume time.
+/// Clear any previous stop/wakeup flags
+fn clear_flags() {
+    match DIALECT {
+        Dialect::Extscr => {
+            #[cfg(stm32wl)]
+            crate::pac::PWR.extscr().modify(|w| {
+                #[cfg(not(feature = "_core-cm0p"))]
+                w.set_c1cssf(true);
+                #[cfg(feature = "_core-cm0p")]
+                w.set_c2cssf(true);
+            });
+            #[cfg(stm32wb)]
+            // CPU1 clears its own Stop/Standby flags; CPU2's flags belong to CPU2.
+            crate::pac::PWR.extscr().modify(|w| w.set_c1cssf(true));
+        }
+        Dialect::LpmsSrWuscr => {
+            #[cfg(any(stm32u3, stm32u5, stm32wba))]
+            crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+            #[cfg(stm32wba)]
+            crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
+        }
+        Dialect::PmcrSvos => {
+            #[cfg(stm32h5)]
+            crate::pac::PWR.pmcr().modify(|w| w.set_cssf(true));
+        }
+        Dialect::Classic => {
+            #[cfg(stm32l0)]
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_cwuf(true);
+                w.set_lpsdsr(crate::pac::pwr::vals::Mode::MainMode);
+            });
+            #[cfg(stm32l1)]
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_cwuf(true);
+                w.set_lpsdsr(false);
+            });
+            #[cfg(stm32f3)]
+            crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+        }
+        Dialect::LpmsScr => {
+            #[cfg(stm32g4)]
+            crate::pac::PWR.scr().write(|w| {
+                w.set_cwuf1(true);
+                w.set_cwuf2(true);
+                w.set_cwuf3(true);
+                w.set_cwuf4(true);
+                w.set_cwuf5(true);
+                w.set_csbf(true);
+            });
+        }
+        Dialect::DomainPdds | Dialect::Wb0Deepstop => {}
+    }
+}
+
+/// Exit stop mode: check hardware entry flag, restore clocks and timers if Stop was entered,
+/// clear status flags, and resume time.
 fn exit_stop(cs: CriticalSection) {
-    // Both cores share the clocks, so they restore them one at a time.
-    #[cfg(any(stm32wb, stm32wl5x))]
-    let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+    let entered = did_enter_stop();
 
-    crate::rcc::stop_exit(cs);
+    if entered == Some(false) {
+        trace!("low power: WFI returned without entering stop");
+    }
 
-    #[cfg(any(stm32wb, stm32wl5x))]
-    drop(lock);
+    // `stm32wb` switches CPU1 sysclk to HSI in software inside `enter_stop()`, so it always
+    // runs `stop_exit(cs)` even if `C1STOPF` is clear. Other chips with hardware `STOPF`
+    // only need clock restoration when Stop was actually entered.
+    if entered != Some(false) || cfg!(stm32wb) {
+        // Both cores share the clocks, so they restore them one at a time.
+        #[cfg(any(stm32wb, stm32wl5x))]
+        let lock = crate::hsem::get_hsem(3).blocking_lock(0);
 
-    #[cfg(any(stm32u5, stm32u3))]
-    {
-        let sr = crate::pac::PWR.sr().read();
-        if sr.stopf() {
-            let lpms = crate::pac::PWR.cr1().read().lpms();
-            debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms.to_bits());
+        crate::rcc::stop_exit(cs);
 
-            // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
-            // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
-            #[cfg(not(feature = "_lp-time-driver"))]
-            if lpms.to_bits() >= 2 {
-                trace!("low power: re-initializing timer (STOP2+, GPTIM)");
+        #[cfg(any(stm32wb, stm32wl5x))]
+        drop(lock);
+    }
+
+    if entered != Some(false) {
+        #[cfg(any(stm32u5, stm32u3))]
+        {
+            let sr = crate::pac::PWR.sr().read();
+            if sr.stopf() {
+                let lpms = crate::pac::PWR.cr1().read().lpms();
+                debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms.to_bits());
+
+                // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
+                // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
+                #[cfg(not(feature = "_lp-time-driver"))]
+                if lpms.to_bits() >= 2 {
+                    trace!("low power: re-initializing timer (STOP2+, GPTIM)");
+                    get_driver().init_timer(cs);
+                }
+            }
+        }
+
+        #[cfg(any(stm32wl, stm32wb, stm32wba))]
+        {
+            #[cfg(any(stm32wl, stm32wb))]
+            let es = crate::pac::PWR.extscr().read();
+
+            #[cfg(stm32wba)]
+            let es = crate::pac::PWR.sr().read();
+
+            let re_initialize_timer = {
+                #[cfg(all(stm32wl, not(feature = "_core-cm0p")))]
+                {
+                    es.c1stop2f()
+                }
+                #[cfg(all(stm32wl, feature = "_core-cm0p"))]
+                {
+                    es.c2stop2f()
+                }
+                #[cfg(stm32wb)]
+                {
+                    es.c1stopf()
+                }
+                #[cfg(stm32wba)]
+                {
+                    es.stopf()
+                }
+            };
+
+            #[cfg(stm32wba)]
+            match (es.stopf(), es.stop2f()) {
+                (true, true) => debug!("low power: WBA woke from STOP2"),
+                (true, false) => debug!("low power: WBA woke from STOP0/1"),
+                _ => {}
+            };
+
+            #[cfg(stm32wl)]
+            match (es.c1stopf(), es.c1stop2f()) {
+                (true, false) => debug!("low power: cpu1 has been in STOP1"),
+                (false, true) => debug!("low power: cpu1 has been in STOP2"),
+                (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
+                (false, false) => {}
+            };
+
+            #[cfg(stm32wl5x)]
+            match (es.c2stopf(), es.c2stop2f()) {
+                (true, false) => debug!("low power: cpu2 has been in STOP1"),
+                (false, true) => debug!("low power: cpu2 has been in STOP2"),
+                (true, true) => debug!("low power: cpu2 has been in STOP1 and STOP2 ???"),
+                (false, false) => {}
+            };
+
+            #[cfg(stm32wb)]
+            match (es.c1stopf(), es.c2stopf()) {
+                (true, false) => debug!("low power: cpu1 has been in STOP"),
+                (false, true) => debug!("low power: cpu2 has been in STOP"),
+                (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
+                (false, false) => {}
+            };
+
+            if re_initialize_timer {
+                trace!("low power: re-initializing timer");
+                #[cfg(not(feature = "_lp-time-driver"))]
                 get_driver().init_timer(cs);
             }
         }
-
-        // Clear STOPF by writing CSSF
-        crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
     }
 
-    #[cfg(stm32h5)]
-    crate::pac::PWR.pmcr().modify(|w| w.set_cssf(true));
-
-    #[cfg(any(stm32wl, stm32wb, stm32wba))]
-    {
-        #[cfg(any(stm32wl, stm32wb))]
-        let es = crate::pac::PWR.extscr().read();
-
-        #[cfg(stm32wba)]
-        let es = crate::pac::PWR.sr().read();
-
-        #[cfg(any(stm32wl, stm32wb, stm32wba))]
-        let re_initialize_timer = {
-            #[cfg(all(stm32wl, not(feature = "_core-cm0p")))]
-            {
-                es.c1stop2f()
-            }
-            #[cfg(all(stm32wl, feature = "_core-cm0p"))]
-            {
-                es.c2stop2f()
-            }
-            #[cfg(stm32wb)]
-            {
-                // C1STOPF is only set when the system as a whole entered Stop (RM0473),
-                // i.e. exactly when HSE/PLL are gone and the clocks were restored above:
-                // the GPTIM is then parked and its prescaler must be recomputed for the
-                // restored timer clock. LPTIM keeps running from LSI/LSE through Stop and
-                // is skipped by the cfg inside the block below.
-                es.c1stopf()
-            }
-            #[cfg(stm32wba)]
-            {
-                es.stopf()
-            }
-        };
-
-        #[cfg(stm32wba)]
-        match (es.stopf(), es.stop2f()) {
-            (true, true) => debug!("low power: WBA woke from STOP2"),
-            (true, false) => debug!("low power: WBA woke from STOP0/1"),
-            _ => {}
-        };
-
-        #[cfg(stm32wl)]
-        match (es.c1stopf(), es.c1stop2f()) {
-            (true, false) => debug!("low power: cpu1 has been in STOP1"),
-            (false, true) => debug!("low power: cpu1 has been in STOP2"),
-            (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
-            (false, false) => trace!("low power: cpu1 stop mode not entered"),
-        };
-
-        #[cfg(stm32wl5x)]
-        // TODO: only for the current cpu
-        match (es.c2stopf(), es.c2stop2f()) {
-            (true, false) => debug!("low power: cpu2 has been in STOP1"),
-            (false, true) => debug!("low power: cpu2 has been in STOP2"),
-            (true, true) => debug!("low power: cpu2 has been in STOP1 and STOP2 ???"),
-            (false, false) => trace!("low power: cpu2 stop mode not entered"),
-        };
-
-        #[cfg(stm32wb)]
-        match (es.c1stopf(), es.c2stopf()) {
-            (true, false) => debug!("low power: cpu1 has been in STOP"),
-            (false, true) => debug!("low power: cpu2 has been in STOP"),
-            (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
-            (false, false) => trace!("low power: stop mode not entered"),
-        };
-
-        clear_flags();
-
-        #[cfg(any(stm32wl, stm32wb, stm32wba))]
-        if re_initialize_timer {
-            trace!("low power: re-initializing timer");
-            // when we wake from STOP2, we need to re-initialize the time driver
-            #[cfg(not(feature = "_lp-time-driver"))]
-            get_driver().init_timer(cs);
-        }
-    }
-
-    #[cfg(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32u0, stm32f3, stm32f4, stm32g4))]
     clear_flags();
-
     get_driver().resume_time(cs);
     trace!("low power: resumed");
 }
@@ -390,16 +474,32 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 
     compiler_fence(Ordering::Acquire);
 
-    let Some(stop_mode) = get_stop_mode(cs) else {
+    if !has_armed_wake_source(cs) {
+        trace!("low_power: no armed wake source, using WFI");
+        return false;
+    }
+
+    let driver = get_driver();
+    let has_alarm = driver.has_pending_alarm(cs);
+    let time_until_next_alarm = driver.time_until_next_alarm(cs);
+    if time_until_next_alarm < driver.min_stop_pause(cs) {
+        trace!("low_power: time_until_next_alarm < min_stop_pause, using WFI");
+        return false;
+    }
+
+    let available_us = has_alarm.then(|| time_until_next_alarm.as_micros());
+    let Some((entry, exit_latency_us)) = select_power_mode(cs, available_us, driver.driver_overhead_us()) else {
         return false;
     };
 
-    if get_driver().pause_time(cs).is_err() {
+    let exit_latency = embassy_time::Duration::from_micros(exit_latency_us as u64);
+    if driver.pause_time(cs, exit_latency).is_err() {
         trace!("low_power: failed to pause time, not entering stop");
 
         false
-    } else if enter_stop(stop_mode).is_err() {
+    } else if enter_stop(entry).is_err() {
         trace!("low_power: failed to enter stop");
+        driver.resume_time(cs);
 
         false
     } else {
@@ -408,12 +508,25 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         #[cfg(any(stm32l0, stm32f4))]
         trace!("low power: enter stop");
         #[cfg(not(any(stm32l0, stm32f4)))]
-        trace!("low power: enter stop: {:?}", stop_mode);
+        trace!("low power: enter stop: {:?}", entry.kind);
 
         scb.set_sleepdeep();
 
         true
     }
+}
+
+/// Mask of Stop modes currently permitted (i.e. unblocked) by active [`WakeGuard`](crate::rcc::WakeGuard)s.
+#[allow(dead_code)]
+pub(crate) fn allowed_stop_modes(cs: CriticalSection) -> StopModes {
+    let mut mask = 0u8;
+    for entry in crate::_generated::power::MODES {
+        if crate::rcc::get_power_mode(cs).is_some_and(|max| entry.kind.at_least(max.kind) || max.kind.at_least(entry.kind))
+        {
+            mask |= entry.bit;
+        }
+    }
+    StopModes(mask)
 }
 
 /// `WFI` and `ISB`, executed from RAM.

@@ -14,7 +14,7 @@ use embassy_net::{Pool, StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 #[cfg(feature = "stop")]
-use embassy_stm32::rcc::{StopMode, WakeGuard};
+use embassy_stm32::rcc::WakeGuard;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use embassy_time::{Duration, with_timeout};
@@ -102,7 +102,7 @@ async fn main(_spawner: Spawner) {
         [const { ConstStaticCell::new(StaticPool::new()) }; ROUNDS];
 
     #[cfg(feature = "stop")]
-    let _guard = WakeGuard::new(StopMode::Stop1);
+    let _guard = WakeGuard::no_stop();
 
     for (round, pool) in POOLS.iter().enumerate() {
         let round = round as u64;

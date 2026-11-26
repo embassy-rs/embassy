@@ -426,6 +426,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     /// can't miss a change. The returned state can be equal to the one seen before, for example
     /// if the line changed and changed back.
     pub async fn wait_for_vstate_change(&mut self) -> (CcVState, CcVState) {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let _on_drop = DropGuard::new((), |()| self.enable_cc_interrupts(false));
         poll_fn(|cx| {
             let sr = T::REGS.sr().read();
@@ -587,6 +588,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     ///
     /// Returns the start of packet type and number of received bytes or an error.
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let msg = poll_fn(|cx| {
             T::state().rx_waker.register(cx.waker());
             match T::state().with_rx(RxState::take_next).flatten() {
@@ -750,6 +752,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     async fn wait_tx_done() -> Result<(), TxError> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let _on_drop = DropGuard::new((), |()| Self::enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
@@ -805,6 +808,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     }
 
     async fn wait_hardreset_done(&self) -> Result<(), TxError> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let _on_drop = DropGuard::new((), |()| self.enable_hardreset_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;

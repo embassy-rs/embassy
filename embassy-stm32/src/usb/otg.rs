@@ -284,6 +284,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
             phantom: PhantomData,
             inner: bus,
             inited: false,
+            wake_guard: crate::rcc::WakeGuard::no_stop().into(),
         }
     }
 }
@@ -293,10 +294,12 @@ pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     inner: OtgBus<'d>,
     inited: bool,
+    wake_guard: crate::rcc::MaybeWakeGuard,
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
     fn init(&mut self) {
+        self.wake_guard.enable();
         super::common_init::<T>();
 
         // Enable ULPI clock if external PHY is used
@@ -384,6 +387,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         rcc::disable::<T>();
         self.inited = false;
+        self.wake_guard.disable();
 
         #[cfg(stm32l4)]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
@@ -993,6 +997,7 @@ mod host_impl {
     pub struct HostDriver<'d, T: SealedHostInstance> {
         phantom: PhantomData<&'d mut T>,
         inner: OtgHostDriver<'d>,
+        _wake_guard: crate::rcc::WakeGuard,
     }
 
     #[allow(private_bounds)]
@@ -1048,6 +1053,7 @@ mod host_impl {
             Self {
                 inner: OtgHostDriver::new(instance),
                 phantom: PhantomData,
+                _wake_guard: crate::rcc::WakeGuard::no_stop(),
             }
         }
 
@@ -1082,6 +1088,7 @@ mod host_impl {
             Self {
                 inner: OtgHostDriver::new(instance),
                 phantom: PhantomData,
+                _wake_guard: crate::rcc::WakeGuard::no_stop(),
             }
         }
     }

@@ -2547,6 +2547,9 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// If unsupported instance is used, it will panic or never wake up.
     #[cfg(feature = "low-power")]
     pub async fn listen_low_power(&mut self) -> Result<SlaveCommand, Error> {
+        self.info.rcc.enable_stop_and_autonomous();
+        let _scoped_wake_guard = self.info.rcc.stop_wake_guard();
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let state = self.state;
         self.info.regs.cr1().set_bits(|reg| {
             reg.set_wupen(true);

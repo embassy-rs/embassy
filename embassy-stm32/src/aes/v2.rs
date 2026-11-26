@@ -34,6 +34,7 @@ static AES_WAKER: AtomicWaker = AtomicWaker::new();
 /// already-complete fast path to avoid a spurious interrupt before the flag is
 /// cleared.
 async fn wait_ccf(p: pac::aes::Aes) {
+    let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
     poll_fn(|cx| {
         if p.sr().read().ccf() {
             p.cr().modify(|w| w.set_ccfie(false));

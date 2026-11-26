@@ -1127,6 +1127,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
                 ep_out,
                 ep_in,
             },
+            wake_guard: crate::rcc::WakeGuard::no_stop().into(),
         }
     }
 }
@@ -1141,6 +1142,7 @@ pub struct Bus<'d, T: Instance> {
     control: ControlPipe<'d, T>,
     vbus: Option<ExtiInput<'d, Async>>,
     power_present: bool,
+    wake_guard: crate::rcc::MaybeWakeGuard,
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
@@ -1282,12 +1284,14 @@ impl<'d, T: Instance> Bus<'d, T> {
             #[cfg(stm32l1)]
             crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(false));
 
+            self.wake_guard.disable();
             trace!("VBUS removed");
             return Poll::Ready(Event::PowerRemoved);
         }
 
         if !self.inited {
             self.inited = true;
+            self.wake_guard.enable();
             return Poll::Ready(Event::PowerDetected);
         }
 
@@ -1295,6 +1299,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         if IRQ_RESUME.load(Ordering::Acquire) {
             IRQ_RESUME.store(false, Ordering::Relaxed);
+            self.wake_guard.enable();
             return Poll::Ready(Event::Resume);
         }
 
@@ -1363,6 +1368,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         if IRQ_SUSPEND.load(Ordering::Acquire) {
             IRQ_SUSPEND.store(false, Ordering::Relaxed);
+            self.wake_guard.disable();
             return Poll::Ready(Event::Suspend);
         }
 
@@ -1429,6 +1435,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     async fn enable(&mut self) {
+        self.wake_guard.enable();
         if self.vbus.is_some() {
             #[cfg(any(usb_v3, usb_v4))]
             T::regs().bcdr().modify(|w| w.set_dppu(true));
@@ -1437,7 +1444,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
-    async fn disable(&mut self) {}
+    async fn disable(&mut self) {
+        self.wake_guard.disable();
+    }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
         let regs = T::regs();

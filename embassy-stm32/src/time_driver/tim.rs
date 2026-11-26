@@ -307,6 +307,10 @@ impl RtcDriver {
 
 #[cfg(feature = "low-power")]
 impl super::LPTimeDriver for RtcDriver {
+    fn has_pending_alarm(&self, cs: CriticalSection) -> bool {
+        self.alarm.borrow(cs).timestamp.get() != u64::MAX
+    }
+
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
         let now = self.now() + 32;
 
@@ -317,14 +321,32 @@ impl super::LPTimeDriver for RtcDriver {
         self.min_stop_pause.borrow(cs).replace(min_stop_pause);
     }
 
-    fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+    fn min_stop_pause(&self, cs: CriticalSection) -> embassy_time::Duration {
+        self.min_stop_pause.borrow(cs).get()
+    }
+
+    fn driver_overhead_us(&self) -> u32 {
+        250
+    }
+
+    fn pause_time(&self, cs: CriticalSection, exit_latency: embassy_time::Duration) -> Result<(), ()> {
         assert!(regs_gp16().cr1().read().cen());
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
             Err(())
         } else {
-            crate::rtc::start_wakeup_alarm(cs, time_until_next_alarm, embassy_time::Instant::from_ticks(self.now()));
+            let effective_latency = if self.has_pending_alarm(cs) {
+                exit_latency
+            } else {
+                embassy_time::Duration::MIN
+            };
+            crate::rtc::start_wakeup_alarm(
+                cs,
+                time_until_next_alarm,
+                embassy_time::Instant::from_ticks(self.now()),
+                effective_latency,
+            );
 
             regs_gp16().cr1().modify(|w| w.set_cen(false));
             Ok(())

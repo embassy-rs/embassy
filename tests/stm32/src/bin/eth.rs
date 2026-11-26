@@ -10,7 +10,7 @@ use embassy_net::{StackStorage, StaticPool};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
 #[cfg(feature = "stop")]
-use embassy_stm32::rcc::{StopMode, WakeGuard};
+use embassy_stm32::rcc::WakeGuard;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use static_cell::{ConstStaticCell, StaticCell};
@@ -124,7 +124,7 @@ async fn main(spawner: Spawner) {
     //stack.routes().add_default_ipv4_route(Ipv4Addr::new(10, 42, 0, 1), eth.handle()).unwrap();
 
     #[cfg(feature = "stop")]
-    let _guard = WakeGuard::new(StopMode::Stop1);
+    let _guard = WakeGuard::no_stop();
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));

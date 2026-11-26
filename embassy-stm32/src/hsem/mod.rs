@@ -129,7 +129,9 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             return lock;
         }
 
-        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let _scoped_wake_guard = T::RCC_INFO.stop_wake_guard();
+        #[cfg(feature = "low-power")]
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let core = CoreId::current();
 
         let _irq = self.clear_and_enable_interupt(core);
@@ -158,7 +160,9 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             return lock;
         }
 
-        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let _scoped_wake_guard = T::RCC_INFO.stop_wake_guard();
+        #[cfg(feature = "low-power")]
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let core = CoreId::current();
 
         let _irq = self.clear_and_enable_interupt(core);
@@ -215,7 +219,9 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     /// pending it is consumed and this returns immediately. Otherwise this waits
     /// for the next notification and consumes it.
     pub async fn listen(&mut self) {
-        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
+        let _scoped_wake_guard = T::RCC_INFO.stop_wake_guard();
+        #[cfg(feature = "low-power")]
+        let _wake_source = crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral);
         let core = CoreId::current();
 
         // Enable the notification interrupt without clearing a pending

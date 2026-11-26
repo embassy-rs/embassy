@@ -110,16 +110,11 @@ pub(crate) struct ChannelInfo {
     pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: Option<super::DmamuxInfo>,
-    #[cfg(feature = "low-power")]
-    pub(crate) stop_mode: crate::rcc::StopMode,
 }
 
 impl ChannelInfo {
     fn wake_guard(&self) -> WakeGuard {
-        WakeGuard::new(
-            #[cfg(feature = "low-power")]
-            self.stop_mode,
-        )
+        WakeGuard::no_stop()
     }
 }
 

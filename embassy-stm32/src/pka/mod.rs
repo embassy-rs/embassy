@@ -1857,6 +1857,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
     }
 
     async fn start_and_wait_async(&mut self) -> Result<(), Error> {
+        let _scoped_wake_guard = crate::rcc::WakeGuard::no_stop();
         let p = T::regs();
 
         // Arm the interrupts and trigger the operation. The ISR clears the IE bits

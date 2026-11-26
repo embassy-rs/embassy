@@ -1195,6 +1195,20 @@ impl StopRestore {
             });
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion() || s.csion(),
+            hsi48: s.hsi48on(),
+            pll: (0..Self::PLLS).any(|n| s.pllon(n)),
+            vos: self.vos != crate::pac::pwr::vals::Vos::Scale3,
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 #[cfg(all(feature = "low-power", stm32h5))]

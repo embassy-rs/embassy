@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, StopMode,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, PowerDialect, PowerModeKind,
 };
 
 #[path = "./build_common.rs"]
@@ -1019,6 +1019,120 @@ fn main() {
                 None => base,
             }
         }
+
+        fn power_mode_bit(kind: PowerModeKind) -> u8 {
+            match kind {
+                PowerModeKind::Stop0 => 1 << 0,
+                PowerModeKind::Stop1 => 1 << 1,
+                PowerModeKind::Stop2 => 1 << 2,
+                PowerModeKind::Stop3 => 1 << 3,
+            }
+        }
+
+        fn clock_survives_in_mode(clock_name: &str, surviving_clocks: &[&str]) -> bool {
+            let base = clock_name.strip_suffix("_ker").unwrap_or(clock_name);
+            surviving_clocks.iter().any(|c| {
+                c.eq_ignore_ascii_case(clock_name)
+                    || c.eq_ignore_ascii_case(base)
+                    || (c.eq_ignore_ascii_case("hsi")
+                        && (base.eq_ignore_ascii_case("hsi16") || base.eq_ignore_ascii_case("hsik")))
+            })
+        }
+
+        fn clock_stop_mask(clock_name: &str) -> u8 {
+            let Some(power) = &METADATA.power else {
+                return 0;
+            };
+            let name = clock_name.to_ascii_lowercase();
+            let (name, _) = Self::parse_mul_div(&name);
+            let mut mask = 0u8;
+            for mode in power.modes {
+                if Self::clock_survives_in_mode(name, mode.surviving_clocks) {
+                    mask |= Self::power_mode_bit(mode.kind);
+                }
+            }
+            mask
+        }
+
+        fn mux_stop_mask(&self, mux: &PeripheralRccRegister) -> (Option<u8>, TokenStream) {
+            let ir = &self.rcc_registers.ir;
+            let fieldset_name = mux.register.to_ascii_lowercase();
+            let fieldset = ir
+                .fieldsets
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+                .unwrap();
+            let field_name = mux.field.to_ascii_lowercase();
+            let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+            let enum_name = field.enumm.unwrap();
+            let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+            let fieldset_ident = format_ident!("{}", fieldset_name);
+            let field_ident = format_ident!("{}", field_name);
+            let enum_ident = format_ident!("{}", enum_name);
+
+            let mut arms = TokenStream::new();
+            let mut uniform: Option<Option<u8>> = None;
+
+            for v in enumm.variants.iter() {
+                if v.name == "Disable" {
+                    continue;
+                }
+                let variant_ident = format_ident!("{}", v.name);
+                let upper_snake = pascal_to_upper_snake(v.name);
+                let (arm_const, arm_expr) = if let Some(chained) = self.chained_muxes.get(upper_snake.as_str()) {
+                    self.mux_stop_mask(chained)
+                } else {
+                    let mask = Self::clock_stop_mask(&upper_snake);
+                    (Some(mask), quote!(crate::rcc::StopModes(#mask)))
+                };
+                match (uniform, arm_const) {
+                    (None, Some(m)) => uniform = Some(Some(m)),
+                    (Some(Some(prev)), Some(m)) if prev == m => {}
+                    _ => uniform = Some(None),
+                }
+                arms.extend(quote! {
+                    crate::pac::rcc::vals::#enum_ident::#variant_ident => #arm_expr,
+                });
+            }
+
+            if let Some(Some(m)) = uniform {
+                return (Some(m), quote!(crate::rcc::StopModes(#m)));
+            }
+
+            let expr = quote! {
+                match crate::pac::RCC.#fieldset_ident().read().#field_ident() {
+                    #arms
+                    #[allow(unreachable_patterns)]
+                    _ => crate::rcc::StopModes::NONE,
+                }
+            };
+            (None, expr)
+        }
+
+        fn kernel_stop_modes_fn(&self, kernel_clock: &PeripheralRccKernelClock) -> TokenStream {
+            match kernel_clock {
+                PeripheralRccKernelClock::Clock(clock) => {
+                    let mask = Self::clock_stop_mask(clock);
+                    quote!(crate::rcc::const_stop_modes::<#mask>)
+                }
+                PeripheralRccKernelClock::Mux(mux) => {
+                    if let (Some(register), Some(field)) = (mux.register, mux.field) {
+                        let (const_mask, expr) = self.mux_stop_mask(&PeripheralRccRegister { register, field });
+                        if let Some(mask) = const_mask {
+                            quote!(crate::rcc::const_stop_modes::<#mask>)
+                        } else {
+                            quote!(|| #expr)
+                        }
+                    } else if let Some(clock) = mux.clock {
+                        let mask = Self::clock_stop_mask(clock);
+                        quote!(crate::rcc::const_stop_modes::<#mask>)
+                    } else {
+                        quote!(crate::rcc::const_stop_modes::<0>)
+                    }
+                }
+            }
+        }
     }
 
     let mut refcount_idxs = BTreeSet::new();
@@ -1061,14 +1175,20 @@ fn main() {
                 quote! { (#reg_offset, #bit_offset) }
             };
 
-            let reset_offset_and_bit = match rst_reg {
-                Some(rst_reg) => {
-                    let reset_offset_and_bit = get_offset_and_bit(rst_reg);
-                    quote! { Some(#reset_offset_and_bit) }
+            let opt_offset_and_bit = |reg: Option<&PeripheralRccRegister>| -> TokenStream {
+                match reg {
+                    Some(reg) => {
+                        let offset_and_bit = get_offset_and_bit(reg);
+                        quote! { Some(#offset_and_bit) }
+                    }
+                    None => quote! { None },
                 }
-                None => quote! { None },
             };
+
+            let reset_offset_and_bit = opt_offset_and_bit(rst_reg);
             let enable_offset_and_bit = get_offset_and_bit(en_reg);
+            let stop_enable_offset_and_bit = opt_offset_and_bit(rcc.stop_enable.as_ref());
+            let autonomous_enable_offset_and_bit = opt_offset_and_bit(rcc.autonomous_enable.as_ref());
 
             let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
             let refcount_idx = if needs_refcount {
@@ -1130,13 +1250,17 @@ fn main() {
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
 
-            // A refcount leak can result if the same field is shared by peripherals with different stop modes
-            // This condition should be checked in stm32-data
-            let stop_mode = match rcc.stop_mode {
-                StopMode::Standby => quote! { crate::rcc::StopMode::Standby },
-                StopMode::Stop2 => quote! { crate::rcc::StopMode::Stop2 },
-                StopMode::Stop1 => quote! { crate::rcc::StopMode::Stop1 },
+            let lp = &rcc.low_power;
+            let lp_modes_bits: u8 = ((lp.modes.stop0 as u8) << 0)
+                | ((lp.modes.stop1 as u8) << 1)
+                | ((lp.modes.stop2 as u8) << 2)
+                | ((lp.modes.stop3 as u8) << 3);
+            let lp_flags_bits: u8 = (lp.autonomous as u8) | ((lp.wake_capable as u8) << 1);
+            let wake_exti = match lp.wake_exti {
+                Some(line) => quote! { Some(#line) },
+                None => quote! { None },
             };
+            let kernel_stop_modes = clock_gen.kernel_stop_modes_fn(&rcc.kernel_clock);
 
             g.extend(quote! {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
@@ -1153,7 +1277,17 @@ fn main() {
                             #enable_offset_and_bit,
                             #refcount_idx,
                             #[cfg(feature = "low-power")]
-                            #stop_mode,
+                            #stop_enable_offset_and_bit,
+                            #[cfg(feature = "low-power")]
+                            #autonomous_enable_offset_and_bit,
+                            #[cfg(feature = "low-power")]
+                            crate::rcc::StopModes(#lp_modes_bits),
+                            #[cfg(feature = "low-power")]
+                            #lp_flags_bits,
+                            #[cfg(feature = "low-power")]
+                            #wake_exti,
+                            #[cfg(feature = "low-power")]
+                            #kernel_stop_modes,
                         )
                     };
                 }
@@ -1176,6 +1310,86 @@ fn main() {
             #[derive(Clone, Copy)]
             pub(crate) enum RefcountIndex {
                 #(#refcount_idxs),*
+            }
+        }
+    });
+
+    g.extend({
+        let (has_power, dialect, stopwuck, supported_modes, modes_tokens) = match &METADATA.power {
+            Some(power) => {
+                let dialect = match power.dialect {
+                    PowerDialect::Classic => quote!(Dialect::Classic),
+                    PowerDialect::LpmsScr => quote!(Dialect::LpmsScr),
+                    PowerDialect::LpmsSrWuscr => quote!(Dialect::LpmsSrWuscr),
+                    PowerDialect::PmcrSvos => quote!(Dialect::PmcrSvos),
+                    PowerDialect::Extscr => quote!(Dialect::Extscr),
+                    PowerDialect::DomainPdds => quote!(Dialect::DomainPdds),
+                    PowerDialect::Wb0Deepstop => quote!(Dialect::Wb0Deepstop),
+                };
+                let stopwuck = power.stopwuck;
+                let mut supported = 0u8;
+                let mut entries = TokenStream::new();
+                for m in power.modes {
+                    let (stop_mode, bit): (TokenStream, u8) = match m.kind {
+                        PowerModeKind::Stop0 => (quote!(crate::rcc::StopMode::Stop0), 1 << 0),
+                        PowerModeKind::Stop1 => (quote!(crate::rcc::StopMode::Stop1), 1 << 1),
+                        PowerModeKind::Stop2 => (quote!(crate::rcc::StopMode::Stop2), 1 << 2),
+                        PowerModeKind::Stop3 => (quote!(crate::rcc::StopMode::Stop3), 1 << 3),
+                    };
+                    supported |= bit;
+                    let selector = m.selector;
+                    let min_svos = match m.min_svos {
+                        Some(v) => quote!(Some(#v)),
+                        None => quote!(None),
+                    };
+                    let min_residency_us = m.min_residency_us;
+                    let exit_latency_us = m.exit_latency_us;
+                    entries.extend(quote! {
+                        PowerModeEntry {
+                            kind: #stop_mode,
+                            bit: #bit,
+                            selector: #selector,
+                            min_svos: #min_svos,
+                            min_residency_us: #min_residency_us,
+                            exit_latency_us: #exit_latency_us,
+                        },
+                    });
+                }
+                (true, dialect, stopwuck, supported, entries)
+            }
+            None => (false, quote!(Dialect::Classic), false, 0u8, TokenStream::new()),
+        };
+
+        quote! {
+            #[cfg(feature = "low-power")]
+            #[allow(dead_code)]
+            pub(crate) mod power {
+                #[derive(Clone, Copy, PartialEq, Eq)]
+                pub(crate) enum Dialect {
+                    Classic,
+                    LpmsScr,
+                    LpmsSrWuscr,
+                    PmcrSvos,
+                    Extscr,
+                    DomainPdds,
+                    Wb0Deepstop,
+                }
+
+                #[derive(Clone, Copy)]
+                pub(crate) struct PowerModeEntry {
+                    pub kind: crate::rcc::StopMode,
+                    pub bit: u8,
+                    pub selector: u8,
+                    pub min_svos: Option<u8>,
+                    pub min_residency_us: u32,
+                    pub exit_latency_us: u32,
+                }
+
+                pub(crate) const HAS_POWER: bool = #has_power;
+                pub(crate) const DIALECT: Dialect = #dialect;
+                pub(crate) const STOPWUCK: bool = #stopwuck;
+                pub(crate) const SUPPORTED_MODES: crate::rcc::StopModes = crate::rcc::StopModes(#supported_modes);
+                pub(crate) const MODES: &[PowerModeEntry] = &[#modes_tokens];
             }
         }
     });
@@ -1291,6 +1505,7 @@ fn main() {
         let fieldset_name = format_ident!("{}", fieldset_name);
         let field_name = format_ident!("{}", field_name);
         let enum_name = format_ident!("{}", enum_name);
+        let time_driver_stop_modes = clock_gen.kernel_stop_modes_fn(&rcc.kernel_clock);
         g.extend(quote! {
             pub(crate) mod time_driver_clock {
                 use crate::pac::rcc::vals::#enum_name as Sel;
@@ -1314,6 +1529,12 @@ fn main() {
 
                 pub(crate) fn is_lse() -> bool {
                     #is_lse
+                }
+
+                #[cfg(feature = "low-power")]
+                #[allow(dead_code)]
+                pub(crate) fn surviving_stop_modes() -> crate::rcc::StopModes {
+                    (#time_driver_stop_modes)()
                 }
             }
         });
@@ -3051,17 +3272,6 @@ fn main() {
 
     for ch in METADATA.dma_channels.iter() {
         let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
-        let stop_mode = dma_peri
-            .rcc
-            .as_ref()
-            .map(|rcc| rcc.stop_mode.clone())
-            .unwrap_or_default();
-
-        let stop_mode = match stop_mode {
-            StopMode::Standby => quote! { Standby },
-            StopMode::Stop2 => quote! { Stop2 },
-            StopMode::Stop1 => quote! { Stop1 },
-        };
 
         let name = format_ident!("{}", ch.name);
 
@@ -3131,8 +3341,6 @@ fn main() {
                 dma: #dma_info,
                 num: #ch_num,
                 #supports_2d_field
-                #[cfg(feature = "low-power")]
-                stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });
@@ -3143,8 +3351,6 @@ fn main() {
                 num: #ch_num,
                 #supports_2d_field
                 irq: #irq_pac,
-                #[cfg(feature = "low-power")]
-                stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });

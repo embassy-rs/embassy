@@ -309,6 +309,20 @@ impl StopRestore {
             });
         }
     }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion(),
+            msi: s.msison() || s.msikon(),
+            hsi48: s.hsi48on(),
+            vos: self.range1 || self.boost,
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
 }
 
 pub(crate) unsafe fn init(config: Config) {

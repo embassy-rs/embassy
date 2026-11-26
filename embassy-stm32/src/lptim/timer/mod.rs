@@ -19,6 +19,7 @@ use crate::time::Hertz;
 /// Low-level timer driver.
 pub struct Timer<'d, T: Instance> {
     _tim: Peri<'d, T>,
+    wake_guard: rcc::MaybeWakeGuard,
 }
 
 impl<'d, T: Instance> Timer<'d, T> {
@@ -26,17 +27,22 @@ impl<'d, T: Instance> Timer<'d, T> {
     pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        Self { _tim: tim }
+        Self {
+            _tim: tim,
+            wake_guard: rcc::WakeGuard::no_stop().into(),
+        }
     }
 
     /// Enable the timer.
-    pub fn enable(&self) {
+    pub fn enable(&mut self) {
+        self.wake_guard.enable();
         T::regs().cr().modify(|w| w.set_enable(true));
     }
 
     /// Disable the timer.
-    pub fn disable(&self) {
+    pub fn disable(&mut self) {
         T::regs().cr().modify(|w| w.set_enable(false));
+        self.wake_guard.disable();
     }
 
     /// Start the timer in single pulse mode.
