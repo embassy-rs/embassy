@@ -619,6 +619,13 @@ impl RccInfo {
         self.lp_modes.intersect((self.kernel_stop_modes)())
     }
 
+    /// Stop modes supported by this peripheral regardless of active kernel clock state.
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    pub(crate) const fn lp_modes(&self) -> StopModes {
+        self.lp_modes
+    }
+
     #[cfg(feature = "low-power")]
     #[allow(dead_code)]
     pub(crate) const fn is_wake_capable(&self) -> bool {

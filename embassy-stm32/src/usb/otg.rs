@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{
     EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, Event, Unsupported,
@@ -11,8 +12,10 @@ use embassy_usb_synopsys_otg::{
 };
 pub use embassy_usb_synopsys_otg::{Config, Endpoint, In, Out};
 
+use crate::exti::ExtiInput;
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::Async;
 use crate::rcc::{self, RccPeripheral};
 use crate::{Peri, interrupt};
 
@@ -25,6 +28,33 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let r = T::regs();
         on_interrupt_impl(r, &T::state());
+    }
+}
+
+#[cfg(all(feature = "low-power", feature = "rt"))]
+foreach_interrupt! {
+    (USB_OTG_FS, otg, $block:ident, WKUP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            clear_wakeup_exti::<crate::peripherals::USB_OTG_FS>();
+        }
+    };
+    (USB_OTG_HS, otg, $block:ident, WKUP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            clear_wakeup_exti::<crate::peripherals::USB_OTG_HS>();
+        }
+    };
+}
+
+#[cfg(all(feature = "low-power", feature = "rt"))]
+#[allow(dead_code)]
+fn clear_wakeup_exti<T: Instance>() {
+    #[cfg(any(stm32f4, stm32f7))]
+    if let Some(line) = T::RCC_INFO.wake_exti() {
+        crate::pac::EXTI.pr(0).write(|w| w.set_line(line as usize, true));
     }
 }
 
@@ -48,9 +78,28 @@ const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     inner: OtgDriver<'d>,
+    vbus: Option<ExtiInput<'d, Async>>,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
+    fn new_inner(phy_type: PhyType, ep_out_buffer: &'d mut [u8], config: Config) -> Self {
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            phy_type,
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            vbus: None,
+            phantom: PhantomData,
+        }
+    }
+
     /// Initializes USB OTG peripheral with internal Full-Speed PHY.
     ///
     /// # Arguments
@@ -74,22 +123,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
 
-        let regs = T::regs();
-
-        let instance = OtgInstance {
-            regs,
-            state: T::state(),
-            fifo_depth_words: T::FIFO_DEPTH_WORDS,
-            tx_fifo_count: T::state().endpoint_count() as u8,
-            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            phy_type: PhyType::InternalFullSpeed,
-            calculate_trdt_fn: calculate_trdt::<T>,
-        };
-
-        Self {
-            inner: OtgDriver::new(ep_out_buffer, instance, config),
-            phantom: PhantomData,
-        }
+        Self::new_inner(PhyType::InternalFullSpeed, ep_out_buffer, config)
     }
 
     /// Initializes USB OTG peripheral with internal High-Speed PHY.
@@ -115,20 +149,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm);
 
-        let instance = OtgInstance {
-            regs: T::regs(),
-            state: T::state(),
-            fifo_depth_words: T::FIFO_DEPTH_WORDS,
-            tx_fifo_count: T::state().endpoint_count() as u8,
-            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            phy_type: PhyType::InternalHighSpeed,
-            calculate_trdt_fn: calculate_trdt::<T>,
-        };
-
-        Self {
-            inner: OtgDriver::new(ep_out_buffer, instance, config),
-            phantom: PhantomData,
-        }
+        Self::new_inner(PhyType::InternalHighSpeed, ep_out_buffer, config)
     }
 
     /// Initializes USB OTG peripheral with internal High-Speed PHY, on chips where that PHY
@@ -153,20 +174,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         assert!(T::HIGH_SPEED, "Peripheral is not capable of high-speed USB");
 
-        let instance = OtgInstance {
-            regs: T::regs(),
-            state: T::state(),
-            fifo_depth_words: T::FIFO_DEPTH_WORDS,
-            tx_fifo_count: T::state().endpoint_count() as u8,
-            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            phy_type: PhyType::InternalHighSpeed,
-            calculate_trdt_fn: calculate_trdt::<T>,
-        };
-
-        Self {
-            inner: OtgDriver::new(ep_out_buffer, instance, config),
-            phantom: PhantomData,
-        }
+        Self::new_inner(PhyType::InternalHighSpeed, ep_out_buffer, config)
     }
 
     /// Initializes USB OTG peripheral with external Full-speed PHY (usually, a High-speed PHY in Full-speed mode).
@@ -199,20 +207,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let instance = OtgInstance {
-            regs: T::regs(),
-            state: T::state(),
-            fifo_depth_words: T::FIFO_DEPTH_WORDS,
-            tx_fifo_count: T::state().endpoint_count() as u8,
-            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            phy_type: PhyType::ExternalFullSpeed,
-            calculate_trdt_fn: calculate_trdt::<T>,
-        };
-
-        Self {
-            inner: OtgDriver::new(ep_out_buffer, instance, config),
-            phantom: PhantomData,
-        }
+        Self::new_inner(PhyType::ExternalFullSpeed, ep_out_buffer, config)
     }
 
     /// Initializes USB OTG peripheral with external High-Speed PHY.
@@ -247,20 +242,19 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let instance = OtgInstance {
-            regs: T::regs(),
-            state: T::state(),
-            fifo_depth_words: T::FIFO_DEPTH_WORDS,
-            tx_fifo_count: T::state().endpoint_count() as u8,
-            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
-            phy_type: PhyType::ExternalHighSpeed,
-            calculate_trdt_fn: calculate_trdt::<T>,
-        };
+        Self::new_inner(PhyType::ExternalHighSpeed, ep_out_buffer, config)
+    }
 
-        Self {
-            inner: OtgDriver::new(ep_out_buffer, instance, config),
-            phantom: PhantomData,
-        }
+    /// Attach an external VBUS sense pin (`ExtiInput`) to power down the OTG peripheral
+    /// while disconnected.
+    ///
+    /// While `vbus` is low, OTG clocks, PHY power, and Stop blockers are released so the
+    /// chip can enter deep Stop modes (e.g. Stop 2). When `vbus` goes high, the core is
+    /// initialized and `Event::PowerDetected` is emitted; when `vbus` goes low, active
+    /// transfers are aborted, OTG is powered down, and `Event::PowerRemoved` is emitted.
+    pub fn with_vbus(mut self, vbus: ExtiInput<'d, Async>) -> Self {
+        self.vbus = Some(vbus);
+        self
     }
 }
 
@@ -279,14 +273,84 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
         let bus = self.inner.start(control_max_packet_size);
+        #[cfg(feature = "low-power")]
+        let suspend_modes = if bus.phy_type().internal() && T::RCC_INFO.is_wake_capable() {
+            T::RCC_INFO.lp_modes()
+        } else {
+            crate::rcc::StopModes::NONE
+        };
 
         Bus {
             phantom: PhantomData,
             inner: bus,
             inited: false,
-            wake_guard: crate::rcc::WakeGuard::no_stop().into(),
+            vbus: self.vbus,
+            power_present: false,
+            active_wake_guard: crate::rcc::WakeGuard::no_stop().into(),
+            #[cfg(feature = "low-power")]
+            suspend_wake_guard: crate::rcc::WakeGuard::for_modes(suspend_modes).into(),
+            #[cfg(feature = "low-power")]
+            wake_source: None,
         }
     }
+}
+
+#[cfg(feature = "low-power")]
+fn enable_otghs_phy_sleep<T: Instance>() {
+    #[cfg(any(all(stm32wba, peri_usb_otg_hs), all(stm32u5, peri_usb_otg_hs)))]
+    if T::HIGH_SPEED {
+        critical_section::with(|_| {
+            #[cfg(stm32wba)]
+            crate::pac::RCC.ahb2smenr().modify(|w| w.set_usb_otg_hs_physmen(true));
+            #[cfg(stm32u5)]
+            crate::pac::RCC.ahb2smenr1().modify(|w| w.set_usb_otg_hs_physmen(true));
+        });
+    }
+}
+
+#[cfg(feature = "low-power")]
+fn set_wakeup_line<T: Instance>(enable: bool) {
+    #[cfg(any(stm32f4, stm32f7, stm32l4))]
+    if let Some(line) = T::RCC_INFO.wake_exti() {
+        let line = line as usize;
+        critical_section::with(|_| {
+            use crate::pac::EXTI;
+
+            if enable {
+                #[cfg(any(stm32f4, stm32f7))]
+                EXTI.rtsr(0).modify(|w| w.set_line(line, true));
+                EXTI.pr(0).write(|w| w.set_line(line, true));
+            }
+            EXTI.imr(0).modify(|w| w.set_line(line, enable));
+            if !enable {
+                EXTI.pr(0).write(|w| w.set_line(line, true));
+            }
+        });
+    }
+
+    foreach_interrupt! {
+        (USB_OTG_FS, otg, $block:ident, WKUP, $irq:ident) => {
+            if !T::HIGH_SPEED {
+                if enable {
+                    crate::interrupt::typelevel::$irq::unpend();
+                    unsafe { crate::interrupt::typelevel::$irq::enable() };
+                } else {
+                    crate::interrupt::typelevel::$irq::disable();
+                }
+            }
+        };
+        (USB_OTG_HS, otg, $block:ident, WKUP, $irq:ident) => {
+            if T::HIGH_SPEED {
+                if enable {
+                    crate::interrupt::typelevel::$irq::unpend();
+                    unsafe { crate::interrupt::typelevel::$irq::enable() };
+                } else {
+                    crate::interrupt::typelevel::$irq::disable();
+                }
+            }
+        };
+    }
+    let _ = enable;
 }
 
 /// USB bus.
@@ -294,12 +358,57 @@ pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     inner: OtgBus<'d>,
     inited: bool,
-    wake_guard: crate::rcc::MaybeWakeGuard,
+    vbus: Option<ExtiInput<'d, Async>>,
+    power_present: bool,
+    active_wake_guard: crate::rcc::MaybeWakeGuard,
+    #[cfg(feature = "low-power")]
+    suspend_wake_guard: crate::rcc::MaybeWakeGuard,
+    #[cfg(feature = "low-power")]
+    wake_source: Option<crate::low_power::WakeSource>,
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
+    fn enter_active(&mut self) {
+        #[cfg(feature = "low-power")]
+        {
+            self.wake_source = None;
+            self.suspend_wake_guard.disable();
+            set_wakeup_line::<T>(false);
+        }
+        self.active_wake_guard.enable();
+    }
+
+    fn enter_suspend(&mut self) {
+        #[cfg(feature = "low-power")]
+        if self.inner.phy_type().internal() && T::RCC_INFO.is_wake_capable() && !T::RCC_INFO.lp_modes().is_empty() {
+            T::RCC_INFO.enable_stop_and_autonomous();
+            enable_otghs_phy_sleep::<T>();
+            set_wakeup_line::<T>(true);
+            self.active_wake_guard.disable();
+            self.suspend_wake_guard.enable();
+            self.wake_source
+                .get_or_insert_with(|| crate::low_power::WakeSource::new(crate::low_power::WakeClass::Peripheral));
+        }
+    }
+
+    fn handle_event(&mut self, event: &Event) {
+        match event {
+            Event::Suspend => self.enter_suspend(),
+            Event::Resume | Event::Reset(_) => self.enter_active(),
+            _ => {}
+        }
+    }
+
+    fn handle_vbus_removed(&mut self) -> Event {
+        self.power_present = false;
+        self.inner.deinit_device();
+        Bus::disable(self);
+        trace!("VBUS removed");
+        Event::PowerRemoved
+    }
+
     fn init(&mut self) {
-        self.wake_guard.enable();
+        self.enter_active();
         super::common_init::<T>();
 
         // Enable ULPI clock if external PHY is used
@@ -362,24 +471,38 @@ impl<'d, T: Instance> Bus<'d, T> {
             0x0000_5000 | 0x0000_6100 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
+
+        self.inited = true;
     }
 
     fn disable(&mut self) {
+        #[cfg(feature = "low-power")]
+        {
+            self.wake_source = None;
+            set_wakeup_line::<T>(false);
+            self.suspend_wake_guard.disable();
+        }
+        self.active_wake_guard.disable();
+
         if !self.inited {
             return;
         }
 
         T::Interrupt::disable();
 
-        #[cfg(all(stm32wba, peri_usb_otg_hs))]
-        {
+        #[cfg(any(all(stm32wba, peri_usb_otg_hs), all(stm32u5, peri_usb_otg_hs)))]
+        if T::HIGH_SPEED {
             debug!("disabling OTG clocks");
             crate::pac::SYSCFG.otghsphycr().modify(|w| w.set_en(false));
             critical_section::with(|_| {
+                #[cfg(stm32wba)]
                 crate::pac::RCC.ahb2enr().modify(|w| w.set_usb_otg_hs_phyen(false));
+                #[cfg(stm32u5)]
+                crate::pac::RCC.ahb2enr1().modify(|w| w.set_usb_otg_hs_phyen(false));
                 crate::pac::PWR.vosr().modify(|w| {
                     w.set_usbboosten(false);
                     w.set_usbpwren(false);
+                    #[cfg(stm32wba)]
                     w.set_vdd11usbdis(true);
                 });
             });
@@ -387,7 +510,6 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         rcc::disable::<T>();
         self.inited = false;
-        self.wake_guard.disable();
 
         #[cfg(stm32l4)]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
@@ -397,12 +519,41 @@ impl<'d, T: Instance> Bus<'d, T> {
 
 impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
-        if !self.inited {
-            self.init();
-            self.inited = true;
+        if self.vbus.is_some() {
+            if !self.power_present {
+                Bus::disable(self);
+                let vbus = self.vbus.as_mut().unwrap();
+                if vbus.is_low() {
+                    vbus.wait_for_high().await;
+                }
+                self.power_present = true;
+                self.init();
+                self.inner.init_device();
+                trace!("VBUS detected");
+                return Event::PowerDetected;
+            }
+
+            if self.vbus.as_ref().unwrap().is_low() {
+                return self.handle_vbus_removed();
+            }
+
+            let vbus = self.vbus.as_mut().unwrap();
+            return match select(self.inner.poll(), vbus.wait_for_low()).await {
+                Either::First(event) => {
+                    self.handle_event(&event);
+                    event
+                }
+                Either::Second(()) => self.handle_vbus_removed(),
+            };
         }
 
-        self.inner.poll().await
+        if !self.inited {
+            self.init();
+        }
+
+        let event = self.inner.poll().await;
+        self.handle_event(&event);
+        event
     }
 
     fn control_max_packet_size(&self) -> usize {
@@ -410,15 +561,18 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        self.inner.control_data_out(buf).await
+        let stage = self.inner.control_data_out(buf);
+        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointError::Disabled)).await
     }
 
     async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
-        self.inner.control_data_in(data, needs_zlp).await
+        let stage = self.inner.control_data_in(data, needs_zlp);
+        super::abort_on_vbus_removed(&mut self.vbus, stage, Err(EndpointDisabledError)).await
     }
 
     async fn control_accept(&mut self) {
-        self.inner.control_accept().await
+        let stage = self.inner.control_accept();
+        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn control_reject(&mut self) {
@@ -426,7 +580,8 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn control_accept_set_address(&mut self, addr: u8) {
-        self.inner.control_accept_set_address(addr).await
+        let stage = self.inner.control_accept_set_address(addr);
+        super::abort_on_vbus_removed(&mut self.vbus, stage, ()).await
     }
 
     async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -446,7 +601,13 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn enable(&mut self) {
-        self.inner.enable().await
+        if self.vbus.is_none() || self.power_present {
+            if !self.inited {
+                self.init();
+            }
+            self.enter_active();
+            self.inner.enable().await;
+        }
     }
 
     async fn disable(&mut self) {
@@ -455,6 +616,7 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+        self.enter_active();
         self.inner.remote_wakeup().await
     }
 }
