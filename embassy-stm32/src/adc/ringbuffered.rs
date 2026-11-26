@@ -9,7 +9,7 @@ use crate::adc::{Instance, RxDma};
 use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
-use crate::rcc::{RccInfo, WakeGuard};
+use crate::rcc::{MaybeWakeGuard, RccInfo};
 
 /// The DMA ring buffer was not read fast enough and samples were lost.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -21,7 +21,7 @@ pub struct RingBufferedAdc<'d, R: AdcRegs> {
     regs: R,
     info: RccInfo,
     ring_buf: ReadableRingBuffer<'d, u16>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
 }
 
 #[allow(private_bounds)]
@@ -47,7 +47,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         Self {
             regs: T::regs(),
             info: T::RCC_INFO,
-            _wake_guard: T::RCC_INFO.wake_guard(),
+            wake_guard: T::RCC_INFO.wake_guard().into(),
             ring_buf,
         }
     }
@@ -57,6 +57,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     /// Can be called after [`stop`] to resume a suspended scan without repeating the
     /// full channel/DMA configuration — the ring buffer and sequence are preserved.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
@@ -82,6 +83,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         self.regs.stop();
 
         self.ring_buf.stop();
+        self.wake_guard.disable();
 
         compiler_fence(Ordering::SeqCst);
     }
@@ -213,7 +215,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.ring_buf.stop();
+                    self.stop();
 
                     return Err(OverrunError);
                 }

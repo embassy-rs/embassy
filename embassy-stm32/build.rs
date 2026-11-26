@@ -3136,7 +3136,6 @@ fn main() {
         let irq_ident = format_ident!("{}", irq_name);
         let irq_type = quote!(crate::interrupt::typelevel::#irq_ident);
 
-        #[cfg(feature = "_dual-core")]
         let irq_pac = quote!(crate::pac::Interrupt::#irq_ident);
 
         g.extend(quote!(dma_channel_impl!(#name, #irq_type);));
@@ -3188,23 +3187,12 @@ fn main() {
             _ => quote!(),
         };
 
-        #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
                 #supports_2d_field
-                #[cfg(feature = "low-power")]
-                stop_mode: crate::rcc::StopMode::#stop_mode,
-                #dmamux
-            },
-        });
-        #[cfg(feature = "_dual-core")]
-        dmas.extend(quote! {
-            crate::dma::ChannelInfo {
-                dma: #dma_info,
-                num: #ch_num,
-                #supports_2d_field
+                #[cfg(any(feature = "_dual-core", feature = "low-power"))]
                 irq: #irq_pac,
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,

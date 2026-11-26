@@ -15,8 +15,9 @@ use super::{
 };
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
+use crate::interrupt::InterruptExt;
 use crate::mode::Async;
-use crate::rcc::WakeGuard;
+use crate::rcc::{MaybeWakeGuard, WakeGuard};
 use crate::time::Hertz;
 use crate::usart::Regs;
 
@@ -85,7 +86,7 @@ pub struct RingBufferedUartRx<'d, W: UsartWord = u8> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     _rx: Option<Flex<'d>>,
     _rts: Option<Flex<'d>>,
     ring_buf: ReadableRingBuffer<'d, W>,
@@ -126,7 +127,7 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
-        let wake_guard = WakeGuard::no_stop();
+        let wake_guard = WakeGuard::no_stop().into();
 
         // Don't disable the clock
         mem::forget(self);
@@ -135,7 +136,7 @@ impl<'d> UartRx<'d, Async> {
             info,
             state,
             kernel_clock,
-            _wake_guard: wake_guard,
+            wake_guard,
             _rx: rx,
             _rts: rts,
             ring_buf,
@@ -157,6 +158,8 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     /// Note: This is also done automatically by the read functions if
     /// required.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
+
         // Clear the buffer so that it is ready to receive data
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
@@ -179,12 +182,11 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
         });
     }
 
-    /// Stop DMA backed UART receiver
+    /// Stop DMA backed UART receiver and release its low-power Stop blocker.
     pub fn stop(&mut self) {
-        self.ring_buf.stop();
-
         let r = self.info.regs;
-        // clear all interrupts and DMA Rx Request
+        // Clear all RX interrupts and DMA Rx Request before pausing DMA so
+        // no new flags latch while the channel drains.
         r.cr1().modify(|w| {
             // disable RXNE interrupt
             w.set_rxneie(false);
@@ -192,13 +194,24 @@ impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
             w.set_peie(false);
             // disable idle line interrupt
             w.set_idleie(false);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_uesm(false);
         });
         r.cr3().modify(|w| {
             // disable Error Interrupt: (Frame error, Noise error, Overrun error)
             w.set_eie(false);
             // disable DMA Rx Request
             w.set_dmar(false);
+            #[cfg(any(usart_v3, usart_v4))]
+            w.set_wufie(false);
         });
+
+        self.ring_buf.stop();
+
+        #[cfg(any(usart_v3, usart_v4))]
+        super::clear_rx_flags(r, sr(r).read());
+        self.info.interrupt.unpend();
+        self.wake_guard.disable();
 
         compiler_fence(Ordering::SeqCst);
     }

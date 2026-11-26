@@ -11,8 +11,9 @@ use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
+use crate::pac::timer::regs;
 use crate::pac::timer::vals::Ccds;
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
 use crate::timer::low_level::DitheringConfig;
@@ -210,14 +211,33 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
     pub ch4: SimplePwmChannel<'d, T>,
 }
 
+struct SavedPwmState<T: GeneralInstance4Channel> {
+    cr1: regs::Cr1Gp16,
+    psc: u16,
+    arr: T::Word,
+    ccmr: [regs::CcmrOutputGp16; 2],
+    ccer: regs::CcerGp16,
+    ccr: [T::Word; 4],
+}
+
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: ManuallyDrop<Timer<'d, T>>,
     ch1: Option<Flex<'d>>,
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
+    saved_state: Option<SavedPwmState<T>>,
+    stopped: bool,
+}
+
+impl<'d, T: GeneralInstance4Channel> Drop for SimplePwm<'d, T> {
+    fn drop(&mut self) {
+        if !self.stopped {
+            unsafe { ManuallyDrop::drop(&mut self.inner) };
+        }
+    }
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -252,13 +272,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
+        let mut wake_guard: MaybeWakeGuard = T::RCC_INFO.wake_guard().into();
+        wake_guard.enable();
+
         let mut this = Self {
-            inner: Timer::new(tim),
+            inner: ManuallyDrop::new(Timer::new(tim)),
             ch1,
             ch2,
             ch3,
             ch4,
-            _wake_guard: T::RCC_INFO.wake_guard(),
+            wake_guard,
+            saved_state: None,
+            stopped: false,
         };
 
         this.inner.set_counting_mode(counting_mode);
@@ -279,6 +304,81 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this.inner.start();
 
         this
+    }
+
+    /// Stop the timer, gate its RCC clock, and release the low-power Stop blocker.
+    ///
+    /// Snapshots the timer configuration (counting mode, prescaler, auto-reload,
+    /// output-compare modes, channel enables/polarity, and duty cycles) so
+    /// [`Self::resume`] can transparently restore it if a deep low-power mode
+    /// (such as Stop 2 on STM32WBA/U5) resets the timer register bank.
+    pub fn stop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        self.stopped = true;
+
+        let gp16 = self.inner.regs_gp16();
+        let mut cr1 = gp16.cr1().read();
+        if cr1.arpe() {
+            cr1.set_cen(false);
+
+            self.saved_state = Some(SavedPwmState {
+                cr1,
+                psc: gp16.psc().read(),
+                arr: self.inner.get_max_compare_value(),
+                ccmr: [gp16.ccmr_output(0).read(), gp16.ccmr_output(1).read()],
+                ccer: gp16.ccer().read(),
+                ccr: [
+                    self.inner.get_compare_value(Channel::Ch1),
+                    self.inner.get_compare_value(Channel::Ch2),
+                    self.inner.get_compare_value(Channel::Ch3),
+                    self.inner.get_compare_value(Channel::Ch4),
+                ],
+            });
+        }
+
+        self.inner.stop();
+        crate::rcc::disable::<T>();
+        self.wake_guard.disable();
+    }
+
+    /// Re-acquire the low-power Stop blocker, re-enable the timer RCC clock, and resume the timer.
+    ///
+    /// If the timer register bank was reset during Stop (for example in Stop 2),
+    /// restores the configuration snapshot captured by [`Self::stop`] before
+    /// starting the counter again.
+    pub fn resume(&mut self) {
+        if !self.stopped {
+            return;
+        }
+        self.stopped = false;
+
+        self.wake_guard.enable();
+        critical_section::with(|cs| crate::rcc::enable_with_cs::<T>(cs));
+
+        let gp16 = self.inner.regs_gp16();
+        // `SimplePwm` always enables ARPE at construction; reset clears it.
+        if !gp16.cr1().read().arpe() {
+            if let Some(saved) = self.saved_state.take() {
+                gp16.psc().write_value(saved.psc);
+                self.inner.set_max_compare_value(saved.arr);
+                gp16.ccmr_output(0).write_value(saved.ccmr[0]);
+                gp16.ccmr_output(1).write_value(saved.ccmr[1]);
+                self.inner.set_compare_value(Channel::Ch1, saved.ccr[0]);
+                self.inner.set_compare_value(Channel::Ch2, saved.ccr[1]);
+                self.inner.set_compare_value(Channel::Ch3, saved.ccr[2]);
+                self.inner.set_compare_value(Channel::Ch4, saved.ccr[3]);
+                gp16.ccer().write_value(saved.ccer);
+                gp16.cr1().write_value(saved.cr1);
+                self.inner.generate_update_event();
+            }
+        } else {
+            self.saved_state = None;
+        }
+
+        self.inner.enable_outputs();
+        self.inner.start();
     }
 
     /// Get a single channel
@@ -333,13 +433,26 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// This returns all four channels, including channels that
     /// aren't configured with a [`PwmPin`].
     // TODO: I hate the name "split"
-    pub fn split(self) -> SimplePwmChannels<'static, T>
+    pub fn split(mut self) -> SimplePwmChannels<'static, T>
     where
         // must be static because the timer will never be dropped/disabled
         'd: 'static,
     {
-        // without this, the timer would be disabled at the end of this function
-        let timer = ManuallyDrop::new(self.inner);
+        if self.stopped {
+            self.resume();
+        }
+
+        // Without this, `SimplePwm::drop` would drop the timer (and disable its clock).
+        let mut this = ManuallyDrop::new(self);
+        let timer = unsafe { core::ptr::read(&this.inner) };
+        let ch1 = this.ch1.take();
+        let ch2 = this.ch2.take();
+        let ch3 = this.ch3.take();
+        let ch4 = this.ch4.take();
+        unsafe {
+            core::ptr::drop_in_place(&raw mut this.saved_state);
+            core::ptr::drop_in_place(&raw mut this.wake_guard);
+        }
 
         let ch = |channel, pin| SimplePwmChannel {
             timer: unsafe { timer.clone_unchecked() },
@@ -348,10 +461,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         };
 
         SimplePwmChannels {
-            ch1: ch(Channel::Ch1, self.ch1),
-            ch2: ch(Channel::Ch2, self.ch2),
-            ch3: ch(Channel::Ch3, self.ch3),
-            ch4: ch(Channel::Ch4, self.ch4),
+            ch1: ch(Channel::Ch1, ch1),
+            ch2: ch(Channel::Ch2, ch2),
+            ch3: ch(Channel::Ch3, ch3),
+            ch4: ch(Channel::Ch4, ch4),
         }
     }
 

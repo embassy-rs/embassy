@@ -6,7 +6,7 @@ use super::{Channel, Dir, Increment, Request, STATE};
 use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{RingBufferError, TransferOptions};
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 
 struct DmaCtrlImpl<'a>(Channel<'a>);
 
@@ -35,7 +35,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
@@ -75,7 +75,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(channel.reborrow()).reset_complete_count();
 
         Self {
-            _wake_guard: channel.info().wake_guard(),
+            wake_guard: channel.info().wake_guard().into(),
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
@@ -85,6 +85,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         self.channel.enable_circular_mode();
         self.channel.start();
     }
@@ -155,12 +156,11 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Stop the ring buffer operation.
+    /// Stop the ring buffer operation and release its low-power Stop blocker.
     /// To resume the transfer, call [`start`](Self::start).
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn stop(&mut self) {
-        self.channel.request_pause()
+        self.channel.pause_and_wait();
+        self.wake_guard.disable();
     }
 
     /// Return whether DMA is still running.
@@ -198,6 +198,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
         self.channel.request_reset();
         while self.is_running() {}
+        self.channel.clear_flags_and_unpend();
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
@@ -207,7 +208,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
@@ -247,7 +248,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(channel.reborrow()).reset_complete_count();
 
         Self {
-            _wake_guard: channel.info().wake_guard(),
+            wake_guard: channel.info().wake_guard().into(),
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
@@ -257,6 +258,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating ring buffer for it to work.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         self.channel.enable_circular_mode();
         self.channel.start();
     }
@@ -310,12 +312,11 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Stop the ring buffer operation.
+    /// Stop the ring buffer operation and release its low-power Stop blocker.
     /// To resume the transfer, call [`start`](Self::start).
-    ///
-    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn stop(&mut self) {
-        self.channel.request_pause()
+        self.channel.pause_and_wait();
+        self.wake_guard.disable();
     }
 
     /// Return whether DMA is still running.
@@ -351,6 +352,7 @@ impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
         self.channel.request_reset();
         while self.is_running() {}
+        self.channel.clear_flags_and_unpend();
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);

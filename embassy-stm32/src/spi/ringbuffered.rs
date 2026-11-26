@@ -11,7 +11,7 @@ use embedded_io_async::ReadReady;
 use crate::dma::{ReadableRingBuffer, RingBufferError};
 use crate::gpio::Flex;
 use crate::mode::Async;
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
 use crate::spi::flush_rx_fifo;
 use crate::spi::mode::Slave;
@@ -53,7 +53,7 @@ use crate::time::Hertz;
 pub struct RingBufferedSpiRx<'d, W: Word> {
     info: &'static Info,
     kernel_clock: Hertz,
-    _wake_guard: WakeGuard,
+    wake_guard: MaybeWakeGuard,
     _sck: Option<Flex<'d>>,
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
@@ -100,7 +100,7 @@ impl<'d> Spi<'d, Async, Slave> {
         let miso = unsafe { self._miso.as_ref().map(|x| x.clone_unchecked()) };
         let nss = unsafe { self.nss.clone_unchecked() };
 
-        let wake_guard = self.info.rcc.wake_guard();
+        let wake_guard = self.info.rcc.wake_guard().into();
 
         // Don't disable the clock
         mem::forget(self);
@@ -112,7 +112,7 @@ impl<'d> Spi<'d, Async, Slave> {
         RingBufferedSpiRx {
             info,
             kernel_clock,
-            _wake_guard: wake_guard,
+            wake_guard,
             _sck: sck,
             _mosi: mosi,
             _miso: miso,
@@ -135,6 +135,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// Note: This is also done automatically by the read functions if
     /// required.
     pub fn start(&mut self) {
+        self.wake_guard.enable();
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
@@ -145,7 +146,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         });
     }
 
-    /// Stop DMA backed SPI receiver
+    /// Stop DMA backed SPI receiver and release its low-power Stop blocker.
     pub fn stop(&mut self) {
         self.ring_buf.stop();
 
@@ -155,6 +156,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
             w.set_spe(false);
         });
 
+        self.wake_guard.disable();
         compiler_fence(Ordering::SeqCst);
     }
 
