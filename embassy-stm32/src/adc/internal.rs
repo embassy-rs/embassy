@@ -4,8 +4,10 @@
 //! that have it connected, with the channel number of the source on that instance. The tokens are
 //! obtained from the `enable_*` methods of [`Adc`], which switch the source on.
 
-use super::{Adc, AdcChannel, AdcRegs, Instance, InternalChannel, SealedAdcChannel};
-use crate::mode::Mode;
+use super::{
+    Adc, AdcChannel, AdcRegs, BorrowedChannel, Instance, InternalChannel, Resolution, SampleTimeOf, SealedAdcChannel,
+};
+use crate::mode::{Async, Mode};
 
 /// Trait implemented by the internal channel tokens.
 pub(crate) trait SpecialChannel {}
@@ -232,159 +234,587 @@ internal!(ADC1: Temperature = 12, VrefInt = 13);
 
 impl VrefInt {
     /// The reading the internal reference gives when VDDA is at the factory calibration voltage
-    /// `VREF_CALIB_MV`, measured at production and stored in flash.
-    #[cfg(any(
-        stm32f0,
-        stm32f3,
-        stm32f7,
-        stm32g0,
-        stm32g4,
-        stm32l0,
-        stm32l1,
-        stm32l4,
-        stm32l4_plus,
-        stm32l5,
-        stm32wb,
-        stm32wl,
-        stm32u0,
-    ))]
+    /// [`VREF_CALIB_MV`], measured at production and stored in flash.
+    #[cfg(adc_vrefint_cal)]
     pub fn calibrated_value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read()
+        read_vrefint_cal()
     }
 }
 
 impl Temperature {
-    /// The temperature sensor factory calibration readings at 30 °C and 130 °C.
-    #[cfg(stm32u0)]
+    /// The temperature sensor factory calibration readings at [`TS_CAL1_TEMP_C`] and
+    /// [`TS_CAL2_TEMP_C`].
+    #[cfg(adc_temp_two_point)]
     pub fn calibrated_value(&self) -> (u16, u16) {
-        let lower = crate::pac::TSCAL.tscal1().read();
-        let upper = crate::pac::TSCAL.tscal2().read();
-        (lower, upper)
+        (read_ts_cal1(), read_ts_cal2())
     }
+
+    /// The single-point temperature sensor factory calibration reading at [`TS_CAL1_TEMP_C`].
+    #[cfg(adc_temp_cal)]
+    pub fn cal1(&self) -> u16 {
+        read_ts_cal1()
+    }
+}
+
+#[cfg(adc_vrefint_cal)]
+#[inline]
+fn read_vrefint_cal() -> u16 {
+    crate::pac::VREFINTCAL.data().read() & cal_mask(crate::_generated::ADC_VREF_CAL_BITS)
+}
+
+#[cfg(adc_temp_cal)]
+#[inline]
+fn read_ts_cal1() -> u16 {
+    crate::pac::TS_CAL1.data().read() & cal_mask(crate::_generated::ADC_TEMP_CAL_BITS)
+}
+
+#[cfg(adc_temp_two_point)]
+#[inline]
+fn read_ts_cal2() -> u16 {
+    crate::pac::TS_CAL2.data().read() & cal_mask(crate::_generated::ADC_TEMP_CAL_BITS)
 }
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 
-/// VREF voltage used for factory calibration of VREFINTCAL register.
-#[cfg(any(
-    stm32l0,
-    stm32l1,
-    stm32l4,
-    stm32l4_plus,
-    stm32l5,
-    stm32wb,
-    stm32wl,
-    stm32g0,
-    stm32g4,
-    stm32u0,
-    stm32wba,
-    stm32u5,
-    stm32u3
-))]
-pub const VREF_CALIB_MV: u32 = 3000;
-/// VREF voltage used for factory calibration of VREFINTCAL register.
-#[cfg(not(any(
-    stm32l0,
-    stm32l1,
-    stm32l4,
-    stm32l4_plus,
-    stm32l5,
-    stm32wb,
-    stm32wl,
-    stm32g0,
-    stm32g4,
-    stm32u0,
-    stm32wba,
-    stm32u5,
-    stm32u3
-)))]
+/// VREF voltage used for factory calibration of the `VREFINTCAL` register.
+#[cfg(adc_vrefint_cal)]
+pub const VREF_CALIB_MV: u32 = crate::_generated::ADC_VREF_CAL_MV;
+/// VREF voltage used for factory calibration of the `VREFINTCAL` register.
+#[cfg(not(adc_vrefint_cal))]
 pub const VREF_CALIB_MV: u32 = 3300;
 
-/// Temperature at which TS_CAL1 was measured (30°C).
+/// Bit width of the factory-programmed `VREFINTCAL` value.
+#[cfg(adc_vrefint_cal)]
+pub const VREF_CALIB_BITS: u8 = crate::_generated::ADC_VREF_CAL_BITS;
+
+/// Temperature at which `TS_CAL1` was measured (typically 30 °C).
+#[cfg(adc_temp_cal)]
+pub const TS_CAL1_TEMP_C: i32 = crate::_generated::ADC_TEMP_CAL1_C;
+/// Temperature at which `TS_CAL1` was measured (30 °C).
+#[cfg(not(adc_temp_cal))]
 pub const TS_CAL1_TEMP_C: i32 = 30;
-/// Temperature at which TS_CAL2 was measured.
-///
-/// 110 °C on the families whose factory calibration was taken there (F0: RM0091 §A.7.16, L1:
-/// RM0038 §12.12, H7), 130 °C everywhere else.
-#[cfg(any(stm32f0, stm32l1, stm32h7))]
-pub const TS_CAL2_TEMP_C: i32 = 110;
-/// Temperature at which TS_CAL2 was measured (130°C).
-#[cfg(not(any(stm32f0, stm32l1, stm32h7)))]
+
+/// Temperature at which `TS_CAL2` was measured (110 °C, 130 °C, or 140 °C depending on chip).
+#[cfg(adc_temp_two_point)]
+pub const TS_CAL2_TEMP_C: i32 = crate::_generated::ADC_TEMP_CAL2_C;
+/// Temperature at which `TS_CAL2` was measured (130 °C).
+#[cfg(not(adc_temp_two_point))]
 pub const TS_CAL2_TEMP_C: i32 = 130;
 
-/// Factory calibration values read from the DESIG peripheral.
+#[inline]
+#[allow(dead_code)]
+const fn cal_mask(bits: u8) -> u16 {
+    ((1u32 << bits) - 1) as u16
+}
+
+#[inline]
+#[allow(dead_code)]
+const fn bit_max_count(bits: u8) -> u32 {
+    (1u32 << bits) - 1
+}
+
+/// Convert a raw ADC sample acquired at `resolution` to millivolts using `vdda_mv`.
+#[inline]
+pub const fn raw_to_mv(sample: u32, resolution: Resolution, vdda_mv: u32) -> u32 {
+    raw_count_to_mv(sample, resolution.max_count(), vdda_mv)
+}
+
+#[inline]
+const fn raw_count_to_mv(sample: u32, max_count: u32, vdda_mv: u32) -> u32 {
+    if max_count == 0 {
+        return 0;
+    }
+    ((sample as u64 * vdda_mv as u64) / max_count as u64) as u32
+}
+
+#[inline]
+#[allow(dead_code)]
+const fn calc_vdda_uv(
+    vref_cal: u16,
+    vref_cal_mv: u32,
+    vref_cal_bits: u8,
+    vrefint_data: u32,
+    adc_max_count: u32,
+    default_vdda_mv: u32,
+) -> u64 {
+    if vrefint_data == 0 {
+        return (default_vdda_mv as u64) * 1000;
+    }
+    let cal_max = bit_max_count(vref_cal_bits) as u64;
+    (vref_cal_mv as u64 * 1000 * vref_cal as u64 * adc_max_count as u64) / (vrefint_data as u64 * cal_max)
+}
+
+#[inline]
+#[allow(dead_code)]
+const fn sample_uv_to_mv(sample: u32, sample_max_count: u32, vdda_uv: u64) -> u32 {
+    if sample_max_count == 0 {
+        return 0;
+    }
+    ((sample as u64 * vdda_uv) / (sample_max_count as u64 * 1000)) as u32
+}
+
+#[inline]
+#[allow(dead_code)]
+const fn raw_to_uv(sample: u32, max_count: u32, vdda_uv: u64) -> i64 {
+    if max_count == 0 {
+        return 0;
+    }
+    ((sample as u64 * vdda_uv) / max_count as u64) as i64
+}
+
+#[inline]
+#[allow(dead_code, clippy::too_many_arguments)]
+const fn two_point_temp_mc(
+    ts_data: u32,
+    ts_max_count: u32,
+    vdda_uv: u64,
+    ts_cal1: u16,
+    ts_cal2: u16,
+    cal_mv: u32,
+    cal_bits: u8,
+    cal1_temp_c: i32,
+    cal2_temp_c: i32,
+) -> i32 {
+    let cal_max = bit_max_count(cal_bits);
+    let cal_uv = cal_mv as u64 * 1000;
+    let v_sense_uv = raw_to_uv(ts_data, ts_max_count, vdda_uv);
+    let v_cal1_uv = raw_to_uv(ts_cal1 as u32, cal_max, cal_uv);
+    let v_cal2_uv = raw_to_uv(ts_cal2 as u32, cal_max, cal_uv);
+    let delta_v = v_cal2_uv - v_cal1_uv;
+    if delta_v == 0 {
+        return cal1_temp_c * 1000;
+    }
+    let delta_temp_mc = (cal2_temp_c - cal1_temp_c) as i64 * 1000;
+    (cal1_temp_c as i64 * 1000 + (delta_temp_mc * (v_sense_uv - v_cal1_uv)) / delta_v) as i32
+}
+
+#[inline]
+#[allow(dead_code)]
+const fn linear_slope_temp_mc(
+    ts_data: u32,
+    ts_max_count: u32,
+    vdda_uv: u64,
+    ref_uv: i64,
+    ref_temp_c: i32,
+    avg_slope_uv_per_c: i32,
+) -> i32 {
+    if avg_slope_uv_per_c == 0 {
+        return ref_temp_c * 1000;
+    }
+    let v_sense_uv = raw_to_uv(ts_data, ts_max_count, vdda_uv);
+    (ref_temp_c as i64 * 1000 + ((v_sense_uv - ref_uv) * 1000) / avg_slope_uv_per_c as i64) as i32
+}
+
+/// Factory and datasheet ADC calibration parameters for the current chip.
 ///
-/// These values are programmed during manufacturing and can be used
-/// for accurate temperature and voltage measurements.
-#[cfg(stm32wba)]
+/// Read once via [`Calibration::read`] and reuse to convert raw ADC counts into calibrated VDDA
+/// voltages, channel millivolts, and millidegrees Celsius.
+#[cfg(any(adc_vrefint_cal, adc_temp_cal, adc_temp_nominal))]
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Calibration {
-    /// Temperature sensor calibration value at 30°C (12-bit).
+    /// Temperature sensor calibration value at [`TS_CAL1_TEMP_C`].
+    #[cfg(adc_temp_cal)]
     pub ts_cal1: u16,
-    /// Temperature sensor calibration value at 130°C (12-bit).
+    /// Temperature sensor calibration value at [`TS_CAL2_TEMP_C`].
+    #[cfg(adc_temp_two_point)]
     pub ts_cal2: u16,
-    /// Internal voltage reference calibration value (12-bit).
-    /// Measured at VDDA = 3.0V.
+    /// Internal voltage reference calibration value measured at [`VREF_CALIB_MV`].
+    #[cfg(adc_vrefint_cal)]
     pub vrefint_cal: u16,
 }
 
-#[cfg(stm32wba)]
+#[cfg(any(adc_vrefint_cal, adc_temp_cal, adc_temp_nominal))]
 impl Calibration {
-    /// Read factory calibration values from the DESIG and VREFINTCAL peripherals.
-    ///
-    /// These values are unique to each chip and were measured during manufacturing
-    /// at VDDA = 3.0V.
+    /// Read factory calibration values from flash/signature registers.
     pub fn read() -> Self {
         Self {
-            ts_cal1: crate::pac::DESIG.tscal1r().read().ts_cal1(),
-            ts_cal2: crate::pac::DESIG.tscal2r().read().ts_cal2(),
-            vrefint_cal: crate::pac::VREFINTCAL.data().read().vrefint_cal(),
+            #[cfg(adc_temp_cal)]
+            ts_cal1: read_ts_cal1(),
+            #[cfg(adc_temp_two_point)]
+            ts_cal2: read_ts_cal2(),
+            #[cfg(adc_vrefint_cal)]
+            vrefint_cal: read_vrefint_cal(),
         }
     }
 
-    /// Convert a temperature sensor ADC reading to temperature in millidegrees Celsius.
-    ///
-    /// This function applies VDDA compensation using the VREFINT reading to account
-    /// for differences between the actual supply voltage and the 3.0V calibration voltage.
-    ///
-    /// # Arguments
-    /// * `ts_data` - Raw ADC reading from the temperature sensor channel
-    /// * `vrefint_data` - Raw ADC reading from the VREFINT channel (for VDDA compensation)
-    ///
-    /// # Returns
-    /// Temperature in millidegrees Celsius (e.g., 25000 = 25.000°C)
-    pub fn convert_to_millicelsius(&self, ts_data: u32, vrefint_data: u32) -> i32 {
-        // Compensate TS_DATA for actual VDDA vs calibration VDDA (3.0V)
-        let ts_data_comp = if vrefint_data > 0 {
-            (ts_data * self.vrefint_cal as u32) / vrefint_data
-        } else {
-            ts_data
-        };
-
-        let ts_data_comp = ts_data_comp as i32;
-        let ts_cal1 = self.ts_cal1 as i32;
-        let ts_cal2 = self.ts_cal2 as i32;
-
-        let delta_temp = (TS_CAL2_TEMP_C - TS_CAL1_TEMP_C) * 1000;
-        let delta_cal = ts_cal2 - ts_cal1;
-
-        if delta_cal == 0 {
-            return ts_data_comp * 10;
-        }
-
-        TS_CAL1_TEMP_C * 1000 + (delta_temp * (ts_data_comp - ts_cal1)) / delta_cal
+    #[cfg(adc_vrefint_cal)]
+    #[inline]
+    fn vdda_uv_for_count(&self, vrefint_data: u32, adc_max_count: u32) -> u64 {
+        calc_vdda_uv(
+            self.vrefint_cal,
+            crate::_generated::ADC_VREF_CAL_MV,
+            crate::_generated::ADC_VREF_CAL_BITS,
+            vrefint_data,
+            adc_max_count,
+            VREF_DEFAULT_MV,
+        )
     }
 
-    /// Calculate the actual VDDA voltage in millivolts using VREFINT.
+    /// Calculate actual VDDA voltage in millivolts from a `VrefInt` sample taken at `resolution`.
     ///
-    /// The formula is: VDDA = 3000mV × VREFINT_CAL / VREFINT_DATA
+    /// Returns [`VREF_DEFAULT_MV`] if `vrefint_data` is 0.
+    #[cfg(adc_vrefint_cal)]
+    pub fn vdda_mv(&self, vrefint_data: u32, resolution: Resolution) -> u32 {
+        (self.vdda_uv_for_count(vrefint_data, resolution.max_count()) / 1000) as u32
+    }
+
+    /// Calculate actual VDDA voltage in millivolts assuming `vrefint_data` matches
+    /// [`VREF_CALIB_BITS`] resolution.
+    ///
+    /// Prefer [`Calibration::vdda_mv`] when sampling at an explicit [`Resolution`] (such as
+    /// 12-bit `ADC4` on STM32U5 where factory calibration is 14-bit).
+    #[cfg(adc_vrefint_cal)]
     pub fn calculate_vdda_mv(&self, vrefint_data: u32) -> u32 {
-        if vrefint_data > 0 {
-            (VREF_CALIB_MV * self.vrefint_cal as u32) / vrefint_data
-        } else {
-            VREF_DEFAULT_MV
+        (self.vdda_uv_for_count(vrefint_data, bit_max_count(crate::_generated::ADC_VREF_CAL_BITS)) / 1000) as u32
+    }
+
+    /// Convert a raw channel sample to millivolts using a `VrefInt` reading for VDDA compensation.
+    #[cfg(adc_vrefint_cal)]
+    pub fn sample_to_mv(
+        &self,
+        sample: u32,
+        sample_resolution: Resolution,
+        vrefint_data: u32,
+        vrefint_resolution: Resolution,
+    ) -> u32 {
+        let vdda_uv = self.vdda_uv_for_count(vrefint_data, vrefint_resolution.max_count());
+        sample_uv_to_mv(sample, sample_resolution.max_count(), vdda_uv)
+    }
+
+    #[cfg(any(adc_temp_cal, adc_temp_nominal))]
+    fn temp_mc_from_uv(&self, ts_data: u32, ts_max_count: u32, vdda_uv: u64) -> i32 {
+        #[cfg(adc_temp_two_point)]
+        {
+            two_point_temp_mc(
+                ts_data,
+                ts_max_count,
+                vdda_uv,
+                self.ts_cal1,
+                self.ts_cal2,
+                crate::_generated::ADC_TEMP_CAL_MV,
+                crate::_generated::ADC_TEMP_CAL_BITS,
+                crate::_generated::ADC_TEMP_CAL1_C,
+                crate::_generated::ADC_TEMP_CAL2_C,
+            )
         }
+        #[cfg(adc_temp_one_point)]
+        {
+            let cal_uv = raw_to_uv(
+                self.ts_cal1 as u32,
+                bit_max_count(crate::_generated::ADC_TEMP_CAL_BITS),
+                crate::_generated::ADC_TEMP_CAL_MV as u64 * 1000,
+            );
+            linear_slope_temp_mc(
+                ts_data,
+                ts_max_count,
+                vdda_uv,
+                cal_uv,
+                crate::_generated::ADC_TEMP_CAL1_C,
+                crate::_generated::ADC_TEMP_AVG_SLOPE_UV_PER_C,
+            )
+        }
+        #[cfg(adc_temp_nominal)]
+        {
+            linear_slope_temp_mc(
+                ts_data,
+                ts_max_count,
+                vdda_uv,
+                crate::_generated::ADC_TEMP_VREF_MV as i64 * 1000,
+                crate::_generated::ADC_TEMP_REF_C,
+                crate::_generated::ADC_TEMP_AVG_SLOPE_UV_PER_C,
+            )
+        }
+    }
+
+    /// Convert a temperature sensor reading at `ts_resolution` to millidegrees Celsius, using a
+    /// `VrefInt` sample at `vrefint_resolution` for VDDA compensation.
+    #[cfg(all(adc_vrefint_cal, adc_temp_cal))]
+    pub fn temperature_millicelsius(
+        &self,
+        ts_data: u32,
+        ts_resolution: Resolution,
+        vrefint_data: u32,
+        vrefint_resolution: Resolution,
+    ) -> i32 {
+        let vdda_uv = self.vdda_uv_for_count(vrefint_data, vrefint_resolution.max_count());
+        self.temp_mc_from_uv(ts_data, ts_resolution.max_count(), vdda_uv)
+    }
+
+    /// Convert a temperature sensor reading at `ts_resolution` to millidegrees Celsius using a
+    /// known `vdda_mv`.
+    #[cfg(any(adc_temp_cal, adc_temp_nominal))]
+    pub fn temperature_millicelsius_with_vdda(&self, ts_data: u32, ts_resolution: Resolution, vdda_mv: u32) -> i32 {
+        self.temp_mc_from_uv(ts_data, ts_resolution.max_count(), (vdda_mv as u64) * 1000)
+    }
+
+    /// Convert a temperature sensor reading to millidegrees Celsius assuming both `ts_data` and
+    /// `vrefint_data` match factory calibration bit widths.
+    ///
+    /// Prefer [`Calibration::temperature_millicelsius`] when sampling at an explicit [`Resolution`].
+    #[cfg(all(adc_vrefint_cal, adc_temp_cal))]
+    pub fn convert_to_millicelsius(&self, ts_data: u32, vrefint_data: u32) -> i32 {
+        let vdda_uv = self.vdda_uv_for_count(vrefint_data, bit_max_count(crate::_generated::ADC_VREF_CAL_BITS));
+        self.temp_mc_from_uv(ts_data, bit_max_count(crate::_generated::ADC_TEMP_CAL_BITS), vdda_uv)
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
+    /// Convert a raw ADC sample taken at `self.resolution()` to millivolts using a known `vdda_mv`.
+    pub fn raw_to_mv(&self, raw: u32, vdda_mv: u32) -> u32 {
+        raw_to_mv(raw, self.resolution(), vdda_mv)
+    }
+
+    /// Sample `VrefInt` once (blocking) and return actual VDDA in millivolts.
+    #[cfg(adc_vrefint_cal)]
+    pub fn blocking_read_vdda_mv(&mut self, vrefint: &mut VrefInt, sample_time: SampleTimeOf<T>) -> u32
+    where
+        T: HasInternalChannel<VrefInt>,
+    {
+        let raw = self.blocking_read(vrefint, sample_time);
+        Calibration::read().vdda_mv(raw as u32, self.resolution())
+    }
+
+    /// Sample `channel` and `VrefInt` (blocking) and return the calibrated voltage in millivolts.
+    #[cfg(adc_vrefint_cal)]
+    pub fn blocking_read_calibrated_mv<'a>(
+        &mut self,
+        channel: impl BorrowedChannel<'a, T>,
+        vrefint: &mut VrefInt,
+        sample_time: SampleTimeOf<T>,
+    ) -> u32
+    where
+        T: HasInternalChannel<VrefInt>,
+    {
+        let res = self.resolution();
+        let sample = self.blocking_read(channel, sample_time);
+        let vref = self.blocking_read(vrefint, sample_time);
+        Calibration::read().sample_to_mv(sample as u32, res, vref as u32, res)
+    }
+
+    /// Sample `channel` (blocking) and convert to millivolts using a known `vdda_mv`.
+    pub fn blocking_read_mv_with_vdda<'a>(
+        &mut self,
+        channel: impl BorrowedChannel<'a, T>,
+        sample_time: SampleTimeOf<T>,
+        vdda_mv: u32,
+    ) -> u32 {
+        let sample = self.blocking_read(channel, sample_time);
+        self.raw_to_mv(sample as u32, vdda_mv)
+    }
+
+    /// Sample the internal temperature sensor and `VrefInt` (blocking) and return temperature in
+    /// millidegrees Celsius.
+    ///
+    /// Use a `sample_time` meeting the datasheet minimums for both internal channels (for example,
+    /// via [`Adc::sample_time_for_us`]).
+    #[cfg(all(adc_vrefint_cal, adc_temp_cal))]
+    pub fn blocking_read_temperature_mc(
+        &mut self,
+        temp: &mut Temperature,
+        vrefint: &mut VrefInt,
+        sample_time: SampleTimeOf<T>,
+    ) -> i32
+    where
+        T: HasInternalChannel<Temperature> + HasInternalChannel<VrefInt>,
+    {
+        let res = self.resolution();
+        let ts = self.blocking_read(temp, sample_time);
+        let vref = self.blocking_read(vrefint, sample_time);
+        Calibration::read().temperature_millicelsius(ts as u32, res, vref as u32, res)
+    }
+
+    /// Sample the internal temperature sensor (blocking) and convert to millidegrees Celsius
+    /// using a known `vdda_mv`.
+    #[cfg(any(adc_temp_cal, adc_temp_nominal))]
+    pub fn blocking_read_temperature_mc_with_vdda(
+        &mut self,
+        temp: &mut Temperature,
+        sample_time: SampleTimeOf<T>,
+        vdda_mv: u32,
+    ) -> i32
+    where
+        T: HasInternalChannel<Temperature>,
+    {
+        let res = self.resolution();
+        let ts = self.blocking_read(temp, sample_time);
+        Calibration::read().temperature_millicelsius_with_vdda(ts as u32, res, vdda_mv)
+    }
+}
+
+impl<'d, T: Instance> Adc<'d, T, Async> {
+    /// Sample `VrefInt` once and return actual VDDA in millivolts.
+    #[cfg(adc_vrefint_cal)]
+    pub async fn read_vdda_mv(&mut self, vrefint: &mut VrefInt, sample_time: SampleTimeOf<T>) -> u32
+    where
+        T: HasInternalChannel<VrefInt>,
+    {
+        let raw = self.read(vrefint, sample_time).await;
+        Calibration::read().vdda_mv(raw as u32, self.resolution())
+    }
+
+    /// Sample `channel` and `VrefInt` and return the calibrated voltage in millivolts.
+    #[cfg(adc_vrefint_cal)]
+    pub async fn read_calibrated_mv<'a>(
+        &mut self,
+        channel: impl BorrowedChannel<'a, T>,
+        vrefint: &mut VrefInt,
+        sample_time: SampleTimeOf<T>,
+    ) -> u32
+    where
+        T: HasInternalChannel<VrefInt>,
+    {
+        let res = self.resolution();
+        let sample = self.read(channel, sample_time).await;
+        let vref = self.read(vrefint, sample_time).await;
+        Calibration::read().sample_to_mv(sample as u32, res, vref as u32, res)
+    }
+
+    /// Sample `channel` and convert to millivolts using a known `vdda_mv`.
+    pub async fn read_mv_with_vdda<'a>(
+        &mut self,
+        channel: impl BorrowedChannel<'a, T>,
+        sample_time: SampleTimeOf<T>,
+        vdda_mv: u32,
+    ) -> u32 {
+        let sample = self.read(channel, sample_time).await;
+        self.raw_to_mv(sample as u32, vdda_mv)
+    }
+
+    /// Sample the internal temperature sensor and `VrefInt` and return temperature in millidegrees
+    /// Celsius.
+    ///
+    /// Use a `sample_time` meeting the datasheet minimums for both internal channels (for example,
+    /// via [`Adc::sample_time_for_us`]).
+    #[cfg(all(adc_vrefint_cal, adc_temp_cal))]
+    pub async fn read_temperature_mc(
+        &mut self,
+        temp: &mut Temperature,
+        vrefint: &mut VrefInt,
+        sample_time: SampleTimeOf<T>,
+    ) -> i32
+    where
+        T: HasInternalChannel<Temperature> + HasInternalChannel<VrefInt>,
+    {
+        let res = self.resolution();
+        let ts = self.read(temp, sample_time).await;
+        let vref = self.read(vrefint, sample_time).await;
+        Calibration::read().temperature_millicelsius(ts as u32, res, vref as u32, res)
+    }
+
+    /// Sample the internal temperature sensor and convert to millidegrees Celsius using a known
+    /// `vdda_mv`.
+    #[cfg(any(adc_temp_cal, adc_temp_nominal))]
+    pub async fn read_temperature_mc_with_vdda(
+        &mut self,
+        temp: &mut Temperature,
+        sample_time: SampleTimeOf<T>,
+        vdda_mv: u32,
+    ) -> i32
+    where
+        T: HasInternalChannel<Temperature>,
+    {
+        let res = self.resolution();
+        let ts = self.read(temp, sample_time).await;
+        Calibration::read().temperature_millicelsius_with_vdda(ts as u32, res, vdda_mv)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vdda_scaling() {
+        // 12-bit factory cal at 3.0 V, reading matches cal -> 3000 mV
+        assert_eq!(calc_vdda_uv(1656, 3000, 12, 1656, 4095, 3300) / 1000, 3000);
+        // Zero reading falls back cleanly to default VDDA
+        assert_eq!(calc_vdda_uv(1656, 3000, 12, 0, 4095, 3300) / 1000, 3300);
+        // U5: 14-bit factory cal read with 12-bit ADC4 (~1/4 of cal code) -> ~3000 mV
+        let vdda_uv = calc_vdda_uv(6624, 3000, 14, 1656, 4095, 3300);
+        let mv = (vdda_uv / 1000) as u32;
+        assert!((2998..=3002).contains(&mv), "got {mv}");
+        // H7: 16-bit factory cal read with 12-bit ADC3 -> ~3300 mV
+        let vdda_uv = calc_vdda_uv(1656 * 16, 3300, 16, 1656, 4095, 3300);
+        let mv = (vdda_uv / 1000) as u32;
+        assert!((3298..=3302).contains(&mv), "got {mv}");
+    }
+
+    #[test]
+    fn test_sample_to_mv() {
+        let vdda_uv = calc_vdda_uv(1656, 3000, 12, 1656, 4095, 3300);
+        assert_eq!(sample_uv_to_mv(4095, 4095, vdda_uv), 3000);
+        assert_eq!(sample_uv_to_mv(2047, 4095, vdda_uv), 1499);
+        assert_eq!(raw_count_to_mv(2048, 4095, 3300), 1650);
+    }
+
+    #[test]
+    fn test_two_point_temp_variants() {
+        // 30 C..130 C (e.g. G0/G4/L4/U0/WBA), at 3.0 V
+        let vdda_3v = 3_000_000;
+        assert_eq!(
+            two_point_temp_mc(1000, 4095, vdda_3v, 1000, 1300, 3000, 12, 30, 130),
+            30_000
+        );
+        assert_eq!(
+            two_point_temp_mc(1300, 4095, vdda_3v, 1000, 1300, 3000, 12, 30, 130),
+            130_000
+        );
+        assert_eq!(
+            two_point_temp_mc(1150, 4095, vdda_3v, 1000, 1300, 3000, 12, 30, 130),
+            80_000
+        );
+
+        // Sub-zero (-10 C): ts_data below cal1 by 0.4 * (cal2 - cal1)
+        assert_eq!(
+            two_point_temp_mc(880, 4095, vdda_3v, 1000, 1300, 3000, 12, 30, 130),
+            -10_000
+        );
+
+        // 30 C..140 C (G5), at 3.3 V
+        let vdda_3v3 = 3_300_000;
+        assert_eq!(
+            two_point_temp_mc(1400, 4095, vdda_3v3, 1000, 1400, 3300, 12, 30, 140),
+            140_000
+        );
+
+        // Negative slope (ts_cal2 < ts_cal1, e.g. F0/F3/L1), 30 C..110 C
+        assert_eq!(
+            two_point_temp_mc(900, 4095, vdda_3v3, 1000, 800, 3300, 12, 30, 110),
+            70_000
+        );
+
+        // U5: 14-bit cal points sampled at 12-bit ADC4 resolution with 3.0 V VDDA.
+        // 1150 / 4095 * 16383 ≈ 4601.1 -> ~80.070 C.
+        let temp_u5 = two_point_temp_mc(1150, 4095, vdda_3v, 4000, 5200, 3000, 14, 30, 130);
+        assert!((80_000..=80_100).contains(&temp_u5), "got {temp_u5}");
+
+        // Degenerate cal1 == cal2 guard
+        assert_eq!(
+            two_point_temp_mc(1200, 4095, vdda_3v, 1000, 1000, 3000, 12, 30, 130),
+            30_000
+        );
+    }
+
+    #[test]
+    fn test_one_point_and_nominal_temp() {
+        // C0: one-point, 3.0 V, 30 C, +2530 uV/C
+        let v_cal1_c0 = raw_to_uv(1000, 4095, 3_000_000);
+        // +25.3 mV above V_CAL1 -> +10 C -> 40 C
+        let t_c0 = linear_slope_temp_mc(1000, 4095, 3_000_000, v_cal1_c0 - 25_300, 30, 2530);
+        assert_eq!(t_c0, 40_000);
+
+        // F1: nominal, V25 = 1430 mV, -4300 uV/C
+        // V_SENSE at 45 C = 1430 mV - 20 * 4.3 mV = 1344 mV
+        let sample_f1 = (1344 * 4095) / 3300;
+        let t_f1 = linear_slope_temp_mc(sample_f1, 4095, 3_300_000, 1_430_000, 25, -4300);
+        assert!((44_800..=45_200).contains(&t_f1), "got {t_f1}");
+
+        // F2: nominal, V25 = 760 mV, +2500 uV/C
+        // V_SENSE at 45 C = 760 mV + 20 * 2.5 mV = 810 mV
+        let sample_f2 = (810 * 4095) / 3300;
+        let t_f2 = linear_slope_temp_mc(sample_f2, 4095, 3_300_000, 760_000, 25, 2500);
+        assert!((44_800..=45_200).contains(&t_f2), "got {t_f2}");
     }
 }
