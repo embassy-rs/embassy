@@ -44,12 +44,12 @@
 // fails here until it is implemented deliberately. See `docs/low-power/00-hardware-survey.md`
 // §6.1 for the full analysis.
 #[cfg(not(any(
-    stm32c5, stm32f0, stm32f3, stm32f4, stm32f7, stm32g0, stm32g4, stm32l0, stm32l1, stm32l4, stm32l5, stm32u0,
-    stm32u3, stm32u5, stm32h5, stm32wb, stm32wba, stm32wl
+    stm32c5, stm32f0, stm32f3, stm32f4, stm32f7, stm32g0, stm32g4, stm32g5, stm32l0, stm32l1, stm32l4, stm32l5,
+    stm32u0, stm32u3, stm32u5, stm32h5, stm32wb, stm32wba, stm32wl
 )))]
 compile_error!(
     "the `low-power` feature is not implemented for this STM32 family. \
-     Implemented families: c5, f0, f3, f4, f7, g0, g4, l0, l1, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
+     Implemented families: c5, f0, f3, f4, f7, g0, g4, g5, l0, l1, l4, l5, u0, u3, u5, h5, wb, wba, wl. \
      See embassy-stm32/src/low_power.rs and docs/low-power/00-hardware-survey.md."
 );
 
@@ -258,6 +258,11 @@ fn enter_stop(entry: &PowerModeEntry) -> Result<(), ()> {
             crate::pac::PWR
                 .pmcr()
                 .modify(|v| v.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
+
+            #[cfg(stm32g5)]
+            crate::pac::PWR
+                .lpmcr()
+                .modify(|v| v.set_lpms(crate::pac::pwr::vals::Lpms::from_bits(entry.selector)));
         }
         Dialect::DomainPdds | Dialect::Wb0Deepstop => {}
     }
@@ -280,7 +285,7 @@ fn did_enter_stop() -> Option<bool> {
             None
         }
         Dialect::PmcrSvos => {
-            #[cfg(any(stm32h5, stm32c5))]
+            #[cfg(any(stm32h5, stm32c5, stm32g5))]
             return Some(crate::pac::PWR.pmsr().read().stopf());
             #[allow(unreachable_code)]
             None
@@ -339,6 +344,11 @@ fn clear_flags() {
                     .pmcr()
                     .modify(|w| w.set_cssf(crate::pac::pwr::vals::Cssf::Clear));
                 crate::pac::PWR.wuscr().write(|w| w.0 = 0x7f);
+            }
+            #[cfg(stm32g5)]
+            {
+                crate::pac::PWR.lpmcr().modify(|w| w.set_cssf(true));
+                crate::pac::PWR.wuscr().write(|w| w.0 = 0xfb);
             }
         }
         Dialect::Classic => {

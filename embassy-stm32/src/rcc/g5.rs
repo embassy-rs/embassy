@@ -105,6 +105,76 @@ impl Default for Config {
     }
 }
 
+#[cfg(feature = "low-power")]
+#[derive(Clone, Copy)]
+pub(crate) struct StopRestore {
+    cr: crate::pac::rcc::regs::Cr,
+    sw: Sysclk,
+    vos: VoltageScale,
+}
+
+#[cfg(feature = "low-power")]
+impl StopRestore {
+    pub(crate) fn capture() -> Self {
+        Self {
+            cr: RCC.cr().read(),
+            sw: RCC.cfgr1().read().syssws(),
+            vos: PWR.voscr().read().vos(),
+        }
+    }
+
+    pub(crate) fn enter(&self) {}
+
+    pub(crate) fn exit(&self) {
+        if PWR.voscr().read().vos() != self.vos {
+            PWR.voscr().modify(|w| w.set_vos(self.vos));
+        }
+        while !PWR.vossr().read().vosrdy() {}
+
+        let s = self.cr;
+        RCC.cr().modify(|w| {
+            w.set_hseon(w.hseon() | s.hseon());
+            w.set_hsion(w.hsion() | s.hsion());
+            w.set_hsi48on(w.hsi48on() | s.hsi48on());
+        });
+        while (s.hseon() && !RCC.cr().read().hserdy())
+            || (s.hsion() && !RCC.cr().read().hsirdy())
+            || (s.hsi48on() && !RCC.cr().read().hsi48rdy())
+        {}
+
+        for n in 0..2 {
+            if s.pllon(n) {
+                RCC.cr().modify(|w| w.set_pllon(n, true));
+            }
+        }
+        for n in 0..2 {
+            while s.pllon(n) && !RCC.cr().read().pllrdy(n) {}
+        }
+
+        if RCC.cfgr1().read().syssws() != self.sw {
+            RCC.cfgr1().modify(|w| w.set_syssw(self.sw));
+            while RCC.cfgr1().read().syssws() != self.sw {}
+        }
+
+        if !s.hsion() {
+            RCC.cr().modify(|w| w.set_hsion(false));
+        }
+    }
+
+    pub(crate) fn exit_latency_us(&self) -> u32 {
+        let s = self.cr;
+        super::ClockRestoreTiming {
+            hse_osc: s.hseon() && !s.hsebyp(),
+            hse_bypass: s.hseon() && s.hsebyp(),
+            hsi: s.hsion(),
+            hsi48: s.hsi48on(),
+            pll: s.pllon(0) || s.pllon(1),
+            ..Default::default()
+        }
+        .exit_latency_us()
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Configure voltage scale.
     PWR.voscr().modify(|w| w.set_vos(config.voltage_scale));

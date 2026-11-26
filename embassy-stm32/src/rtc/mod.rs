@@ -358,7 +358,7 @@ trait SealedInstance {
 
     #[cfg(feature = "low-power")]
     #[cfg(not(feature = "_lp-time-driver"))]
-    #[cfg(not(any(stm32c5, stm32wba, stm32u5, stm32u3, stm32u0, stm32g0)))]
+    #[cfg(not(any(stm32c5, stm32g5, stm32wba, stm32u5, stm32u3, stm32u0, stm32g0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]
