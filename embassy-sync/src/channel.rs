@@ -52,6 +52,8 @@ use heapless::Deque;
 
 use crate::blocking_mutex::Mutex;
 use crate::blocking_mutex::raw::RawMutex;
+#[cfg(feature = "trace")]
+use crate::trace::{ChannelEvent, TraceImpl, Wait};
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
@@ -723,6 +725,8 @@ impl<T, const N: usize> ChannelState<T, N> {
         } else {
             if let Some(cx) = cx {
                 self.receiver_waker.register(cx.waker());
+                #[cfg(feature = "trace")]
+                TraceImpl::wait(self as *const _ as usize, Wait::ChannelReceive, cx.waker());
             }
             Err(TryReceiveError::Empty)
         }
@@ -734,25 +738,26 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
 
         if let Some(message) = self.queue.pop_front() {
+            #[cfg(feature = "trace")]
+            self.trace_channel(ChannelEvent::Received);
             Ok(message)
         } else {
             if let Some(cx) = cx {
                 self.receiver_waker.register(cx.waker());
+                #[cfg(feature = "trace")]
+                TraceImpl::wait(self as *const _ as usize, Wait::ChannelReceive, cx.waker());
+            } else {
+                #[cfg(feature = "trace")]
+                self.trace_channel(ChannelEvent::Empty);
             }
             Err(TryReceiveError::Empty)
         }
     }
 
     fn poll_receive(&mut self, cx: &mut Context<'_>) -> Poll<T> {
-        if self.queue.is_full() {
-            self.senders_waker.wake();
-        }
-
-        if let Some(message) = self.queue.pop_front() {
-            Poll::Ready(message)
-        } else {
-            self.receiver_waker.register(cx.waker());
-            Poll::Pending
+        match self.try_receive_with_context(Some(cx)) {
+            Ok(message) => Poll::Ready(message),
+            Err(TryReceiveError::Empty) => Poll::Pending,
         }
     }
 
@@ -762,6 +767,8 @@ impl<T, const N: usize> ChannelState<T, N> {
         if !self.queue.is_empty() {
             Poll::Ready(())
         } else {
+            #[cfg(feature = "trace")]
+            TraceImpl::wait(self as *const _ as usize, Wait::ChannelReceive, cx.waker());
             Poll::Pending
         }
     }
@@ -773,12 +780,19 @@ impl<T, const N: usize> ChannelState<T, N> {
     fn try_send_with_context(&mut self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         match self.queue.push_back(message) {
             Ok(()) => {
+                #[cfg(feature = "trace")]
+                self.trace_channel(ChannelEvent::Sent);
                 self.receiver_waker.wake();
                 Ok(())
             }
             Err(message) => {
                 if let Some(cx) = cx {
                     self.senders_waker.register(cx.waker());
+                    #[cfg(feature = "trace")]
+                    TraceImpl::wait(self as *const _ as usize, Wait::ChannelSend, cx.waker());
+                } else {
+                    #[cfg(feature = "trace")]
+                    self.trace_channel(ChannelEvent::Full);
                 }
                 Err(TrySendError::Full(message))
             }
@@ -791,6 +805,8 @@ impl<T, const N: usize> ChannelState<T, N> {
         if !self.queue.is_full() {
             Poll::Ready(())
         } else {
+            #[cfg(feature = "trace")]
+            TraceImpl::wait(self as *const _ as usize, Wait::ChannelSend, cx.waker());
             Poll::Pending
         }
     }
@@ -800,10 +816,17 @@ impl<T, const N: usize> ChannelState<T, N> {
             self.senders_waker.wake();
         }
         self.queue.clear();
+        #[cfg(feature = "trace")]
+        self.trace_channel(ChannelEvent::Cleared);
     }
 
     fn len(&self) -> usize {
         self.queue.len()
+    }
+
+    #[cfg(feature = "trace")]
+    fn trace_channel(&self, event: ChannelEvent) {
+        TraceImpl::channel(self as *const _ as usize, event, self.queue.len(), N);
     }
 
     fn is_empty(&self) -> bool {
