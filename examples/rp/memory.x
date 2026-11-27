@@ -1,7 +1,7 @@
 /*
- * Note: build.rs defines __run_from_ram for blinky_ram.
- * Unlike the other examples, blinky_ram executes from the main SRAM banks after boot2 copies it from flash to RAM.
- * The machine code is placed in the main block of striped RAM and the writable data and stack use the 8 KiB scratch banks.
+ * Note: __run_from_ram is defined in build.rs, currently only for this blinky_ram example, and alters the memory layout, using a workaround that avoids having to modify and maintain the link.x file included from the cortex-m-rt crate, since link.x uses fixed names FLASH and RAM.
+    * Normally, __run_from_ram is NOT defined and FLASH and RAM regions are set as you would expect.
+    * When `__run_from_ram` is defined, the machine code is placed in the main block of striped RAM and the writable data and stack use the 8 KiB scratch banks.
  */
 MEMORY {
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 0x100
