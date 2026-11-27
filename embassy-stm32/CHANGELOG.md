@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add optional IRQ entry and exit hooks for bound interrupts and the Embassy time driver.
+
 NPU:
 - feat: stm32/npu: run a network compiled to streaming-engine epochs (without `--enable-epoch-controller`). `EpochBlock::streaming` carries the generated pre-op, post-op, and the output-engine wait mask. `Npu::run_streaming_epoch` arms that mask, runs the pre-op, and sleeps until those engines complete. `Npu::run_network` dispatches streaming-engine blocks the same way. The driver still does not program the NPU units; that sequence stays in the generated pre-op.
 - change: stm32/npu: `EpochBlock` has a `streng_mask` field. `hw`, `hw_with`, and `sw` set it to 0. A struct literal must include it.

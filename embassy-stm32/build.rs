@@ -509,7 +509,9 @@ fn main() {
                     #[cfg(feature = "rt")]
                     #[interrupt]
                     fn #irq() {
+                        crate::trace::irq_start(crate::interrupt::Interrupt::#irq);
                         crate::time_driver::get_driver().on_interrupt();
+                        crate::trace::irq_end(crate::interrupt::Interrupt::#irq);
                     }
                 }
             })
