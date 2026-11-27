@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Expose `raw::try_task_from_waker` to identify the task in a trace callback that accepts arbitrary wakers.
 - With the `metadata-name` feature, `#[task]` names the task after its function, or after the
   new `name = "..."` argument. A name set on the token afterwards overrides it. The default is set
   when the task is initialized and does not trigger the `task_name_set` trace callback. The main
