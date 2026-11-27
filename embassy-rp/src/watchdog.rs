@@ -13,6 +13,12 @@ use embassy_time::Duration;
 use crate::peripherals::WATCHDOG;
 use crate::{Peri, pac};
 
+// Every stage of the power-on state machine (PSM), as laid out in `PSM.WDSEL`.
+#[cfg(feature = "rp2040")]
+const PSM_ALL_STAGES: pac::psm::regs::Wdsel = pac::psm::regs::Wdsel(0x0001_ffff);
+#[cfg(feature = "_rp235x")]
+const PSM_ALL_STAGES: pac::psm::regs::Wdsel = pac::psm::regs::Wdsel(0x01ff_ffff);
+
 /// The reason for a system reset from the watchdog.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -70,13 +76,23 @@ impl<'d> Watchdog<'d> {
         watchdog.ctrl().modify(|w| w.set_enable(bit))
     }
 
-    // Configure which hardware will be reset by the watchdog
-    // (everything except ROSC, XOSC)
+    // Configure which hardware will be reset by the watchdog.
+    //
+    // The PSM restarts its sequence at the earliest stage selected in WDSEL and resets every
+    // later stage with it, so the earliest selected stage decides how much of the chip resets.
     fn configure_wdog_reset_triggers(&self) {
-        let psm = pac::PSM;
-        psm.wdsel().write_value(pac::psm::regs::Wdsel(
-            0x0001ffff & !(0x01 << 0usize) & !(0x01 << 1usize),
-        ));
+        let mut wdsel = PSM_ALL_STAGES;
+        // Everything except ROSC and XOSC: the sequence restarts at CLOCKS.
+        #[cfg(feature = "rp2040")]
+        {
+            wdsel.set_rosc(false);
+            wdsel.set_xosc(false);
+        }
+        // Everything except the processor cold reset domain, which holds the debug state: the
+        // sequence restarts at OTP. The bootrom's `reboot()` makes the same selection.
+        #[cfg(feature = "_rp235x")]
+        wdsel.set_proc_cold(false);
+        pac::PSM.wdsel().write_value(wdsel);
     }
 
     /// Feed the watchdog timer
