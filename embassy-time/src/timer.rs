@@ -304,13 +304,16 @@ impl Unpin for Timer {}
 impl Future for Timer {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.yielded_once && self.expires_at <= Instant::now() {
+        let result = if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
             embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             self.yielded_once = true;
             Poll::Pending
-        }
+        };
+        #[cfg(feature = "trace")]
+        crate::trace::TraceImpl::timer_poll(self.expires_at, cx.waker(), result);
+        result
     }
 }
 
