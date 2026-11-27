@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
-    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, TempCalibration,
+    PeripheralRccMux, PeripheralRccRegister, PeripheralRegisters, PowerModeKind, TempCalibration,
 };
 
 fn single_digit(s: &str, prefix: &str) -> bool {
@@ -3123,6 +3123,19 @@ fn main() {
         }
     }
 
+    cfgs.declare_all(&["power_stop0", "power_stop1", "power_stop2", "power_stop3"]);
+    if let Some(power) = &METADATA.power {
+        for m in power.modes {
+            let cfg = match m.kind {
+                PowerModeKind::Stop0 => "power_stop0",
+                PowerModeKind::Stop1 => "power_stop1",
+                PowerModeKind::Stop2 => "power_stop2",
+                PowerModeKind::Stop3 => "power_stop3",
+            };
+            cfgs.enable(cfg);
+        }
+    }
+
     g.extend(dfsdm_codegen::gen_shapes());
 
     let mut dmas = TokenStream::new();
@@ -3542,6 +3555,7 @@ fn main() {
         // Configs for targeting groups of chips
         if &chip_name[..8] == "stm32wba" {
             cfgs.push(chip_name[..8].to_owned()); // stm32wba
+            cfgs.push(chip_name[..9].to_owned()); // stm32wba5 / stm32wba6
             cfgs.push(chip_name[..10].to_owned()); // stm32wba52
             cfgs.push(format!("package_{}", &chip_name[10..11]));
             cfgs.push(format!("flashsize_{}", &chip_name[11..12]));
