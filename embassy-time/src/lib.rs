@@ -16,6 +16,8 @@ mod delay;
 mod duration;
 mod instant;
 mod timer;
+#[cfg(feature = "trace")]
+pub mod trace;
 
 #[cfg(feature = "mock-driver")]
 mod driver_mock;

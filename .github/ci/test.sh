@@ -18,6 +18,7 @@ cargo test --manifest-path ./embassy-sync/Cargo.toml
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
 cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver,embassy-time-queue-utils/generic-queue-8
+cargo test --manifest-path ./embassy-time/Cargo.toml --lib --features trace,mock-driver,generic-queue-8
 cargo test --manifest-path ./embassy-time-driver/Cargo.toml
 cargo test --manifest-path ./embassy-ptp-driver/Cargo.toml --all-features
 

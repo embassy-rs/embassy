@@ -17,6 +17,7 @@ categories = [
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["trace", "mock-driver"]},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
 ]
@@ -24,13 +25,16 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
-features = ["defmt", "std", "mock-driver"]
+features = ["defmt", "std", "mock-driver", "trace"]
 target = "x86_64-unknown-linux-gnu"
 
 [package.metadata.docs.rs]
-features = ["defmt", "std", "mock-driver"]
+features = ["defmt", "std", "mock-driver", "trace"]
 
 [features]
+## Enable the callbacks in the trace module.
+trace = ["dep:unitrait"]
+
 ## Enable defmt
 defmt = ["dep:defmt"]
 ## Enable log
@@ -449,6 +453,7 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433", optional = true }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver" }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true}
 
