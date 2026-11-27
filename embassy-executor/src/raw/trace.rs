@@ -77,6 +77,48 @@
 //! idle when its thread-mode executor reaches its sleep site, at which point
 //! [`idle`](Trace::idle) is called. In multi-core chips, or when using threads under std or an
 //! RTOS, this does not mean the entire system is idle.
+//!
+//! ## Per-task trace data
+//!
+//! Each task has an opaque pointer slot reserved for the trace implementation, accessed with
+//! [`task.metadata().trace_data()`](crate::MetadataRef::trace_data) and
+//! [`set_trace_data()`](crate::MetadataRef::set_trace_data). The executor resets it to `None` when a
+//! task is spawned, before [`task_new`](Trace::task_new) is called, and never dereferences it.
+//!
+//! This lets you attach data of your choice, allocated however you like, to a task, e.g. runtime
+//! statistics that the hooks can then reach with a single load:
+//!
+//! ```rust,ignore
+//! struct TaskStats {
+//!     polls: AtomicU32,
+//!     // ...
+//! }
+//!
+//! static NET_STATS: TaskStats = TaskStats { polls: AtomicU32::new(0) };
+//!
+//! struct MyTrace;
+//!
+//! impl embassy_executor::raw::trace::Trace for MyTrace {
+//!     fn task_new(_executor: ExecutorId, task: TaskRef) {
+//!         let meta = task.metadata();
+//!         if meta.name() == Some("net_task") {
+//!             meta.set_trace_data(Some(NonNull::from(&NET_STATS).cast()));
+//!         }
+//!     }
+//!
+//!     fn task_exec_begin(_executor: ExecutorId, task: TaskRef) {
+//!         if let Some(p) = task.metadata().trace_data() {
+//!             // Safety: we only store pointers to `'static TaskStats`.
+//!             let stats = unsafe { p.cast::<TaskStats>().as_ref() };
+//!             stats.polls.fetch_add(1, Ordering::Relaxed);
+//!         }
+//!     }
+//!
+//!     // ... other hooks
+//! }
+//!
+//! embassy_executor::trace_impl!(MyTrace);
+//! ```
 
 use crate::ExecutorId;
 use crate::raw::TaskRef;

@@ -1,12 +1,20 @@
 #[cfg(feature = "metadata-name")]
 use core::cell::Cell;
 use core::future::{Future, poll_fn};
+#[cfg(feature = "trace")]
+use core::ptr::NonNull;
+#[cfg(all(feature = "trace", not(feature = "portable-atomic")))]
+use core::sync::atomic::AtomicPtr;
 #[cfg(feature = "scheduler-priority")]
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::AtomicU8;
+#[cfg(any(feature = "trace", feature = "scheduler-priority"))]
+use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 #[cfg(feature = "metadata-name")]
 use critical_section::Mutex;
+#[cfg(all(feature = "trace", feature = "portable-atomic"))]
+use portable_atomic::AtomicPtr;
 
 #[cfg(feature = "scheduler-deadline")]
 use crate::raw::Deadline;
@@ -60,6 +68,28 @@ impl MetadataRef {
         self.metadata().set_name(name);
         #[cfg(feature = "trace")]
         crate::raw::trace::TraceImpl::task_name_set(self.task, name);
+    }
+
+    /// Get the user-defined trace data pointer of this task.
+    ///
+    /// This is an opaque pointer slot reserved for the [`Trace`](crate::raw::trace::Trace)
+    /// implementation, e.g. to attach runtime statistics to a task so they are cheaply reachable
+    /// from the trace hooks. The executor never dereferences it. It is reset to `None` when the
+    /// task is spawned, *before* [`task_new`](crate::raw::trace::Trace::task_new) is called.
+    ///
+    /// Dereferencing the pointer is up to you: you must ensure it points to data of the
+    /// expected type that is still alive, and avoid data races. Trace hooks for one task may be
+    /// called from different contexts, e.g. [`task_ready_begin`](crate::raw::trace::Trace::task_ready_begin)
+    /// from an interrupt.
+    #[cfg(feature = "trace")]
+    pub fn trace_data(&self) -> Option<NonNull<()>> {
+        self.metadata().trace_data()
+    }
+
+    /// Set the user-defined trace data pointer of this task. See [`trace_data`](Self::trace_data).
+    #[cfg(feature = "trace")]
+    pub fn set_trace_data(&self, data: Option<NonNull<()>>) {
+        self.metadata().set_trace_data(data)
     }
 
     /// Get this task's priority.
@@ -147,6 +177,9 @@ pub(crate) struct Metadata {
     priority: AtomicU8,
     #[cfg(feature = "scheduler-deadline")]
     deadline: raw::Deadline,
+    /// User-defined trace data, see [`MetadataRef::trace_data`]. Null means `None`.
+    #[cfg(feature = "trace")]
+    trace_data: AtomicPtr<()>,
 }
 
 impl Metadata {
@@ -160,12 +193,17 @@ impl Metadata {
             // will be lazily initialized in `initialize_impl`
             #[cfg(feature = "scheduler-deadline")]
             deadline: raw::Deadline::new_unset(),
+            #[cfg(feature = "trace")]
+            trace_data: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 
     /// Initialize the metadata for a freshly spawned task: `name` is its default name
-    /// (see [`MetadataRef::name`]), priority and deadline start unset.
+    /// (see [`MetadataRef::name`]), priority and deadline start unset, trace data is `None`.
     pub(crate) fn init(&self, name: Option<&'static str>) {
+        #[cfg(feature = "trace")]
+        self.set_trace_data(None);
+
         #[cfg(feature = "metadata-name")]
         critical_section::with(|cs| self.name.borrow(cs).set(name));
         #[cfg(not(feature = "metadata-name"))]
@@ -194,6 +232,21 @@ impl Metadata {
     #[cfg(feature = "metadata-name")]
     fn set_name(&self, name: &'static str) {
         critical_section::with(|cs| self.name.borrow(cs).set(Some(name)))
+    }
+
+    /// Get the user-defined trace data pointer.
+    #[cfg(feature = "trace")]
+    fn trace_data(&self) -> Option<NonNull<()>> {
+        // Acquire pairs with the Release in `set_trace_data`, so the pointee's initialization
+        // is visible even if the pointer was set from another context.
+        NonNull::new(self.trace_data.load(Ordering::Acquire))
+    }
+
+    /// Set the user-defined trace data pointer.
+    #[cfg(feature = "trace")]
+    fn set_trace_data(&self, data: Option<NonNull<()>>) {
+        let ptr = data.map_or(core::ptr::null_mut(), NonNull::as_ptr);
+        self.trace_data.store(ptr, Ordering::Release)
     }
 
     /// Get this task's priority.
