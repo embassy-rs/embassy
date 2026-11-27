@@ -2,7 +2,6 @@
 
 #![deny(missing_docs)]
 
-use core::cell::RefCell;
 use core::fmt::Debug;
 use core::task::{Context, Poll};
 
@@ -75,7 +74,7 @@ pub use subscriber::{DynSubscriber, SendDynSubscriber, Subscriber};
 ///
 #[derive(Debug)]
 pub struct PubSubChannel<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
-    inner: Mutex<M, RefCell<PubSubState<T, CAP, SUBS, PUBS>>>,
+    inner: Mutex<M, PubSubState<T, CAP, SUBS, PUBS>>,
 }
 
 impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>
@@ -84,7 +83,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new channel
     pub const fn new() -> Self {
         Self {
-            inner: Mutex::const_new(M::INIT, RefCell::new(PubSubState::new())),
+            inner: Mutex::const_new(M::INIT, PubSubState::new()),
         }
     }
 
@@ -92,9 +91,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     ///
     /// If there are no subscriber slots left, an error will be returned.
     pub fn subscriber(&self) -> Result<Subscriber<'_, M, T, CAP, SUBS, PUBS>, Error> {
-        self.inner.lock(|inner| {
-            let mut s = inner.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.subscriber_count >= SUBS {
                 Err(Error::MaximumSubscribersReached)
             } else {
@@ -108,9 +105,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     ///
     /// If there are no subscriber slots left, an error will be returned.
     pub fn dyn_subscriber(&self) -> Result<DynSubscriber<'_, T>, Error> {
-        self.inner.lock(|inner| {
-            let mut s = inner.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.subscriber_count >= SUBS {
                 Err(Error::MaximumSubscribersReached)
             } else {
@@ -124,9 +119,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     ///
     /// If there are no publisher slots left, an error will be returned.
     pub fn publisher(&self) -> Result<Publisher<'_, M, T, CAP, SUBS, PUBS>, Error> {
-        self.inner.lock(|inner| {
-            let mut s = inner.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.publisher_count >= PUBS {
                 Err(Error::MaximumPublishersReached)
             } else {
@@ -140,9 +133,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     ///
     /// If there are no publisher slots left, an error will be returned.
     pub fn dyn_publisher(&self) -> Result<DynPublisher<'_, T>, Error> {
-        self.inner.lock(|inner| {
-            let mut s = inner.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.publisher_count >= PUBS {
                 Err(Error::MaximumPublishersReached)
             } else {
@@ -178,22 +169,22 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 
     /// Clears all elements in the channel.
     pub fn clear(&self) {
-        self.inner.lock(|inner| inner.borrow_mut().clear());
+        self.inner.lock(|inner| inner.clear());
     }
 
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
-        self.inner.lock(|inner| inner.borrow().len())
+        self.inner.lock(|inner| inner.len())
     }
 
     /// Returns whether the channel is empty.
     pub fn is_empty(&self) -> bool {
-        self.inner.lock(|inner| inner.borrow().is_empty())
+        self.inner.lock(|inner| inner.is_empty())
     }
 
     /// Returns whether the channel is full.
     pub fn is_full(&self) -> bool {
-        self.inner.lock(|inner| inner.borrow().is_full())
+        self.inner.lock(|inner| inner.is_full())
     }
 }
 
@@ -201,10 +192,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     for PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
     fn publish_immediate(&self, message: T) {
-        self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
-            s.publish_immediate(message)
-        })
+        self.inner.lock(|s| s.publish_immediate(message))
     }
 
     fn capacity(&self) -> usize {
@@ -221,8 +209,6 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 {
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>> {
         self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
-
             // Check if we can read a message
             match s.get_message(*next_message_id) {
                 // Yes, so we are done polling
@@ -247,12 +233,11 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 
     fn available(&self, next_message_id: u64) -> u64 {
-        self.inner.lock(|s| s.borrow().next_message_id - next_message_id)
+        self.inner.lock(|s| s.next_message_id - next_message_id)
     }
 
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T> {
         self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
             // Try to publish the message
             match s.try_publish(message) {
                 // We did it, we are ready
@@ -269,17 +254,11 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 
     fn unregister_subscriber(&self, subscriber_next_message_id: u64) {
-        self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
-            s.unregister_subscriber(subscriber_next_message_id)
-        })
+        self.inner.lock(|s| s.unregister_subscriber(subscriber_next_message_id))
     }
 
     fn unregister_publisher(&self) {
-        self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
-            s.unregister_publisher()
-        })
+        self.inner.lock(|s| s.unregister_publisher())
     }
 
     fn free_capacity(&self) -> usize {

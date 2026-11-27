@@ -11,14 +11,16 @@ use self::raw::RawMutex;
 ///
 /// Provides a blocking mutual exclusion primitive backed by an implementation of [`raw::RawMutex`].
 ///
-/// Which implementation you select depends on the context in which you're using the mutex, and you can choose which kind
-/// of interior mutability fits your use case.
+/// Which implementation you select depends on the context in which you're using the mutex.
 ///
 /// Use [`CriticalSectionMutex`] when data can be shared between threads and interrupts.
 ///
 /// Use [`NoopMutex`] when data is only shared between tasks running on the same executor.
 ///
 /// Use [`ThreadModeMutex`] when data is shared between tasks running on the same executor but you want a global singleton.
+///
+/// The mutex is not reentrant: locking it again while it is locked in the same context panics or
+/// deadlocks, depending on the raw mutex. The raw mutexes of this crate panic.
 ///
 /// In all cases, the blocking mutex is intended to be short lived and not held across await points.
 /// Use the async [`Mutex`](crate::mutex::Mutex) if you need a lock that is held across await points.
@@ -30,8 +32,8 @@ pub struct Mutex<R, T: ?Sized> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<R: RawMutex + Send, T: ?Sized + Send> Send for Mutex<R, T> {}
-unsafe impl<R: RawMutex + Sync, T: ?Sized + Send> Sync for Mutex<R, T> {}
+unsafe impl<R: Send, T: ?Sized + Send> Send for Mutex<R, T> {}
+unsafe impl<R: Sync, T: ?Sized + Send> Sync for Mutex<R, T> {}
 
 impl<R: RawMutex, T> Mutex<R, T> {
     /// Creates a new mutex in an unlocked state ready for use.
@@ -42,31 +44,35 @@ impl<R: RawMutex, T> Mutex<R, T> {
             data: UnsafeCell::new(val),
         }
     }
+}
 
-    /// Creates a critical section and grants temporary access to the protected data.
-    pub fn lock<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        self.raw.lock(|| {
-            let ptr = self.data.get() as *const T;
-            let inner = unsafe { &*ptr };
-            f(inner)
+impl<R: RawMutex, T: ?Sized> Mutex<R, T> {
+    /// Locks the mutex and grants temporary mutable access to the protected data.
+    ///
+    /// # Panics
+    ///
+    /// Locking the mutex again from `f` panics or deadlocks, depending on the raw mutex. When another
+    /// context holds the lock, some raw mutexes panic and others block until it is released.
+    pub fn lock<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+        self.raw.with_lock(|| {
+            // Safety: the raw mutex is held, so no other reference to the data exists.
+            f(unsafe { &mut *self.data.get() })
         })
     }
 
-    /// Creates a critical section and grants temporary mutable access to the protected data.
+    /// Locks the mutex if it is not locked, and grants temporary mutable access to the protected data.
     ///
-    /// # Safety
-    ///
-    /// This method is marked unsafe because calling this method re-entrantly, i.e. within
-    /// another `lock_mut` or `lock` closure, violates Rust's aliasing rules. Calling this
-    /// method at the same time from different tasks is safe. For a safe alternative with
-    /// mutable access that never causes UB, use a `RefCell` in a `Mutex`.
-    pub unsafe fn lock_mut<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
-        self.raw.lock(|| {
-            let ptr = self.data.get() as *mut T;
-            // Safety: we have exclusive access to the data, as long as this mutex is not locked re-entrantly
-            let inner = unsafe { &mut *ptr };
-            f(inner)
+    /// Returns `None` if the mutex is already locked.
+    pub fn try_lock<U>(&self, f: impl FnOnce(&mut T) -> U) -> Option<U> {
+        self.raw.try_with_lock(|| {
+            // Safety: the raw mutex is held, so no other reference to the data exists.
+            f(unsafe { &mut *self.data.get() })
         })
+    }
+
+    /// Returns `true` if the mutex is locked.
+    pub fn is_locked(&self) -> bool {
+        self.raw.is_locked()
     }
 }
 
@@ -87,14 +93,16 @@ impl<R, T> Mutex<R, T> {
     pub fn into_inner(self) -> T {
         self.data.into_inner()
     }
+}
 
+impl<R, T: ?Sized> Mutex<R, T> {
     /// Returns a mutable reference to the underlying data.
     ///
     /// Since this call borrows the `Mutex` mutably, no actual locking needs to
     /// take place---the mutable borrow statically guarantees no locks exist.
     #[inline]
     pub fn get_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.data.get() }
+        self.data.get_mut()
     }
 }
 
@@ -118,23 +126,6 @@ pub type PanicMutex<T> = Mutex<raw::PanicRawMutex, T>;
 ///
 /// **This Mutex is only safe within a single executor.**
 pub type NoopMutex<T> = Mutex<raw::NoopRawMutex, T>;
-
-impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
-    /// Borrows the data for the duration of the critical section
-    pub fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
-        let ptr = self.data.get() as *const T;
-        unsafe { &*ptr }
-    }
-}
-
-impl<T> Mutex<raw::NoopRawMutex, T> {
-    /// Borrows the data
-    #[allow(clippy::should_implement_trait)]
-    pub fn borrow(&self) -> &T {
-        let ptr = self.data.get() as *const T;
-        unsafe { &*ptr }
-    }
-}
 
 // ThreadModeMutex does NOT use the generic mutex from above because it's special:
 // it's Send+Sync even if T: !Send. There's no way to do that without specialization (I think?).

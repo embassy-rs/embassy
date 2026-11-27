@@ -1,5 +1,4 @@
 //! A synchronization primitive for controlling access to a pool of resources.
-use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
 use core::future::{Future, poll_fn};
 use core::task::{Poll, Waker};
@@ -79,7 +78,7 @@ impl<'a, S: Semaphore> SemaphoreReleaser<'a, S> {
 /// Tasks can acquire permits as soon as they become available, even if another task
 /// is waiting on a larger number of permits.
 pub struct GreedySemaphore<M: RawMutex> {
-    state: Mutex<M, Cell<SemaphoreState>>,
+    state: Mutex<M, SemaphoreState>,
 }
 
 impl<M: RawMutex> Default for GreedySemaphore<M> {
@@ -92,21 +91,16 @@ impl<M: RawMutex> GreedySemaphore<M> {
     /// Create a new `Semaphore`.
     pub const fn new(permits: usize) -> Self {
         Self {
-            state: Mutex::new(Cell::new(SemaphoreState {
+            state: Mutex::new(SemaphoreState {
                 permits,
                 waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 
     #[cfg(test)]
     fn permits(&self) -> usize {
-        self.state.lock(|cell| {
-            let state = cell.replace(SemaphoreState::EMPTY);
-            let permits = state.permits;
-            cell.replace(state);
-            permits
-        })
+        self.state.lock(|state| state.permits)
     }
 
     fn poll_acquire(
@@ -115,10 +109,8 @@ impl<M: RawMutex> GreedySemaphore<M> {
         acquire_all: bool,
         waker: Option<&Waker>,
     ) -> Poll<Result<SemaphoreReleaser<'_, Self>, Infallible>> {
-        self.state.lock(|cell| {
-            let mut state = cell.replace(SemaphoreState::EMPTY);
+        self.state.lock(|state| {
             if let Some(permits) = state.take(permits, acquire_all) {
-                cell.set(state);
                 Poll::Ready(Ok(SemaphoreReleaser {
                     semaphore: self,
                     permits,
@@ -127,7 +119,6 @@ impl<M: RawMutex> GreedySemaphore<M> {
                 if let Some(waker) = waker {
                     state.register(waker);
                 }
-                cell.set(state);
                 Poll::Pending
             }
         })
@@ -161,23 +152,19 @@ impl<M: RawMutex> Semaphore for GreedySemaphore<M> {
 
     fn release(&self, permits: usize) {
         if permits > 0 {
-            self.state.lock(|cell| {
-                let mut state = cell.replace(SemaphoreState::EMPTY);
+            self.state.lock(|state| {
                 state.permits += permits;
                 state.wake();
-                cell.set(state);
             });
         }
     }
 
     fn set(&self, permits: usize) {
-        self.state.lock(|cell| {
-            let mut state = cell.replace(SemaphoreState::EMPTY);
+        self.state.lock(|state| {
             if permits > state.permits {
                 state.wake();
             }
             state.permits = permits;
-            cell.set(state);
         });
     }
 }
@@ -189,11 +176,6 @@ struct SemaphoreState {
 }
 
 impl SemaphoreState {
-    const EMPTY: SemaphoreState = SemaphoreState {
-        permits: 0,
-        waker: WakerRegistration::new(),
-    };
-
     fn register(&mut self, w: &Waker) {
         self.waker.register(w);
     }
@@ -228,7 +210,7 @@ pub struct FairSemaphore<M, const N: usize>
 where
     M: RawMutex,
 {
-    state: Mutex<M, RefCell<FairSemaphoreState<N>>>,
+    state: Mutex<M, FairSemaphoreState<N>>,
 }
 
 impl<M, const N: usize> Default for FairSemaphore<M, N>
@@ -247,13 +229,13 @@ where
     /// Create a new `FairSemaphore`.
     pub const fn new(permits: usize) -> Self {
         Self {
-            state: Mutex::new(RefCell::new(FairSemaphoreState::new(permits))),
+            state: Mutex::new(FairSemaphoreState::new(permits)),
         }
     }
 
     #[cfg(test)]
     fn permits(&self) -> usize {
-        self.state.lock(|cell| cell.borrow().permits)
+        self.state.lock(|state| state.permits)
     }
 
     fn poll_acquire(
@@ -263,8 +245,7 @@ where
         cx: Option<(&mut Option<usize>, &Waker)>,
     ) -> Poll<Result<SemaphoreReleaser<'_, Self>, WaitQueueFull>> {
         let ticket = cx.as_ref().map(|(x, _)| **x).unwrap_or(None);
-        self.state.lock(|cell| {
-            let mut state = cell.borrow_mut();
+        self.state.lock(|state| {
             if let Some(permits) = state.take(ticket, permits, acquire_all) {
                 Poll::Ready(Ok(SemaphoreReleaser {
                     semaphore: self,
@@ -325,8 +306,7 @@ impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
 
     fn release(&self, permits: usize) {
         if permits > 0 {
-            self.state.lock(|cell| {
-                let mut state = cell.borrow_mut();
+            self.state.lock(|state| {
                 state.permits += permits;
                 state.wake();
             });
@@ -334,8 +314,7 @@ impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
     }
 
     fn set(&self, permits: usize) {
-        self.state.lock(|cell| {
-            let mut state = cell.borrow_mut();
+        self.state.lock(|state| {
             if permits > state.permits {
                 state.wake();
             }
@@ -353,9 +332,7 @@ struct FairAcquire<'a, M: RawMutex, const N: usize> {
 
 impl<'a, M: RawMutex, const N: usize> Drop for FairAcquire<'a, M, N> {
     fn drop(&mut self) {
-        self.sema
-            .state
-            .lock(|cell| cell.borrow_mut().cancel(self.ticket.take()));
+        self.sema.state.lock(|state| state.cancel(self.ticket.take()));
     }
 }
 
@@ -377,9 +354,7 @@ struct FairAcquireAll<'a, M: RawMutex, const N: usize> {
 
 impl<'a, M: RawMutex, const N: usize> Drop for FairAcquireAll<'a, M, N> {
     fn drop(&mut self) {
-        self.sema
-            .state
-            .lock(|cell| cell.borrow_mut().cancel(self.ticket.take()));
+        self.sema.state.lock(|state| state.cancel(self.ticket.take()));
     }
 }
 
@@ -793,7 +768,7 @@ mod tests {
             let b_task = executor
                 .spawn_with_handle(async move { semaphore.acquire(2).await })
                 .unwrap();
-            while semaphore.state.lock(|x| x.borrow().wakers.is_empty()) {
+            while semaphore.state.lock(|x| x.wakers.is_empty()) {
                 Delay::new(Duration::from_millis(50)).await;
             }
 

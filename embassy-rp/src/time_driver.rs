@@ -1,9 +1,7 @@
 //! Timer driver.
 use core::cell::{Cell, RefCell};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 #[cfg(feature = "rp2040")]
@@ -20,12 +18,12 @@ struct AlarmState {
 unsafe impl Send for AlarmState {}
 
 struct TimerDriver {
-    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
-    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    alarms: Mutex<AlarmState>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState {
+    alarms:  Mutex::new(AlarmState {
         timestamp: Cell::new(0),
     }),
     queue: Mutex::new(RefCell::new(Queue::new()))

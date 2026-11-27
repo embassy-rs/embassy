@@ -225,7 +225,7 @@ impl ControlShared {
     }
 
     fn take_break(&self) -> Option<Break> {
-        self.pending_break.lock(Cell::take)
+        self.pending_break.lock(|c| c.take())
     }
 
     fn changed(&self) -> impl Future<Output = ()> + '_ {
@@ -345,7 +345,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(Cell::get).unwrap_or_default();
+                let coding = self.shared().line_coding.lock(|c| c.get()).unwrap_or_default();
                 assert!(buf.len() >= 7);
                 buf[0..7].copy_from_slice(&coding.to_bytes());
                 Some(InResponse::Accepted(&buf[0..7]))
@@ -440,7 +440,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     ///
     /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
     pub fn line_coding(&self) -> Option<LineCoding> {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|c| c.get())
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -701,7 +701,7 @@ impl<'d> ControlChanged<'d> {
     ///
     /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
     pub fn line_coding(&self) -> Option<LineCoding> {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|c| c.get())
     }
 
     /// Returns the host's latest `SEND_BREAK` request, if it hasn't been taken yet.
@@ -738,7 +738,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     ///
     /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
     pub fn line_coding(&self) -> Option<LineCoding> {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|c| c.get())
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -822,7 +822,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     ///
     /// Returns `None` until the host sends `SET_LINE_CODING`, and again after a bus reset.
     pub fn line_coding(&self) -> Option<LineCoding> {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|c| c.get())
     }
 
     /// Gets the DTR (data terminal ready) state

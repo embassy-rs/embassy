@@ -1,9 +1,8 @@
 use core::cell::{Cell, RefCell};
 use core::task::Waker;
 
-use critical_section::CriticalSection;
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::interrupt::{InterruptExt, Priority};
-use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{Driver, time_driver_impl};
 use embassy_time_queue_utils::Queue;
 

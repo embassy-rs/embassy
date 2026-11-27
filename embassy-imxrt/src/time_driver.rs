@@ -3,9 +3,7 @@ use core::cell::{Cell, RefCell};
 #[cfg(feature = "time-driver-rtc")]
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
@@ -51,7 +49,7 @@ fn calc_now(period: u32, counter: u32) -> u64 {
 #[cfg(feature = "time-driver-rtc")]
 embassy_time_driver::time_driver_impl!(static DRIVER: Rtc = Rtc {
     period: AtomicU32::new(0),
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    alarms:  Mutex::new(AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
@@ -60,8 +58,8 @@ struct Rtc {
     /// Number of 2^31 periods elapsed since boot.
     period: AtomicU32,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
-    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    alarms: Mutex<AlarmState>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 #[cfg(feature = "time-driver-rtc")]
@@ -294,15 +292,15 @@ fn dec_to_gray(dec: u64) -> u64 {
 
 #[cfg(feature = "time-driver-os-timer")]
 embassy_time_driver::time_driver_impl!(static DRIVER: OsTimer = OsTimer {
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    alarms:  Mutex::new(AlarmState::new()),
     queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 #[cfg(feature = "time-driver-os-timer")]
 struct OsTimer {
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
-    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
+    alarms: Mutex<AlarmState>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 #[cfg(feature = "time-driver-os-timer")]

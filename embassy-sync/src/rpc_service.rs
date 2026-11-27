@@ -56,7 +56,7 @@
 //
 // Coordination uses a SlotState behind a blocking mutex and three signals:
 //
-//   - state (`Mutex<RefCell<SlotState>>`): a boolean `free` flag and a
+//   - state (`Mutex<SlotState>`): a boolean `free` flag and a
 //     WakerRegistration. When a caller tries to acquire the slot and it
 //     is not free, the caller registers its waker here and returns
 //     Pending. When the runner finishes a job and marks the slot free,
@@ -138,7 +138,7 @@
 // `wait_ack_and_finish` ensures the slot is still freed and `needs_recovery` is cleared.
 // The destructor's side effects will be lost but the service remains usable.
 
-use core::cell::{Cell, RefCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
@@ -264,7 +264,7 @@ struct RunnerState {
 
 struct JobSlot<M: RawMutex, T, const S: usize> {
     storage: Storage<S>,
-    state: Mutex<M, RefCell<SlotState>>,
+    state: Mutex<M, SlotState>,
     job: Signal<M, RunFn<T, S>>,
     done: Signal<M, ()>,
     ack: Signal<M, ()>,
@@ -274,7 +274,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     const fn new() -> Self {
         Self {
             storage: Storage::new(),
-            state: Mutex::new(RefCell::new(SlotState::EMPTY)),
+            state: Mutex::new(SlotState::EMPTY),
             job: Signal::new(),
             done: Signal::new(),
             ack: Signal::new(),
@@ -282,7 +282,7 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     }
 
     fn with_slot_state<R>(&self, f: impl FnOnce(&mut SlotState) -> R) -> R {
-        self.state.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
+        self.state.lock(f)
     }
 
     fn debug_assert_held(&self) {
@@ -357,17 +357,15 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
     ///
     /// If the stored value's destructor panics under unwinding, the slot
     /// is still reset and freed.
-    async fn wait_ack_and_finish(&self, runner_state: &Mutex<M, Cell<RunnerState>>) {
+    async fn wait_ack_and_finish(&self, runner_state: &Mutex<M, RunnerState>) {
         struct FinishGuard<'a, M: RawMutex, T, const S: usize> {
             slot: &'a JobSlot<M, T, S>,
-            runner_state: &'a Mutex<M, Cell<RunnerState>>,
+            runner_state: &'a Mutex<M, RunnerState>,
         }
         impl<M: RawMutex, T, const S: usize> Drop for FinishGuard<'_, M, T, S> {
             fn drop(&mut self) {
-                self.runner_state.lock(|cell| {
-                    let mut s = cell.get();
+                self.runner_state.lock(|s| {
                     s.needs_recovery = false;
-                    cell.set(s);
                 });
                 self.slot.done.reset();
                 self.slot.mark_free();
@@ -412,27 +410,22 @@ impl<M: RawMutex, T, const S: usize> JobSlot<M, T, S> {
 /// ```
 pub struct RpcService<M: RawMutex, T, const S: usize> {
     slot: JobSlot<M, T, S>,
-    runner_state: Mutex<M, Cell<RunnerState>>,
+    runner_state: Mutex<M, RunnerState>,
 }
 
 impl<M: RawMutex, T, const S: usize> RpcService<M, T, S> {
     fn with_runner_state<R>(&self, f: impl FnOnce(&mut RunnerState) -> R) -> R {
-        self.runner_state.lock(|cell| {
-            let mut s = cell.get();
-            let r = f(&mut s);
-            cell.set(s);
-            r
-        })
+        self.runner_state.lock(f)
     }
 
     /// Create a new `RpcService`.
     pub const fn new() -> Self {
         Self {
             slot: JobSlot::new(),
-            runner_state: Mutex::new(Cell::new(RunnerState {
+            runner_state: Mutex::new(RunnerState {
                 running: false,
                 needs_recovery: false,
-            })),
+            }),
         }
     }
 
@@ -502,14 +495,12 @@ impl<M: RawMutex, T, const S: usize> RpcService<M, T, S> {
     /// previous state and resume processing any in-flight call.
     pub async fn run(&self, state: &mut T) -> ! {
         struct RunGuard<'a, M: RawMutex> {
-            runner_state: &'a Mutex<M, Cell<RunnerState>>,
+            runner_state: &'a Mutex<M, RunnerState>,
         }
         impl<M: RawMutex> Drop for RunGuard<'_, M> {
             fn drop(&mut self) {
-                self.runner_state.lock(|cell| {
-                    let mut s = cell.get();
+                self.runner_state.lock(|s| {
                     s.running = false;
-                    cell.set(s);
                 });
             }
         }
@@ -561,8 +552,8 @@ impl<M: RawMutex, T, const S: usize> RpcService<M, T, S> {
 // SAFETY: access to Storage is serialized by the call/run handshake protocol
 unsafe impl<M: RawMutex, T, const S: usize> Sync for RpcService<M, T, S>
 where
-    Mutex<M, RefCell<SlotState>>: Sync,
-    Mutex<M, Cell<RunnerState>>: Sync,
+    Mutex<M, SlotState>: Sync,
+    Mutex<M, RunnerState>: Sync,
     Signal<M, RunFn<T, S>>: Sync,
     Signal<M, ()>: Sync,
 {

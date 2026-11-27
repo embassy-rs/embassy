@@ -6,8 +6,6 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-
 use defmt::info;
 use defmt_rtt as _;
 use embassy_stm32::adc::{
@@ -24,11 +22,11 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<'static, AdcRegs, Blocking>>>> =
-    CriticalSectionMutex::new(RefCell::new(None));
+static ADC1_HANDLE: CriticalSectionMutex<Option<InjectedAdc<'static, AdcRegs, Blocking>>> =
+    CriticalSectionMutex::new(None);
 
-// static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<'static, AdcRegs, Async>>>> =
-//     CriticalSectionMutex::new(RefCell::new(None));
+// static ADC1_HANDLE: CriticalSectionMutex<Option<InjectedAdc<'static, AdcRegs, Async>>> =
+//     CriticalSectionMutex::new(None);
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
@@ -121,9 +119,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     );
 
     // Store ADC globally to allow access from ADC interrupt
-    critical_section::with(|cs| {
-        ADC1_HANDLE.borrow(cs).replace(Some(injected_adc));
-    });
+    ADC1_HANDLE.lock(|handle| handle.replace(injected_adc));
 
     // Main loop for reading regular ADC measurements periodically
     let mut data = [0u16; 2];
@@ -144,12 +140,12 @@ async fn main(_spawner: embassy_executor::Spawner) {
 }
 
 /// Use ADC1_2 interrupt to retrieve injected ADC measurements
-/// Interrupt must be unsafe as hardware can invoke it any-time. Critical sections ensure safety
+/// Interrupt must be unsafe as hardware can invoke it any-time. The mutex ensures safety
 /// within the interrupt.
 #[interrupt]
 unsafe fn ADC1_2() {
-    critical_section::with(|cs| {
-        if let Some(injected_adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
+    ADC1_HANDLE.lock(|handle| {
+        if let Some(injected_adc) = handle.as_mut() {
             let mut injected_data = [0u16; 1];
             injected_adc.read_latest(&mut injected_data);
             info!("Injected reading of PA2: {}", injected_data[0]);
