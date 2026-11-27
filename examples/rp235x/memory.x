@@ -76,7 +76,10 @@ SECTIONS {
         KEEP(*(.end_block));
     } > FLASH
 
-} INSERT AFTER .uninit;
+/* Insert after .gnu.sgstubs, the last FLASH section in cortex-m-rt's link.x.
+ * Inserting after .uninit would leave `.` in FLASH, where cortex-m-rt >= 0.7.6
+ * sets __sheap and _stack_end. */
+} INSERT AFTER .gnu.sgstubs;
 
 PROVIDE(start_to_end = __end_block_addr - __start_block_addr);
 PROVIDE(end_to_start = __start_block_addr - __end_block_addr);
