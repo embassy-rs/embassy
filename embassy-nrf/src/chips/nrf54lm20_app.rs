@@ -509,6 +509,10 @@ embassy_hal_internal::peripherals! {
     SERIAL22,
     SERIAL30,
 
+    // PDM
+    PDM20,
+    PDM21,
+
     // SAADC
     SAADC,
 
@@ -780,6 +784,9 @@ impl_pwm!(PWM20, PWM20, PWM20);
 impl_pwm!(PWM21, PWM21, PWM21);
 impl_pwm!(PWM22, PWM22, PWM22);
 
+impl_pdm!(PDM20, PDM20, PDM20);
+impl_pdm!(PDM21, PDM21, PDM21);
+
 #[cfg(feature = "_s")]
 impl_spim!(
     SERIAL00,
@@ -833,7 +840,7 @@ impl_saadc_input!(P1_03, 1, 3); // AIN7
 impl_domain!(Domain0: SERIAL00);
 #[cfg(feature = "_s")]
 impl_domain!(Domain0: VPR);
-impl_domain!(Domain2: SERIAL20, SERIAL21, SERIAL22, PWM20, PWM21, PWM22);
+impl_domain!(Domain2: SERIAL20, SERIAL21, SERIAL22, PWM20, PWM21, PWM22, PDM20, PDM21);
 impl_domain!(Domain3: SERIAL30);
 
 // SERIAL00 (MCU domain) can only use its dedicated pins on P2.
