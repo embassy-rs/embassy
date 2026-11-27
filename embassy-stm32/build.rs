@@ -1198,7 +1198,7 @@ fn main() {
             };
 
             let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
-            let kernel_survives_stop_impl = if p.name.contains("UART") {
+            let kernel_survives_stop_impl = if p.name.contains("UART") || p.name.contains("USART") {
                 let survives = clock_gen.gen_kernel_survives_stop(&rcc.kernel_clock);
                 quote! {
                     #[cfg(feature = "low-power")]
