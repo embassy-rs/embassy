@@ -1,0 +1,14 @@
+[target.thumbv7m-none-eabi]
+runner = "probe-rs run --chip EFM32GG390F1024"
+rustflags = [
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdevice.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv7m-none-eabi"
+
+[env]
+DEFMT_LOG = "info"
