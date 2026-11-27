@@ -23,6 +23,8 @@ pub mod rpc_service;
 pub mod rwlock;
 pub mod semaphore;
 pub mod signal;
+#[cfg(feature = "trace")]
+pub mod trace;
 pub mod waitqueue;
 pub mod watch;
 pub mod zerocopy_channel;

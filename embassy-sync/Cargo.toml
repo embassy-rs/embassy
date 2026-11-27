@@ -17,6 +17,7 @@ categories = [
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["trace"]},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt"]},
 ]
@@ -25,8 +26,12 @@ build = [
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
 target = "thumbv7em-none-eabi"
+features = ["trace"]
 
 [features]
+## Enable the callbacks in the trace module.
+trace = ["dep:unitrait"]
+
 defmt = ["dep:defmt"]
 log = ["dep:log"]
 std = []
@@ -34,6 +39,7 @@ turbowakers = []
 portable-atomic = ["dep:portable-atomic"]
 
 [dependencies]
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "bb96601b3d293fa27d1ca2891f6ea148e534e433", optional = true }
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 portable-atomic = { version = "1.5", optional = true }
