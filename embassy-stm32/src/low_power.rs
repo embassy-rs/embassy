@@ -394,6 +394,27 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         return false;
     };
 
+    #[cfg(stm32wba)]
+    let stop_mode = {
+        let Some(radio_max) = crate::rcc::radio_max_stop_mode(cs) else {
+            trace!("low_power: radio busy, using WFI");
+            return false;
+        };
+        let capped = if stop_mode.at_least(radio_max) {
+            radio_max
+        } else {
+            stop_mode
+        };
+        // On WBA5x (`not(stm32wba65ri)`), StopMode::Stop2/Standby maps to Lpms::Stop0;
+        // only Lpms::Stop1/Stop2 put the 2.4 GHz radio into deep sleep.
+        let deep_stop = cfg!(feature = "stm32wba65ri") || capped == StopMode::Stop1;
+        if crate::rcc::radio_before_stop(cs, deep_stop).is_err() {
+            trace!("low_power: radio vetoed stop, using WFI");
+            return false;
+        }
+        capped
+    };
+
     if get_driver().pause_time(cs).is_err() {
         trace!("low_power: failed to pause time, not entering stop");
 
@@ -450,6 +471,9 @@ pub unsafe fn sleep(cs: CriticalSection) {
         defmt::flush();
     }
 
+    #[cfg(stm32wba)]
+    crate::rcc::radio_before_wfi(cs);
+
     cortex_m::asm::dsb();
     #[cfg(not(any(stm32u0, stm32g0)))]
     cortex_m::asm::wfi();
@@ -463,4 +487,7 @@ pub unsafe fn sleep(cs: CriticalSection) {
     if stop {
         exit_stop(cs);
     }
+
+    #[cfg(stm32wba)]
+    crate::rcc::radio_after_wfi(cs, stop);
 }
