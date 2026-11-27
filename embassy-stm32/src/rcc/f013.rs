@@ -285,6 +285,12 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
+    // PLL3 VCO frequency, tracked for the I2S clock mux (CFGR2.I2S2SRC = PLL3).
+    #[cfg(any(stm32f105, stm32f107))]
+    let pll3_vco = config
+        .pll3
+        .and_then(|pll3| hse.map(|hse| (hse / config.prediv2) * pll3.mul));
+
     // Enable PLL
     let pll = config.pll.map(|pll| {
         let (src_val, src_freq) = match pll.src {
@@ -423,13 +429,6 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_adcpre(config.adc_pre);
     });
 
-    // I2S2 and I2S3
-    #[cfg(any(stm32f105, stm32f107))]
-    {
-        RCC.cfgr2().modify(|w| w.set_i2s2src(config.i2s2_src));
-        RCC.cfgr2().modify(|w| w.set_i2s3src(config.i2s3_src));
-    }
-
     // Wait for the new prescalers to kick in
     // "The clocks are divided with the new prescaler factor from
     //  1 to 16 AHB cycles after write"
@@ -534,6 +533,20 @@ pub(crate) unsafe fn init(config: Config) {
         super::disable_hsi48();
     }
 
+    // Fold the legacy i2s2_src/i2s3_src fields into the generated I2S clock mux
+    // so that mux.init() below is the single writer of CFGR2.I2SxSRC.
+    #[cfg(any(stm32f105, stm32f107))]
+    let mut config = config;
+    #[cfg(any(stm32f105, stm32f107))]
+    {
+        if config.mux.i2s2src == I2s2src::Sys && config.i2s2_src != I2s2src::Sys {
+            config.mux.i2s2src = config.i2s2_src;
+        }
+        if config.mux.i2s3src == I2s2src::Sys && config.i2s3_src != I2s2src::Sys {
+            config.mux.i2s3src = config.i2s3_src;
+        }
+    }
+
     config.mux.init();
 
     set_clocks!(
@@ -541,6 +554,9 @@ pub(crate) unsafe fn init(config: Config) {
         hse: hse,
         pll1_p: pll,
         sys: Some(sys),
+        // Selected only when RCC_CFGR.I2SSRC points at the external I2S_CKIN
+        // pin; the I2S clock mux panics because this clock never runs.
+        ckin: None,
         pclk1: Some(pclk1),
         pclk2: Some(pclk2),
         pclk1_tim: Some(pclk1_tim),
@@ -554,6 +570,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi48: hsi48,
         #[cfg(any(rcc_f1, rcc_f1cl, stm32f3))]
         usb: usb,
+        #[cfg(any(stm32f105, stm32f107))]
+        pll3: pll3_vco,
         lse: None,
     );
 }

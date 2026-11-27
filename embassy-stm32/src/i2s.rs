@@ -5,6 +5,7 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
+use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, RingBufferError, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
@@ -12,7 +13,6 @@ use crate::pac::spi::Spi as Regs;
 use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
-use crate::{Peri, spi};
 
 /// I2S mode
 #[derive(Copy, Clone)]
@@ -245,7 +245,7 @@ pub struct I2S<'d, W: Word> {
 
 impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver.
-    pub fn new_txonly<T: Instance, D1: TxDma<T>, #[cfg(afio)] A>(
+    pub fn new_txonly<T: I2sClock, D1: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -273,7 +273,7 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     /// Create a transmitter driver without a master clock pin.
-    pub fn new_txonly_nomck<T: Instance, D1: TxDma<T>, #[cfg(afio)] A>(
+    pub fn new_txonly_nomck<T: I2sClock, D1: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -300,7 +300,7 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     /// Create a receiver driver.
-    pub fn new_rxonly<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_rxonly<T: I2sClock, D1: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -328,7 +328,7 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     /// Create a receiver driver without a master clock pin.
-    pub fn new_rxonly_nomck<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_rxonly_nomck<T: I2sClock, D1: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -389,7 +389,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
     #[cfg(any(spi_v4, spi_v5))]
     /// Create a full duplex driver.
-    pub fn new_full_duplex<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_full_duplex<T: I2sClock, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         txsd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         rxsd: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
@@ -421,7 +421,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
     #[cfg(any(spi_v4, spi_v5))]
     /// Create a full duplex driver without a master clock pin.
-    pub fn new_full_duplex_nomck<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_full_duplex_nomck<T: I2sClock, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         txsd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         rxsd: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
@@ -632,7 +632,7 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
-    fn new_inner<T: Instance, #[cfg(afio)] A>(
+    fn new_inner<T: I2sClock, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         #[cfg(spi_v2_i2s)] regs_ext: Option<Regs>,
         txsd: Option<Flex<'d>>,
@@ -720,10 +720,7 @@ impl<'d, W: Word> I2S<'d, W> {
             });
         });
 
-        #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7))]
-        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
-        let pclk = T::frequency();
+        let pclk = T::i2s_frequency();
 
         let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
         clk_reg.modify(|w| {
@@ -919,7 +916,7 @@ fn reset_incompatible_bitfields<T: Instance>() {
 }
 
 /// Full-Duplex I2s Instance
-pub trait I2sSExtInstance: spi::Instance {
+pub trait I2sSExtInstance: I2sClock {
     /// Ext regs
     fn regs_ext() -> Regs;
 }
@@ -930,6 +927,28 @@ macro_rules! impl_i2_ext_instance {
         impl crate::i2s::I2sSExtInstance for crate::peripherals::$spi {
             fn regs_ext() -> crate::pac::spi::Spi {
                 crate::pac::$i2s
+            }
+        }
+    };
+}
+
+/// Clock used to derive the I2S bit clock.
+///
+/// Usually the SPI kernel clock, but the metadata can describe a separate
+/// kernel clock for the I2S extension block (e.g. STM32F3, where the I2S
+/// clock is selected at runtime by `RCC_CFGR.I2SSRC`), in which case the
+/// generated implementation resolves that clock instead.
+pub trait I2sClock: Instance {
+    /// Frequency of the I2S clock (`I2SxCLK`).
+    fn i2s_frequency() -> Hertz;
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_i2s_clock {
+    ($spi:ident, $clk:expr) => {
+        impl crate::i2s::I2sClock for crate::peripherals::$spi {
+            fn i2s_frequency() -> crate::time::Hertz {
+                $clk
             }
         }
     };
