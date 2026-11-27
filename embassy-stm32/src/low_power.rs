@@ -88,10 +88,15 @@ use crate::pac::pwr::vals::Lpms;
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
+            #[cfg(power_stop1)]
             StopMode::Stop1 => Lpms::Stop1,
-            #[cfg(any(feature = "stm32wba65ri", not(stm32wba)))]
+            #[cfg(not(power_stop1))]
+            StopMode::Stop1 => Lpms::Stop0,
+            #[cfg(power_stop2)]
             StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
-            #[cfg(all(stm32wba, not(feature = "stm32wba65ri")))]
+            #[cfg(all(not(power_stop2), power_stop1))]
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop1,
+            #[cfg(not(any(power_stop2, power_stop1)))]
             StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
         }
     }
@@ -332,12 +337,17 @@ fn exit_stop(cs: CriticalSection) {
             }
         };
 
-        #[cfg(stm32wba)]
+        #[cfg(all(stm32wba, power_stop2))]
         match (es.stopf(), es.stop2f()) {
             (true, true) => debug!("low power: WBA woke from STOP2"),
             (true, false) => debug!("low power: WBA woke from STOP0/1"),
             _ => {}
         };
+
+        #[cfg(all(stm32wba, not(power_stop2)))]
+        if es.stopf() {
+            debug!("low power: WBA woke from STOP0/1");
+        }
 
         #[cfg(stm32wl)]
         match (es.c1stopf(), es.c1stop2f()) {
@@ -394,6 +404,12 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         return false;
     };
 
+    #[cfg(not(power_stop2))]
+    let stop_mode = match stop_mode {
+        StopMode::Standby | StopMode::Stop2 => StopMode::Stop1,
+        other => other,
+    };
+
     #[cfg(stm32wba)]
     let stop_mode = {
         let Some(radio_max) = crate::rcc::radio_max_stop_mode(cs) else {
@@ -405,9 +421,9 @@ fn configure_pwr(cs: CriticalSection) -> bool {
         } else {
             stop_mode
         };
-        // On WBA5x (`not(stm32wba65ri)`), StopMode::Stop2/Standby maps to Lpms::Stop0;
-        // only Lpms::Stop1/Stop2 put the 2.4 GHz radio into deep sleep.
-        let deep_stop = cfg!(feature = "stm32wba65ri") || capped == StopMode::Stop1;
+        // `Into<Lpms>` enters Stop 1 (`power_stop1`) or Stop 2 (`power_stop2`),
+        // both of which put the 2.4 GHz radio into deep sleep.
+        let deep_stop = cfg!(any(power_stop1, power_stop2));
         if crate::rcc::radio_before_stop(cs, deep_stop).is_err() {
             trace!("low_power: radio vetoed stop, using WFI");
             return false;
