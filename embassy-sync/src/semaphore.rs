@@ -8,6 +8,8 @@ use heapless::Deque;
 
 use crate::blocking_mutex::Mutex;
 use crate::blocking_mutex::raw::RawMutex;
+#[cfg(feature = "trace")]
+use crate::trace::{SemaphoreEvent, TraceImpl, Wait};
 use crate::waitqueue::WakerRegistration;
 
 /// An asynchronous semaphore.
@@ -118,6 +120,13 @@ impl<M: RawMutex> GreedySemaphore<M> {
         self.state.lock(|cell| {
             let mut state = cell.replace(SemaphoreState::EMPTY);
             if let Some(permits) = state.take(permits, acquire_all) {
+                #[cfg(feature = "trace")]
+                TraceImpl::semaphore(
+                    self as *const Self as usize,
+                    SemaphoreEvent::Acquired,
+                    permits,
+                    state.permits,
+                );
                 cell.set(state);
                 Poll::Ready(Ok(SemaphoreReleaser {
                     semaphore: self,
@@ -126,6 +135,16 @@ impl<M: RawMutex> GreedySemaphore<M> {
             } else {
                 if let Some(waker) = waker {
                     state.register(waker);
+                    #[cfg(feature = "trace")]
+                    TraceImpl::wait(self as *const Self as usize, Wait::SemaphoreAcquire, waker);
+                } else {
+                    #[cfg(feature = "trace")]
+                    TraceImpl::semaphore(
+                        self as *const Self as usize,
+                        SemaphoreEvent::Unavailable,
+                        permits,
+                        state.permits,
+                    );
                 }
                 cell.set(state);
                 Poll::Pending
@@ -164,6 +183,13 @@ impl<M: RawMutex> Semaphore for GreedySemaphore<M> {
             self.state.lock(|cell| {
                 let mut state = cell.replace(SemaphoreState::EMPTY);
                 state.permits += permits;
+                #[cfg(feature = "trace")]
+                TraceImpl::semaphore(
+                    self as *const Self as usize,
+                    SemaphoreEvent::Released,
+                    permits,
+                    state.permits,
+                );
                 state.wake();
                 cell.set(state);
             });
@@ -177,6 +203,13 @@ impl<M: RawMutex> Semaphore for GreedySemaphore<M> {
                 state.wake();
             }
             state.permits = permits;
+            #[cfg(feature = "trace")]
+            TraceImpl::semaphore(
+                self as *const Self as usize,
+                SemaphoreEvent::Set,
+                permits,
+                state.permits,
+            );
             cell.set(state);
         });
     }
@@ -266,6 +299,13 @@ where
         self.state.lock(|cell| {
             let mut state = cell.borrow_mut();
             if let Some(permits) = state.take(ticket, permits, acquire_all) {
+                #[cfg(feature = "trace")]
+                TraceImpl::semaphore(
+                    self as *const Self as usize,
+                    SemaphoreEvent::Acquired,
+                    permits,
+                    state.permits,
+                );
                 Poll::Ready(Ok(SemaphoreReleaser {
                     semaphore: self,
                     permits,
@@ -274,11 +314,29 @@ where
                 match state.register(ticket, waker) {
                     Ok(ticket) => {
                         *ticket_ref = Some(ticket);
+                        #[cfg(feature = "trace")]
+                        TraceImpl::wait(self as *const Self as usize, Wait::SemaphoreAcquire, waker);
                         Poll::Pending
                     }
-                    Err(err) => Poll::Ready(Err(err)),
+                    Err(err) => {
+                        #[cfg(feature = "trace")]
+                        TraceImpl::semaphore(
+                            self as *const Self as usize,
+                            SemaphoreEvent::WaitQueueFull,
+                            permits,
+                            state.permits,
+                        );
+                        Poll::Ready(Err(err))
+                    }
                 }
             } else {
+                #[cfg(feature = "trace")]
+                TraceImpl::semaphore(
+                    self as *const Self as usize,
+                    SemaphoreEvent::Unavailable,
+                    permits,
+                    state.permits,
+                );
                 Poll::Pending
             }
         })
@@ -328,6 +386,13 @@ impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
             self.state.lock(|cell| {
                 let mut state = cell.borrow_mut();
                 state.permits += permits;
+                #[cfg(feature = "trace")]
+                TraceImpl::semaphore(
+                    self as *const Self as usize,
+                    SemaphoreEvent::Released,
+                    permits,
+                    state.permits,
+                );
                 state.wake();
             });
         }
@@ -340,6 +405,13 @@ impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
                 state.wake();
             }
             state.permits = permits;
+            #[cfg(feature = "trace")]
+            TraceImpl::semaphore(
+                self as *const Self as usize,
+                SemaphoreEvent::Set,
+                permits,
+                state.permits,
+            );
         });
     }
 }

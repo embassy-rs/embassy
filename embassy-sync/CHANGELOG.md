@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Add optional tracing for bounded channels and async mutexes.
+- Add optional tracing for bounded channels, async mutexes and greedy and fair semaphores.
 
 - `AtomicWaker`: `wake()` releases its state before waking the waker, so a task that registers again from within the wake (an interrupt executor preempting the waking interrupt) is not woken again in a loop.
 - Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.

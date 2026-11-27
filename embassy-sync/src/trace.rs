@@ -1,4 +1,5 @@
-//! Optional tracing for [`Channel`](crate::channel::Channel) and [`Mutex`](crate::mutex::Mutex).
+//! Optional tracing for [`Channel`](crate::channel::Channel), [`Mutex`](crate::mutex::Mutex),
+//! and the greedy and fair [semaphores](crate::semaphore).
 //!
 //! Enable `trace`, implement [`Trace`], and register it once with [`trace_impl!`](crate::trace_impl).
 //! An ID identifies internal state; it need not equal the address of the public object.
@@ -8,7 +9,8 @@
 //! be bounded, never panic, and never reenter the primitive or wake or poll other tasks.
 //! A wait describes one poll of one operation. It can repeat, be cancelled, or be one branch
 //! of a larger future that completes in the same poll. Wake notifications can occur before
-//! the corresponding operation callback.
+//! the corresponding operation callback. Dropping a pending acquisition can remove a fair
+//! semaphore ticket; no cancellation or acquisition event is emitted.
 
 pub use core::task::Waker;
 
@@ -23,6 +25,8 @@ pub enum Wait {
     ChannelReceive,
     /// The mutex is locked.
     MutexLock,
+    /// The semaphore could not grant the requested permits.
+    SemaphoreAcquire,
 }
 
 /// A bounded FIFO channel operation.
@@ -55,10 +59,27 @@ pub enum MutexEvent {
     Busy,
 }
 
+/// A greedy or fair semaphore operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+#[repr(u8)]
+pub enum SemaphoreEvent {
+    /// A request acquired permits.
+    Acquired,
+    /// Permits were returned.
+    Released,
+    /// The available permit count was set.
+    Set,
+    /// An immediate acquisition could not obtain permits.
+    Unavailable,
+    /// A fair semaphore could not register a waiter.
+    WaitQueueFull,
+}
+
 // Bump the symbol version for changes to signatures or event discriminants, including additions.
 unitrait::unitrait! {
     /// Synchronization trace hooks. Implement all callbacks.
-    #[symbol_prefix = "_embassy_channel_mutex_trace_v1"]
+    #[symbol_prefix = "_embassy_sync_trace_v1"]
     pub trait Trace {
         /// A future registered its waker and will report pending.
         fn wait(id: usize, operation: Wait, waker: &Waker);
@@ -66,6 +87,8 @@ unitrait::unitrait! {
         fn channel(id: usize, event: ChannelEvent, len: usize, capacity: usize);
         /// A mutex was acquired, released, or found busy by an immediate operation.
         fn mutex(id: usize, event: MutexEvent);
+        /// Number of permits requested or affected, and permits available after the operation.
+        fn semaphore(id: usize, event: SemaphoreEvent, permits: usize, available: usize);
     }
     /// The registered trace implementation.
     pub(crate) struct TraceImpl;
@@ -87,12 +110,14 @@ mod tests {
     use crate::blocking_mutex::raw::NoopRawMutex;
     use crate::channel::Channel;
     use crate::mutex::{Mutex, MutexGuard};
+    use crate::semaphore::{FairSemaphore, GreedySemaphore, Semaphore};
 
     #[derive(Debug, PartialEq)]
     enum Event {
         Wait(Wait),
         Channel(ChannelEvent, usize, usize),
         Mutex(MutexEvent),
+        Semaphore(SemaphoreEvent, usize, usize),
     }
 
     std::thread_local! { static EVENTS: RefCell<Vec<(usize, Event)>> = const { RefCell::new(Vec::new()) }; }
@@ -109,6 +134,9 @@ mod tests {
         }
         fn mutex(id: usize, event: MutexEvent) {
             EVENTS.with_borrow_mut(|e| e.push((id, Event::Mutex(event))));
+        }
+        fn semaphore(id: usize, event: SemaphoreEvent, permits: usize, available: usize) {
+            EVENTS.with_borrow_mut(|e| e.push((id, Event::Semaphore(event, permits, available))));
         }
     }
 
@@ -169,6 +197,40 @@ mod tests {
             Event::Mutex(MutexEvent::Busy),
             Event::Wait(Wait::MutexLock),
             Event::Mutex(MutexEvent::Unlocked),
+        ]);
+    }
+
+    #[test]
+    fn semaphore_reports_actual_permits_and_wait_queue_failure() {
+        let greedy = GreedySemaphore::<NoopRawMutex>::new(3);
+        let permit = greedy.try_acquire_all(1).unwrap();
+        assert!(greedy.try_acquire(1).is_none());
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(pin!(greedy.acquire(1)).as_mut().poll(&mut cx).is_pending());
+        drop(permit);
+        greedy.set(5);
+        expect_one_resource(&[
+            Event::Semaphore(SemaphoreEvent::Acquired, 3, 0),
+            Event::Semaphore(SemaphoreEvent::Unavailable, 1, 0),
+            Event::Wait(Wait::SemaphoreAcquire),
+            Event::Semaphore(SemaphoreEvent::Released, 3, 3),
+            Event::Semaphore(SemaphoreEvent::Set, 5, 5),
+        ]);
+        let fair = FairSemaphore::<NoopRawMutex, 1>::new(0);
+        let mut pending = pin!(fair.acquire(1));
+        assert!(pending.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(
+            pin!(fair.acquire(2)).as_mut().poll(&mut cx),
+            core::task::Poll::Ready(Err(_))
+        ));
+        fair.release(1);
+        assert!(pending.as_mut().poll(&mut cx).is_ready());
+        expect_one_resource(&[
+            Event::Wait(Wait::SemaphoreAcquire),
+            Event::Semaphore(SemaphoreEvent::WaitQueueFull, 2, 0),
+            Event::Semaphore(SemaphoreEvent::Released, 1, 1),
+            Event::Semaphore(SemaphoreEvent::Acquired, 1, 0),
+            Event::Semaphore(SemaphoreEvent::Released, 1, 1),
         ]);
     }
 }
