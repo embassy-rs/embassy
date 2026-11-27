@@ -1183,6 +1183,7 @@ where
         if ints.usbrst() {
             trace!("reset");
 
+            self.set_clock_gating(false);
             self.init_fifo();
             self.configure_endpoints();
 
@@ -1236,11 +1237,13 @@ where
             trace!("suspend");
             regs.gintsts().write(|w| w.set_usbsusp(true)); // clear
             self.restore_irqs();
+            self.set_clock_gating(true);
             return Poll::Ready(Event::Suspend);
         }
 
         if ints.wkupint() {
             trace!("resume");
+            self.set_clock_gating(false);
             regs.gintsts().write(|w| w.set_wkupint(true)); // clear
             self.restore_irqs();
             return Poll::Ready(Event::Resume);
@@ -1419,9 +1422,25 @@ where
         }
     }
 
+    /// Gate or ungate the OTG PHY clock (and HCLK on high-speed cores) via `PCGCCTL`.
+    ///
+    /// See RM0368 §22.8 / RM0515 §44.4 (`STPPCLK` and `GATEHCLK`).
+    #[inline(never)]
+    fn set_clock_gating(&self, gated: bool) {
+        self.instance.regs.pcgcctl().modify(|w| {
+            w.set_stppclk(gated);
+            // GATEHCLK is only present on HS cores.
+            if self.instance.phy_type.high_speed() {
+                w.set_gatehclk(gated);
+            }
+        });
+    }
+
     fn init(&mut self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
+
+        self.set_clock_gating(false);
 
         // Soft disconnect.
         r.dctl().write(|w| w.set_sdis(true));
@@ -1660,6 +1679,7 @@ where
     pub fn deinit_device(&mut self) {
         if self.inited {
             self.inited = false;
+            self.set_clock_gating(false);
             for ep in self.instance.state.ep_states {
                 ep.in_enabled.store(false, Ordering::Release);
                 ep.out_enabled.store(false, Ordering::Release);
@@ -1870,14 +1890,7 @@ where
             let r = self.instance.regs;
 
             // Re-enable PHY clock gated during suspend.
-            // See RM0368 §22.8 "OTG low-power modes" (STPPCLK / GATEHCLK).
-            r.pcgcctl().modify(|w| {
-                w.set_stppclk(false);
-                // GATEHCLK is only present on HS cores.
-                if self.instance.phy_type.high_speed() {
-                    w.set_gatehclk(false);
-                }
-            });
+            self.set_clock_gating(false);
 
             // Assert resume K-state on D+/D-.
             // USB 2.0 spec §7.1.7.7: TDRSMUP requires 1–15 ms of resume signaling.
