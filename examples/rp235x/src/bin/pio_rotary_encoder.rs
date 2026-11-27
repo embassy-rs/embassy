@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
         mut common, sm0, sm1, ..
     } = Pio::new(p.PIO0, Irqs);
 
-    let prg = PioEncoderProgram::new(&mut common);
+    let prg = PioEncoderProgram::new(&mut common, false);
     let encoder0 = PioEncoder::new(&mut common, sm0, p.PIN_4, p.PIN_5, &prg);
     let encoder1 = PioEncoder::new(&mut common, sm1, p.PIN_6, p.PIN_7, &prg);
 
