@@ -314,6 +314,12 @@ impl Future for Timer {
     }
 }
 
+impl Clone for Timer {
+    fn clone(&self) -> Self {
+        Self::at(self.expires_at)
+    }
+}
+
 /// Asynchronous stream that yields every Duration, indefinitely.
 ///
 /// This stream will tick at uniform intervals, even if blocking work is performed between ticks.
