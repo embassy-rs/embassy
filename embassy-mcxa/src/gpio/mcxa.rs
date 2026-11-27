@@ -2,52 +2,25 @@
 
 use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::pin;
 
 use embassy_hal_internal::{Peri, PeripheralType};
-use maitake_sync::WaitMap;
+use embassy_nxp_drivers::gpio::Trigger;
 
-use super::{DriveStrength, Flex, Input, Inverter, Mode, NoIrqBound, OpenDrain, Pull, SlewRate, sealed};
+use super::{
+    DriveStrength, Flex, Info, Input, Inverter, Mode, NoIrqBound, OpenDrain, Pull, SealedInstance, SlewRate, State,
+    sealed,
+};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac::common::{RW, Reg};
-use crate::pac::gpio::Irqc;
 use crate::pac::port::{Mux, Pcr};
 
 pub struct Async {}
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
 
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b as usize)
-            }
-        }
-    }
-}
-
-#[cfg(feature = "_mcxa2xx")]
-const PORT_COUNT: usize = 5;
-#[cfg(feature = "_mcxa5xx")]
-const PORT_COUNT: usize = 6;
-
-static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [const { WaitMap::new() }; PORT_COUNT];
-
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: Interrupt;
-}
-
-pub(crate) struct Info {
-    pub port_index: usize,
-    pub gpio: crate::pac::gpio::Gpio,
 }
 
 pub trait PeriGpioExt<'d, T: HasGpioInstance> {
@@ -90,54 +63,16 @@ pub trait HasGpioInstance: GpioPin {
     ) -> Peri<'p, AnyPin>;
 }
 
-pub(crate) trait SealedInstance {
-    fn info() -> &'static Info;
-    const PERF_INT_INCR: fn();
-}
-
-#[doc(hidden)]
-#[macro_export]
-
-macro_rules! impl_gpio_instance {
-    ($n:expr) => {
-        pastey::paste! {
-            impl $crate::gpio::SealedInstance for $crate::peripherals::[<GPIO $n>] {
-                fn info() -> &'static $crate::gpio::Info {
-                    static INFO: $crate::gpio::Info =  $crate::gpio::Info {
-                        gpio: $crate::pac::[<GPIO $n>],
-                        port_index: $n,
-                    };
-                    &INFO
-                }
-            const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
-            }
-
-            impl $crate::gpio::Instance for $crate::peripherals::[<GPIO $n>] {
-                type Interrupt = $crate::interrupt::typelevel::[<GPIO $n>];
-            }
-        }
-    };
-}
-
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let info = T::info();
-        let isfr = info.gpio.isfr(0);
-
-        for pin in BitIter(isfr.read().0) {
-            // Clear all pending interrupts
-            isfr.write(|w| w.0 = 1 << pin);
-            info.gpio.icr(pin).modify(|w| w.set_irqc(Irqc::Irqc0)); // Disable interrupt
-
-            // Wake the corresponding port waker
-            if let Some(w) = PORT_WAIT_MAPS.get(info.port_index) {
-                T::PERF_INT_INCR();
-                w.wake(&pin, ());
-            }
+        // SAFETY: this is the handler of the port the info and state belong to.
+        let served = unsafe { embassy_nxp_drivers::gpio::on_interrupt(T::info(), T::state()) };
+        for _ in 0..served.count_ones() {
+            T::PERF_INT_INCR();
         }
     }
 }
@@ -191,7 +126,8 @@ impl From<Inverter> for bool {
 pub struct AnyPin {
     port: u8,
     pin: u8,
-    gpio: crate::pac::gpio::Gpio,
+    info: &'static Info,
+    state: &'static State,
 
     port_reg: crate::pac::port::Port,
 
@@ -205,7 +141,8 @@ impl AnyPin {
     pub(crate) fn new(
         port: u8,
         pin: u8,
-        gpio: crate::pac::gpio::Gpio,
+        info: &'static Info,
+        state: &'static State,
         port_reg: crate::pac::port::Port,
         pcr_reg: Reg<Pcr, RW>,
         irq_bound: bool,
@@ -213,7 +150,8 @@ impl AnyPin {
         Self {
             port,
             pin,
-            gpio,
+            info,
+            state,
 
             port_reg,
 
@@ -224,8 +162,13 @@ impl AnyPin {
     }
 
     #[inline(always)]
-    pub(super) fn gpio(&self) -> crate::pac::gpio::Gpio {
-        self.gpio
+    pub(super) fn gpio_info(&self) -> &'static Info {
+        self.info
+    }
+
+    #[inline(always)]
+    pub(super) fn gpio_state(&self) -> &'static State {
+        self.state
     }
 
     #[inline(always)]
@@ -264,7 +207,14 @@ pub(crate) trait SealedPin {
 
     fn pin(&self) -> u8;
 
-    fn gpio(&self) -> crate::pac::gpio::Gpio;
+    fn info(&self) -> &'static Info;
+
+    fn state(&self) -> &'static State;
+
+    #[inline(always)]
+    fn gpio(&self) -> crate::pac::gpio::Gpio {
+        self.info().regs
+    }
 
     fn port_reg(&self) -> crate::pac::port::Port;
 
@@ -296,7 +246,8 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         AnyPin::new(
             self.port(),
             self.pin(),
-            self.gpio(),
+            self.info(),
+            self.state(),
             self.port_reg(),
             self.pcr_reg(),
             false,
@@ -316,8 +267,13 @@ impl SealedPin for AnyPin {
     }
 
     #[inline(always)]
-    fn gpio(&self) -> crate::pac::gpio::Gpio {
-        self.gpio()
+    fn info(&self) -> &'static Info {
+        self.info
+    }
+
+    #[inline(always)]
+    fn state(&self) -> &'static State {
+        self.state
     }
 
     #[inline(always)]
@@ -408,8 +364,13 @@ macro_rules! impl_gpio_pin {
                 }
 
                 #[inline(always)]
-                fn gpio(&self) -> $crate::pac::gpio::Gpio {
-                    $crate::pac::$block
+                fn info(&self) -> &'static $crate::gpio::Info {
+                    <$crate::peripherals::$block as $crate::gpio::SealedInstance>::info()
+                }
+
+                #[inline(always)]
+                fn state(&self) -> &'static $crate::gpio::State {
+                    <$crate::peripherals::$block as $crate::gpio::SealedInstance>::state()
                 }
 
                 #[inline(always)]
@@ -487,7 +448,8 @@ macro_rules! impl_gpio_pin {
                     $crate::gpio::AnyPin::new(
                         self.port(),
                         self.pin(),
-                        self.gpio(),
+                        self.info(),
+                        self.state(),
 
                         self.port_reg(),
 
@@ -516,7 +478,8 @@ macro_rules! impl_gpio_pin {
                         embassy_hal_internal::Peri::new_unchecked($crate::gpio::AnyPin::new(
                             this.port(),
                             this.pin(),
-                            this.gpio(),
+                            this.info(),
+                            this.state(),
                             this.port_reg(),
                             this.pcr_reg(),
                             true,
@@ -535,10 +498,7 @@ impl<'d> Flex<'d> {
     /// can be changed before the pin is put into output mode.
     pub fn new(pin: Peri<'d, impl GpioPin>) -> Self {
         pin.set_function(Mux::Mux0);
-        Self {
-            pin: pin.into(),
-            _phantom: PhantomData,
-        }
+        Self::from_pin(pin.into())
     }
 }
 
@@ -546,37 +506,17 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into input mode.
     pub fn set_as_input(&mut self) {
         self.set_enable_input_buffer(true);
-        // Clear PIDR to enable pin input. set_as_disabled() sets PID=1
+        // Clears PIDR to enable pin input. set_as_disabled() sets PID=1
         // which permanently disables input reads (always returns 0).
-        self.gpio()
-            .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
-        self.gpio()
-            .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, false));
+        self.line.set_direction(false);
     }
 
     /// Put the pin into output mode.
     pub fn set_as_output(&mut self) {
         self.set_pull(Pull::Disabled);
 
-        // Clear PIDR in case this pin was previously disabled.
-        self.gpio()
-            .pidr()
-            .modify(|w| w.set_pid(self.pin.pin_index() as usize, false));
-        self.gpio()
-            .pddr()
-            .modify(|w| w.set_pdd(self.pin.pin_index() as usize, true));
-    }
-
-    /// Is the output pin set as high?
-    #[inline]
-    pub fn is_set_high(&self) -> bool {
-        #[cfg(feature = "_mcxa2xx")]
-        let set = self.gpio().pdor().read().pdo(self.pin.pin_index() as usize);
-        #[cfg(feature = "_mcxa5xx")]
-        let set = (self.gpio().pdor().read().0 & (1 << self.pin.pin_index())) != 0;
-        set
+        // Clears PIDR in case this pin was previously disabled.
+        self.line.set_direction(true);
     }
 
     /// Configure open-drain output.
@@ -609,10 +549,7 @@ impl<'d> Flex<'d, Async> {
         unsafe {
             <P::Instance as Instance>::Interrupt::enable();
         }
-        Self {
-            pin: pin.into(),
-            _phantom: PhantomData,
-        }
+        Self::from_pin(pin.into())
     }
 
     /// Wrap an [`AnyPin`] in Flex with Async support.
@@ -625,75 +562,40 @@ impl<'d> Flex<'d, Async> {
     pub fn async_from_anypin(pin: Peri<'d, AnyPin>) -> Result<Self, NoIrqBound> {
         pin.set_function(Mux::Mux0);
         if pin.irq_bound() {
-            Ok(Self {
-                pin: pin.into(),
-                _phantom: PhantomData,
-            })
+            Ok(Self::from_pin(pin))
         } else {
             Err(NoIrqBound)
         }
     }
 
-    /// Helper function that waits for a given interrupt trigger
-    async fn wait_for_inner(&mut self, level: crate::pac::gpio::Irqc) {
-        // First, ensure that we have a waker that is ready for this port+pin
-        let w = PORT_WAIT_MAPS[usize::from(self.pin.port)].wait(self.pin.pin.into());
-        let mut w = pin!(w);
-        // Wait for the subscription to occur, which requires polling at least once
-        //
-        // This function returns a result, but can only be an Err if:
-        //
-        // * We call `.close()` on a WaitMap, which we never do
-        // * We have a duplicate key, which can't happen because `wait_for_*` methods
-        //   take an &mut ref of their unique port+pin combo
-        //
-        // So we wait for it to complete, but ignore the result.
-        _ = w.as_mut().subscribe().await;
-
-        // Now that our waker is in the map, we can enable the appropriate interrupt
-        //
-        // Clear any existing pending interrupt on this pin
-        self.pin.gpio().isfr(0).write(|w| w.0 = 1 << self.pin.pin());
-        self.pin.gpio().icr(self.pin.pin().into()).write(|w| w.set_isf(true));
-
-        // Pin interrupt configuration
-        self.pin.gpio().icr(self.pin.pin().into()).modify(|w| w.set_irqc(level));
-
-        // Finally, we can await the matching call to `.wake()` from the interrupt.
-        //
-        // Again, technically, this could return a result, but for the same reasons
-        // as above, this can't be an error in our case, so just wait for it to complete
-        _ = w.await;
-    }
-
     /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub fn wait_for_high(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
-        self.wait_for_inner(Irqc::Irqc12)
+        self.line.wait_for(Trigger::High)
     }
 
     /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub fn wait_for_low(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
-        self.wait_for_inner(Irqc::Irqc8)
+        self.line.wait_for(Trigger::Low)
     }
 
     /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub fn wait_for_rising_edge(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
-        self.wait_for_inner(Irqc::Irqc9)
+        self.line.wait_for(Trigger::RisingEdge)
     }
 
     /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub fn wait_for_falling_edge(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
-        self.wait_for_inner(Irqc::Irqc10)
+        self.line.wait_for(Trigger::FallingEdge)
     }
 
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub fn wait_for_any_edge(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
-        self.wait_for_inner(Irqc::Irqc11)
+        self.line.wait_for(Trigger::AnyEdge)
     }
 }
 

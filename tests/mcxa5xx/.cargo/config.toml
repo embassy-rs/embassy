@@ -1,0 +1,8 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "teleprobe local run --no-reset --chip MCXA577 --protocol swd"
+
+[build]
+target = "thumbv8m.main-none-eabihf" # Cortex-M33
+
+[env]
+DEFMT_LOG = "trace"
