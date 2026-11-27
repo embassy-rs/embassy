@@ -9,6 +9,8 @@ use core::{fmt, mem};
 
 use crate::blocking_mutex::Mutex as BlockingMutex;
 use crate::blocking_mutex::raw::RawMutex;
+#[cfg(feature = "trace")]
+use crate::trace::{MutexEvent, TraceImpl, Wait};
 use crate::waitqueue::WakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
@@ -80,9 +82,13 @@ where
                 let mut s = s.borrow_mut();
                 if s.locked {
                     s.waker.register(cx.waker());
+                    #[cfg(feature = "trace")]
+                    TraceImpl::wait(&*s as *const State as usize, Wait::MutexLock, cx.waker());
                     false
                 } else {
                     s.locked = true;
+                    #[cfg(feature = "trace")]
+                    TraceImpl::mutex(&*s as *const State as usize, MutexEvent::Locked);
                     true
                 }
             });
@@ -102,9 +108,13 @@ where
         self.state.lock(|s| {
             let mut s = s.borrow_mut();
             if s.locked {
+                #[cfg(feature = "trace")]
+                TraceImpl::mutex(&*s as *const State as usize, MutexEvent::Busy);
                 Err(TryLockError)
             } else {
                 s.locked = true;
+                #[cfg(feature = "trace")]
+                TraceImpl::mutex(&*s as *const State as usize, MutexEvent::Locked);
                 Ok(())
             }
         })?;
@@ -209,6 +219,8 @@ where
         self.mutex.state.lock(|s| {
             let mut s = unwrap!(s.try_borrow_mut());
             s.locked = false;
+            #[cfg(feature = "trace")]
+            TraceImpl::mutex(&*s as *const State as usize, MutexEvent::Unlocked);
             s.waker.wake();
         })
     }
@@ -323,6 +335,8 @@ where
         self.state.lock(|s| {
             let mut s = unwrap!(s.try_borrow_mut());
             s.locked = false;
+            #[cfg(feature = "trace")]
+            TraceImpl::mutex(&*s as *const State as usize, MutexEvent::Unlocked);
             s.waker.wake();
         })
     }

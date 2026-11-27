@@ -15,6 +15,7 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true
 cargo test --manifest-path ./embassy-executor/Cargo.toml --features metadata-name
 cargo test --manifest-path ./embassy-futures/Cargo.toml
 cargo test --manifest-path ./embassy-sync/Cargo.toml
+cargo test --manifest-path ./embassy-sync/Cargo.toml --lib --features trace
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
 cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver,embassy-time-queue-utils/generic-queue-8
