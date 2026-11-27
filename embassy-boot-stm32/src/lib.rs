@@ -5,8 +5,10 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
-    FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, State,
+    AlignedBuffer, BlockingDirectXipState, BlockingFirmwareState, BlockingFirmwareUpdater,
+    BlockingFirmwareUpdaterState, BootError, BootLoaderConfig, DirectXipConfigError, DirectXipError, DirectXipState,
+    DirectXipUpdate, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, FirmwareUpdaterState,
+    Slot, State,
 };
 use embedded_storage::nor_flash::NorFlash;
 
@@ -38,6 +40,30 @@ impl BootLoader {
         let mut boot = embassy_boot::BootLoader::new(config);
         let state = boot.prepare_boot(aligned_buf.as_mut())?;
         Ok(Self { state })
+    }
+
+    /// Like [`Self::try_prepare_direct_xip`], but panics on error.
+    pub fn prepare_direct_xip<STATE: NorFlash>(
+        state: BlockingDirectXipState<'_, STATE>,
+        valid: [bool; 2],
+    ) -> (Self, Slot) {
+        if let Ok(prepared) = Self::try_prepare_direct_xip(state, valid) {
+            prepared
+        } else {
+            panic!("Boot prepare error")
+        }
+    }
+
+    /// Pick the slot to boot, then pass its start address to [`Self::load`].
+    ///
+    /// Check both images first, as described in [`BlockingDirectXipState::prepare_boot`].
+    /// The loader's state is [`State::Boot`].
+    pub fn try_prepare_direct_xip<STATE: NorFlash>(
+        mut state: BlockingDirectXipState<'_, STATE>,
+        valid: [bool; 2],
+    ) -> Result<(Self, Slot), DirectXipError> {
+        let slot = state.prepare_boot(valid)?;
+        Ok((Self { state: State::Boot }, slot))
     }
 
     /// Boots the application.

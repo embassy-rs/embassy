@@ -33,3 +33,17 @@ The bootloader supports different hardware in separate crates:
 * `embassy-boot-nrf` - for the nRF microcontrollers.
 * `embassy-boot-rp` - for the RP2040, RP235x microcontrollers.
 * `embassy-boot-stm32` - for the STM32 microcontrollers.
+
+## Direct-XIP
+
+Direct-XIP boots firmware from either of two slots. Link each image for its slot's address, unless the chip remaps flash.
+
+Use `DirectXipState` for async flash or `BlockingDirectXipState` for blocking flash. Both use the same record format and need a dedicated two-erase-page state partition, separate from swap state.
+
+Each record needs 16 bytes, padded to the flash driver's read and write sizes. Use the state type's `BUFFER_SIZE` constant for the scratch buffer length.
+
+In the platform crates, pass a `BlockingDirectXipState` and your slot validation results to `BootLoader::try_prepare_direct_xip`, then pass the selected slot's start address to `BootLoader::load`.
+
+Use `FirmwareUpdater::new_direct_xip` or `BlockingFirmwareUpdater::new_direct_xip` to write updates. Pass the inactive slot's flash partition, a direct-XIP state object, and the running slot.
+
+The Direct-XIP updaters expose `update_slot()` to query the writable slot. The query rejects pending or trial updates and an incorrect running slot.
