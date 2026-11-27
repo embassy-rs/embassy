@@ -9,6 +9,8 @@
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::VddLevel;
+#[cfg(mcxa_espi)]
+use crate::pac::mrcc::EspiClkselMux;
 #[cfg(feature = "_mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
 #[cfg(feature = "_mcxa5xx")]
@@ -200,6 +202,86 @@ impl Div4 {
     #[inline(always)]
     pub const fn into_divisor(self) -> u32 {
         self.0 as u32 + 1
+    }
+}
+
+/// Selectable eSPI functional clocks.
+#[cfg(mcxa_espi)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EspiClockSel {
+    /// Undivided FRO_HF clock.
+    FroHf,
+    /// External oscillator clock.
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// Divided PLL1 clock.
+    Pll1ClkDiv,
+}
+
+/// Functional clock configuration for the eSPI target controller.
+#[cfg(mcxa_espi)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct EspiConfig {
+    /// Required clock power state.
+    pub power: PoweredClock,
+    /// Functional clock source (the serial clock is provided by the host).
+    pub source: EspiClockSel,
+    /// Functional clock divider.
+    pub div: Div4,
+}
+
+#[cfg(mcxa_espi)]
+impl Default for EspiConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: EspiClockSel::FroHf,
+            div: Div4::no_div(),
+        }
+    }
+}
+
+#[cfg(all(mcxa_espi, feature = "defmt"))]
+impl defmt::Format for EspiConfig {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "EspiConfig {{ power: {:?}, source: {:?}, div: {=u32} }}",
+            self.power,
+            self.source,
+            self.div.into_divisor()
+        );
+    }
+}
+
+#[cfg(mcxa_espi)]
+impl SPConfHelper for EspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let clksel = crate::pac::MRCC0.mrcc_espi0_clksel();
+        let clkdiv = crate::pac::MRCC0.mrcc_espi0_clkdiv();
+        let (freq, variant) = match self.source {
+            EspiClockSel::FroHf => (
+                clocks.ensure_fro_hf_active(&self.power)?,
+                EspiClkselMux::I1ClkrootFircGated,
+            ),
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            EspiClockSel::ClkIn => (clocks.ensure_clk_in_active(&self.power)?, EspiClkselMux::I3ClkrootSosc),
+            EspiClockSel::Pll1ClkDiv => (
+                clocks.ensure_pll1_clk_div_active(&self.power)?,
+                EspiClkselMux::I6ClkrootSpllDiv,
+            ),
+        };
+        // RM 52.5: PCLK must not be slower than espi_fast_clk.
+        let pclk = clocks.ensure_cpu_system_clk_active(&self.power)?;
+        if u64::from(freq) > u64::from(pclk) * u64::from(self.div.into_divisor()) {
+            return Err(ClockError::BadConfig {
+                clock: "espi fast clock",
+                reason: "must not exceed PCLK",
+            });
+        }
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 
