@@ -2,7 +2,7 @@
 
 use core::num::NonZeroU32;
 
-use crate::{Endpoint, EndpointDisabledError};
+use crate::{Endpoint, EndpointDisabledError, EndpointError};
 
 /// Why [`IsoInSlot::write`] did not queue the transfer.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -135,4 +135,39 @@ pub trait IsoEndpointIn: Endpoint {
     /// }
     /// ```
     async fn ready(&mut self) -> Result<(Option<NonZeroU32>, Self::Slot<'_>), EndpointDisabledError>;
+}
+
+/// Isochronous IN endpoint trait.
+pub trait IsoEndpointOut: Endpoint {
+    /// Reads a transfer from an internal queue to the provided buffer, returning
+    ///
+    /// * the number of skipped service intervals (if any)
+    ///   since the service interval of the last successful [`read`](`IsoEndpointOut::read`), and
+    ///
+    /// * the length, in bytes, of the recieved transfer, or [`None`] if no transfer was recieved
+    ///   in the expected service interval.
+    ///
+    /// If the internal queue is overrun before it can be emptied by [`read`](`IsoEndpointOut::read`),
+    /// the oldest transfer will be discarded and the skipped service interval counter
+    /// will be incremented.
+    ///
+    /// If no transfer was recieved in the expected service interval, it may be because the host
+    /// didn't send one, or the transfer may have been corrupted.
+    /// In either case, the skipped service interval counter will *not* be incremented.
+    ///
+    /// # Errors
+    ///
+    /// If `buf` is too small to hold the tranfer, [`EndpointError::BufferOverflow`] will be returned.
+    /// In this case the transfer will stay in the queue and the skipped service interval counter
+    /// will not be affected.
+    ///
+    /// When the endpoint is disabled, [`read`](`IsoEndpointOut::read`) will continue to
+    /// read out the remaining transfers until the internal queue is empty.
+    /// Afterwards it will return [`EndpointError::Disabled`].
+    ///
+    /// # Cancel safety
+    ///
+    /// If the future is dropped, no data will be removed from the queue
+    /// and the skipped service interval counter  will not be affected.
+    async fn read(&mut self, buf: &mut [u8]) -> Result<(Option<NonZeroU32>, Option<usize>), EndpointError>;
 }
