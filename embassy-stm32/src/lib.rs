@@ -435,7 +435,11 @@ pub struct Config {
     pub rtc: rtc::RtcConfig,
 
     #[cfg(feature = "low-power")]
-    /// Minimum time to stop
+    /// Minimum time to stop.
+    ///
+    /// Stop mode is only entered if the next timer alarm is further away than this duration
+    /// (plus the time-driver wakeup margin). Defaults to `0` (`Duration::from_micros(0)`),
+    /// meaning Stop mode is entered whenever peripherals permit it.
     pub min_stop_pause: embassy_time::Duration,
 
     /// Enable debug during sleep and stop.
@@ -576,7 +580,7 @@ impl Default for Config {
             #[cfg(feature = "low-power")]
             rtc: Default::default(),
             #[cfg(feature = "low-power")]
-            min_stop_pause: embassy_time::Duration::from_millis(250),
+            min_stop_pause: embassy_time::Duration::from_micros(0),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(dbgmcu)]
