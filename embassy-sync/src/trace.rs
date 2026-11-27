@@ -1,8 +1,9 @@
-//! Optional tracing for bounded FIFO [channels](crate::channel::Channel).
+//! Optional tracing for [`Channel`](crate::channel::Channel) and [`Mutex`](crate::mutex::Mutex).
 //!
 //! Enable `trace`, implement [`Trace`], and register it once with [`trace_impl!`](crate::trace_impl).
 //! An ID identifies internal state; it need not equal the address of the public object.
-//! It can change when the channel moves and may be reused after it is dropped. Keep traced objects in place to correlate events.
+//! It can change when the primitive moves
+//! and may be reused after it is dropped. Keep traced objects in place to correlate events.
 //! Callbacks run synchronously, including inside raw mutexes and interrupt handlers. They must
 //! be bounded, never panic, and never reenter the primitive or wake or poll other tasks.
 //! A wait describes one poll of one operation. It can repeat, be cancelled, or be one branch
@@ -20,6 +21,8 @@ pub enum Wait {
     ChannelSend,
     /// A receive, peek or receive-readiness poll needs an item.
     ChannelReceive,
+    /// The mutex is locked.
+    MutexLock,
 }
 
 /// A bounded FIFO channel operation.
@@ -39,15 +42,30 @@ pub enum ChannelEvent {
     Cleared,
 }
 
+/// An async mutex operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+#[repr(u8)]
+pub enum MutexEvent {
+    /// A guard was acquired.
+    Locked,
+    /// The guard released the lock.
+    Unlocked,
+    /// An immediate lock attempt found the mutex locked.
+    Busy,
+}
+
 // Bump the symbol version for changes to signatures or event discriminants, including additions.
 unitrait::unitrait! {
     /// Synchronization trace hooks. Implement all callbacks.
-    #[symbol_prefix = "_embassy_channel_trace_v1"]
+    #[symbol_prefix = "_embassy_channel_mutex_trace_v1"]
     pub trait Trace {
         /// A future registered its waker and will report pending.
         fn wait(id: usize, operation: Wait, waker: &Waker);
         /// Channel occupancy after the operation, in items.
         fn channel(id: usize, event: ChannelEvent, len: usize, capacity: usize);
+        /// A mutex was acquired, released, or found busy by an immediate operation.
+        fn mutex(id: usize, event: MutexEvent);
     }
     /// The registered trace implementation.
     pub(crate) struct TraceImpl;
@@ -68,11 +86,13 @@ mod tests {
     use super::*;
     use crate::blocking_mutex::raw::NoopRawMutex;
     use crate::channel::Channel;
+    use crate::mutex::{Mutex, MutexGuard};
 
     #[derive(Debug, PartialEq)]
     enum Event {
         Wait(Wait),
         Channel(ChannelEvent, usize, usize),
+        Mutex(MutexEvent),
     }
 
     std::thread_local! { static EVENTS: RefCell<Vec<(usize, Event)>> = const { RefCell::new(Vec::new()) }; }
@@ -86,6 +106,9 @@ mod tests {
         }
         fn channel(id: usize, event: ChannelEvent, len: usize, capacity: usize) {
             EVENTS.with_borrow_mut(|e| e.push((id, Event::Channel(event, len, capacity))));
+        }
+        fn mutex(id: usize, event: MutexEvent) {
+            EVENTS.with_borrow_mut(|e| e.push((id, Event::Mutex(event))));
         }
     }
 
@@ -126,6 +149,26 @@ mod tests {
             Event::Channel(ChannelEvent::Received, 0, 1),
             Event::Channel(ChannelEvent::Sent, 1, 1),
             Event::Channel(ChannelEvent::Cleared, 0, 1),
+        ]);
+    }
+
+    #[test]
+    fn mapped_guard_releases_the_same_mutex_once() {
+        let mutex = Mutex::<NoopRawMutex, _>::new((1, 2));
+        let guard = mutex.try_lock().unwrap();
+        assert!(mutex.try_lock().is_err());
+        assert!(
+            pin!(mutex.lock())
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        drop(MutexGuard::map(guard, |v| &mut v.0));
+        expect_one_resource(&[
+            Event::Mutex(MutexEvent::Locked),
+            Event::Mutex(MutexEvent::Busy),
+            Event::Wait(Wait::MutexLock),
+            Event::Mutex(MutexEvent::Unlocked),
         ]);
     }
 }
