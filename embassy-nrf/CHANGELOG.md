@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: nRF54L: `config.grtc_reset_interrupts` clears GRTC compare interrupt enables and events at init, so compare interrupts left before reset (the GRTC survives a soft reset) cannot fire forever.
 - added: support for nrf54lm20b (`nrf54lm20b-app-s` feature). It shares the nrf54lm20a drivers and additionally has the `AXONS` interrupt.
 - added: usb: implement `IsoEndpointIn` on USBD (EP8) and USBHS (via `embassy-usb-synopsys-otg`) for scheduled isochronous IN transfers.
-
 - fixed: `buffered_uarte`: RX no longer hangs if interrupts are delayed while both halves of the RX buffer fill up (nRF52, nRF53, nRF91).
 - changed: PAC types no longer implement `Debug` by default.
 - added: `pac-defmt` and `pac-debug` Cargo features, which implement `defmt::Format` and `Debug` for PAC types.
