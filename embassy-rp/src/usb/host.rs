@@ -59,9 +59,10 @@ const EPX_MAX_PIPES: usize = 16;
 /// NAK retry interval, stretched so a NAKing transfer cannot retry within the frame.
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_YIELD: u16 = 300;
-/// NAK retry interval outside a yield.
-#[cfg(feature = "rp2040")]
-const NAK_POLL_DELAY_NORMAL: u16 = 16;
+/// Full-speed NAK retry interval outside a yield, in microseconds. Exceeds a NAKed retry (~6 us).
+const NAK_POLL_DELAY_FS: u16 = 8;
+/// Low-speed NAK retry interval outside a yield, in microseconds.
+const NAK_POLL_DELAY_LS: u16 = 16;
 
 /// Consecutive attempts of one EPX transaction that the device leaves without any
 /// answer before the transfer fails with [`PipeError::Timeout`]: the error count of
@@ -478,6 +479,10 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
             #[cfg(feature = "_rp235x")]
             w.set_phy_iso(false);
         });
+        regs.nak_poll().write(|w| {
+            w.set_delay_fs(NAK_POLL_DELAY_FS);
+            w.set_delay_ls(NAK_POLL_DELAY_LS);
+        });
         regs.sie_ctrl().modify(|w| {
             w.set_sof_en(true);
             w.set_keep_alive_en(true);
@@ -532,6 +537,9 @@ pub struct Channel<'d, T: SealedHostInstance, E, D> {
     control_timeout_us: Option<u64>,
     /// [`HostState::generation`] of the device address at allocation.
     generation: u8,
+    /// Bulk IN packet received after a short packet ended the previous read.
+    stash: [u8; 64],
+    stash_len: Option<u8>,
 }
 
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
@@ -600,6 +608,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             timeout: default_timeout(),
             control_timeout_us: None,
             generation: T::host_state().generation(dev_addr),
+            stash: [0; 64],
+            stash_len: None,
         }
     }
 }
@@ -640,10 +650,12 @@ fn disarm_epx_yield<T: SealedHostInstance>() {
     {
         T::host_state().with_arbiter(|a| a.switch_requested = false);
         T::regs().inte().modify(|w| w.set_host_sof(false));
-        T::regs().nak_poll().write(|w| {
-            w.set_delay_fs(NAK_POLL_DELAY_NORMAL);
-            w.set_delay_ls(NAK_POLL_DELAY_NORMAL);
-        });
+        if T::regs().nak_poll().read().delay_fs() == NAK_POLL_DELAY_YIELD {
+            T::regs().nak_poll().write(|w| {
+                w.set_delay_fs(NAK_POLL_DELAY_FS);
+                w.set_delay_ls(NAK_POLL_DELAY_LS);
+            });
+        }
     }
 }
 
@@ -672,13 +684,17 @@ fn record_epx_error<T: SealedHostInstance>(error: EpxError) {
 /// transfer was stopped short; a packet landing as the stop takes effect stays with its owner.
 fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
     let state = T::host_state();
+    let regs = T::regs();
 
     // Sample after the stop. `full` is set by the processor when arming an OUT and by the
     // controller on a received IN, so what counts as "nothing moved" depends on direction.
     let buf_ctrl = T::dpram().ep_in_buffer_control(0);
     let bc = buf_ctrl.read();
-    let is_out = T::regs().sie_ctrl().read().send_data();
-    let completed = !bc.available(0) && if is_out { !bc.full(0) } else { bc.full(0) };
+    let is_out = regs.sie_ctrl().read().send_data();
+    let double_buffered = T::dpram_epx_control().read().double_buffered();
+    let completed = regs.sie_status().read().trans_complete()
+        || (0..if double_buffered { 2 } else { 1 })
+            .any(|buffer| !bc.available(buffer) && if is_out { !bc.full(buffer) } else { bc.full(buffer) });
 
     if completed {
         // The stop suppressed `trans_complete`, so report it in software and let the
@@ -691,7 +707,10 @@ fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
     state.mark_epx_yielded(index);
 
     // Nothing was transferred. Revoke the buffer before another pipe installs its own.
-    buf_ctrl.modify(|w| w.set_available(0, false));
+    buf_ctrl.modify(|w| {
+        w.set_available(0, false);
+        w.set_available(1, false);
+    });
     state.current_channel.store(0, Ordering::Release);
     state.wake_all_epx();
 
@@ -797,6 +816,25 @@ impl<T: SealedHostInstance> TransactionGuard<T> {
         self.transaction_active = false;
         self.state.with_arbiter(|a| a.armed = false);
     }
+
+    /// Stop EPX while keeping its buffer controls available for the caller to inspect.
+    fn stop(&mut self) {
+        if !self.transaction_active {
+            return;
+        }
+
+        let regs = T::regs();
+        regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+        while regs.sie_ctrl().read().stop_trans() {}
+        regs.sie_status().write_clear(|w| {
+            w.set_trans_complete(true);
+            w.set_stall_rec(true);
+            w.set_rx_timeout(true);
+            w.set_rx_overflow(true);
+        });
+        regs.buff_status().write_clear(|w| w.0 = 0b11);
+        self.disarm();
+    }
 }
 
 impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
@@ -805,18 +843,7 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
         if selected == self.index || selected == 0 {
             // Any armed transaction must be stopped before the endpoint registers are
             // torn down below, or the SIE may still be driving the bus while they change.
-            if self.transaction_active {
-                let regs = T::regs();
-                regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
-                while regs.sie_ctrl().read().stop_trans() {}
-                regs.sie_status().write_clear(|w| {
-                    w.set_trans_complete(true);
-                    w.set_stall_rec(true);
-                    w.set_rx_timeout(true);
-                    w.set_rx_overflow(true);
-                });
-                regs.buff_status().write_clear(|w| w.0 = 0b11);
-            }
+            self.stop();
             if let Some(slot) = HostState::epx_slot(self.index) {
                 self.state.with_arbiter(|a| a.last = slot);
 
@@ -830,10 +857,14 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
             self.state.wake_all_epx();
 
             self.ep_control.modify(|w| {
+                w.set_double_buffered(false);
                 w.set_interrupt_per_buff(false);
                 w.set_enable(false);
             });
-            self.buffer_control.modify(|w| w.set_available(0, false));
+            self.buffer_control.modify(|w| {
+                w.set_available(0, false);
+                w.set_available(1, false);
+            });
         }
     }
 }
@@ -1111,6 +1142,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
             self.ep_control().modify(|w| {
                 w.set_enable(true);
+                w.set_double_buffered(false);
                 w.set_interrupt_per_buff(true);
                 w.set_buffer_address(self.buf.addr);
 
@@ -1527,6 +1559,355 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     }
 }
 
+// EPX bulk transfers use two alternating buffers.
+enum BulkEvent {
+    Progress,
+    Complete,
+    NakYield,
+    NoResponse,
+}
+
+struct BulkPipeline {
+    packets: [Option<usize>; 2],
+    prepare: usize,
+    retire: usize,
+    queued: usize,
+    pid: bool,
+    zlp_queued: bool,
+}
+
+impl BulkPipeline {
+    fn new(queued: usize, pid: bool, zlp_queued: bool) -> Self {
+        Self {
+            packets: [None; 2],
+            prepare: 0,
+            retire: 0,
+            queued,
+            pid,
+            zlp_queued,
+        }
+    }
+
+    fn armed(&self) -> usize {
+        self.packets.iter().filter(|packet| packet.is_some()).count()
+    }
+
+    fn retire_head(&mut self) -> usize {
+        let len = self.packets[self.retire].take().unwrap();
+        self.retire ^= 1;
+        len
+    }
+}
+
+impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+    async fn open_bulk_pipeline(&mut self) -> Result<TransactionGuard<T>, PipeError> {
+        self.wait_ready_for_transaction().await?;
+        self.set_current();
+        self.ep_control().modify(|w| w.set_double_buffered(true));
+        // Start at buffer 0 on every attempt.
+        self.buffer_control().write(|w| {
+            w.0 = 0;
+            w.set_reset(true);
+        });
+        Ok(self.transaction_guard())
+    }
+
+    fn arm_bulk_buffer(&mut self, buffer: usize, data: Option<&[u8]>, len: usize, pid: bool, last: bool) {
+        debug_assert_eq!(E::ep_type(), EndpointType::Bulk);
+        debug_assert!(buffer < 2);
+        debug_assert!(len <= self.max_packet_size as usize);
+
+        if let Some(data) = data {
+            self.buf.write_at(buffer * EPX_BLOCK_SIZE, data);
+        }
+
+        let fill = |w: &mut rp_pac::usb_dpram::regs::EpBufferControl| {
+            w.0 = 0;
+            w.set_pid(0, pid);
+            w.set_full(0, data.is_some());
+            w.set_length(0, len as u16);
+            w.set_last(0, last);
+        };
+        self.write_buffer_half(buffer, fill);
+        cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
+        self.write_buffer_half(buffer, |w| {
+            fill(w);
+            w.set_available(0, true);
+        });
+    }
+
+    /// Preserve the other half, which the controller may update concurrently.
+    fn write_buffer_half(&self, buffer: usize, f: impl FnOnce(&mut rp_pac::usb_dpram::regs::EpBufferControl)) {
+        let mut value = rp_pac::usb_dpram::regs::EpBufferControl(0);
+        f(&mut value);
+        let ptr = self.buffer_control().as_ptr() as *mut u16;
+        // SAFETY: `buffer` is 0 or 1, and the register has two aligned 16-bit halves.
+        unsafe { ptr.add(buffer).write_volatile(value.0 as u16) };
+    }
+
+    fn fill_bulk_buffers(&mut self, p: &mut BulkPipeline, data: Option<&[u8]>, total: usize, need_zlp: bool) {
+        while p.armed() < 2 && (p.queued < total || (need_zlp && !p.zlp_queued)) {
+            let packet_len = (total - p.queued).min(self.max_packet_size as usize);
+            let zlp = packet_len == 0;
+            let last = p.queued + packet_len == total && (!need_zlp || zlp);
+            let packet = data.map(|data| &data[p.queued..p.queued + packet_len]);
+
+            self.arm_bulk_buffer(p.prepare, packet, packet_len, p.pid, last);
+            p.packets[p.prepare] = Some(packet_len);
+            p.queued += packet_len;
+            p.zlp_queued |= zlp;
+            p.pid = !p.pid;
+            p.prepare ^= 1;
+        }
+    }
+
+    fn start_bulk_transfer(&self) {
+        let is_out = D::is_out();
+        let regs = T::regs();
+        regs.sie_status().write_clear(|w| {
+            w.set_trans_complete(true);
+            w.set_stall_rec(true);
+            w.set_rx_timeout(true);
+            w.set_rx_overflow(true);
+        });
+        regs.buff_status().write_clear(|w| w.0 = 0b11);
+        regs.inte().modify(|w| {
+            w.set_trans_complete(true);
+            w.set_stall(true);
+            w.set_error_rx_timeout(true);
+            w.set_error_rx_overflow(true);
+            w.set_error_crc(true);
+            w.set_error_bit_stuff(true);
+            w.set_error_data_seq(true);
+        });
+        regs.sie_ctrl().modify(|w| {
+            w.set_send_data(is_out);
+            w.set_send_setup(false);
+            w.set_receive_data(!is_out);
+        });
+        cortex_m::asm::delay(SIE_START_DELAY_CYCLES);
+        regs.sie_ctrl().modify(|w| w.set_start_trans(true));
+    }
+
+    fn bulk_buffer_done(&self, p: &BulkPipeline, buffer: usize) -> bool {
+        let control = self.buffer_control().read();
+        p.packets[buffer].is_some() && !control.available(buffer) && control.full(buffer) != D::is_out()
+    }
+
+    /// Keep a retired buffer from looking complete during EPX handoff.
+    fn mark_bulk_buffer_idle(&self, buffer: usize) {
+        self.write_buffer_half(buffer, |w| w.set_full(0, D::is_out()));
+    }
+
+    /// Account for packets completed before an error.
+    fn retire_completed(&mut self, p: &mut BulkPipeline) {
+        while self.bulk_buffer_done(p, p.retire) {
+            self.stash_len = None;
+            self.mark_bulk_buffer_idle(p.retire);
+            p.retire_head();
+            self.advance_pid();
+        }
+    }
+
+    async fn wait_bulk_event(&self, p: &BulkPipeline) -> Result<BulkEvent, PipeError> {
+        let regs = T::regs();
+        poll_fn(|cx| {
+            self.waker().register(cx.waker());
+
+            if let Some(error) = T::host_state().take_epx_error(self.epx_slot()) {
+                return Poll::Ready(Err(error));
+            }
+
+            // Clear only; buffer state identifies progress.
+            T::host_state().take_epx_completed(self.epx_slot());
+
+            // Buffers must complete in order.
+            if self.bulk_buffer_done(p, p.retire) {
+                return Poll::Ready(Ok(BulkEvent::Progress));
+            }
+            if self.bulk_buffer_done(p, p.retire ^ 1) {
+                return Poll::Ready(Err(PipeError::BadResponse));
+            }
+
+            if self.take_nak_yield() {
+                return Poll::Ready(Ok(BulkEvent::NakYield));
+            }
+
+            let status = regs.sie_status().read();
+            if status.trans_complete() {
+                regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+                return Poll::Ready(Ok(BulkEvent::Complete));
+            }
+            if status.stall_rec() {
+                regs.sie_status().write_clear(|w| w.set_stall_rec(true));
+                return Poll::Ready(Err(PipeError::Stall));
+            }
+            if status.rx_overflow() {
+                regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
+                return Poll::Ready(Err(PipeError::BufferOverflow));
+            }
+            if status.rx_timeout() {
+                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+                return Poll::Ready(Ok(BulkEvent::NoResponse));
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
+    async fn next_bulk_event(
+        &mut self,
+        p: &mut BulkPipeline,
+        guard: &mut TransactionGuard<T>,
+    ) -> Result<BulkEvent, PipeError> {
+        match self.wait_bulk_event(p).await {
+            Ok(BulkEvent::NoResponse) => {
+                guard.stop();
+                Ok(BulkEvent::NoResponse)
+            }
+            Ok(event) => Ok(event),
+            Err(error) => {
+                guard.stop();
+                self.retire_completed(p);
+                Err(error)
+            }
+        }
+    }
+
+    /// `buf[..done]` is already filled.
+    async fn bulk_read(&mut self, buf: &mut [u8], mut done: usize) -> Result<usize, PipeError> {
+        debug_assert_eq!(E::ep_type(), EndpointType::Bulk);
+        debug_assert!(done < buf.len());
+
+        let mut no_response = 0;
+        loop {
+            let mut guard = self.open_bulk_pipeline().await?;
+            let mut pipeline = BulkPipeline::new(done, self.pid, false);
+
+            self.fill_bulk_buffers(&mut pipeline, None, buf.len(), false);
+            guard.arm();
+            self.start_bulk_transfer();
+
+            loop {
+                let event = self.next_bulk_event(&mut pipeline, &mut guard).await?;
+                if matches!(event, BulkEvent::NakYield) {
+                    no_response = 0;
+                    break;
+                }
+
+                while self.bulk_buffer_done(&pipeline, pipeline.retire) {
+                    self.stash_len = None;
+                    let received = self.buffer_control().read().length(pipeline.retire) as usize;
+                    if received > buf.len() - done {
+                        return Err(PipeError::BufferOverflow);
+                    }
+                    self.buf
+                        .read_at(pipeline.retire * EPX_BLOCK_SIZE, &mut buf[done..done + received]);
+                    self.mark_bulk_buffer_idle(pipeline.retire);
+                    pipeline.retire_head();
+                    done += received;
+                    self.advance_pid();
+                    no_response = 0;
+
+                    // The sibling may contain the next transfer's first packet.
+                    if received < self.max_packet_size as usize {
+                        guard.stop();
+                        if self.bulk_buffer_done(&pipeline, pipeline.retire) {
+                            let len = self.buffer_control().read().length(pipeline.retire) as usize;
+                            self.buf
+                                .read_at(pipeline.retire * EPX_BLOCK_SIZE, &mut self.stash[..len]);
+                            self.stash_len = Some(len as u8);
+                            self.mark_bulk_buffer_idle(pipeline.retire);
+                            self.advance_pid();
+                        }
+                        return Ok(done);
+                    }
+                }
+
+                if matches!(event, BulkEvent::NoResponse) {
+                    if done == buf.len() {
+                        return Ok(done);
+                    }
+                    no_response += 1;
+                    if no_response >= NO_RESPONSE_RETRIES {
+                        return Err(PipeError::Timeout);
+                    }
+                    break;
+                }
+
+                if matches!(event, BulkEvent::Complete) {
+                    guard.disarm();
+                    return Ok(done);
+                }
+
+                self.fill_bulk_buffers(&mut pipeline, None, buf.len(), false);
+            }
+
+            drop(guard);
+            embassy_futures::yield_now().await;
+        }
+    }
+
+    async fn bulk_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
+        debug_assert_eq!(E::ep_type(), EndpointType::Bulk);
+
+        let need_zlp = ensure_transaction_end && buf.len().is_multiple_of(self.max_packet_size as usize);
+        debug_assert!(buf.len() > self.max_packet_size as usize || need_zlp);
+
+        let mut done = 0;
+        let mut no_response = 0;
+        // A yield revokes an armed ZLP.
+        let mut zlp_done = false;
+        loop {
+            let mut guard = self.open_bulk_pipeline().await?;
+            let mut pipeline = BulkPipeline::new(done, self.pid, zlp_done);
+
+            self.fill_bulk_buffers(&mut pipeline, Some(buf), buf.len(), need_zlp);
+            guard.arm();
+            self.start_bulk_transfer();
+
+            loop {
+                let event = self.next_bulk_event(&mut pipeline, &mut guard).await?;
+                if matches!(event, BulkEvent::NakYield) {
+                    no_response = 0;
+                    break;
+                }
+
+                while self.bulk_buffer_done(&pipeline, pipeline.retire) {
+                    self.mark_bulk_buffer_idle(pipeline.retire);
+                    let sent = pipeline.retire_head();
+                    zlp_done |= sent == 0;
+                    done += sent;
+                    self.advance_pid();
+                    no_response = 0;
+                }
+
+                if matches!(event, BulkEvent::NoResponse) {
+                    if done == buf.len() && (!need_zlp || zlp_done) {
+                        return Ok(());
+                    }
+                    no_response += 1;
+                    if no_response >= NO_RESPONSE_RETRIES {
+                        return Err(PipeError::Timeout);
+                    }
+                    break;
+                }
+
+                if matches!(event, BulkEvent::Complete) {
+                    guard.disarm();
+                    return Ok(());
+                }
+
+                self.fill_bulk_buffers(&mut pipeline, Some(buf), buf.len(), need_zlp);
+            }
+
+            drop(guard);
+            embassy_futures::yield_now().await;
+        }
+    }
+}
+
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D> for Channel<'d, T, E, D> {
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
@@ -1584,8 +1965,24 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsIn,
     {
+        let is_bulk_in = E::ep_type() == EndpointType::Bulk && !D::is_out();
+        if is_bulk_in && let Some(len) = self.stash_len {
+            let len = usize::from(len);
+            if len > buf.len() {
+                return Err(PipeError::BufferOverflow);
+            }
+            buf[..len].copy_from_slice(&self.stash[..len]);
+            if len < self.max_packet_size as usize || len == buf.len() {
+                self.stash_len = None;
+                return Ok(len);
+            }
+            return self.bulk_read(buf, len).await;
+        }
+
         if Self::is_interrupt() {
             self.interrupt_in_read(buf).await
+        } else if is_bulk_in && buf.len() > self.max_packet_size as usize {
+            self.bulk_read(buf, 0).await
         } else {
             self.epx_read(buf).await
         }
@@ -1597,6 +1994,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     {
         if Self::is_interrupt() {
             self.interrupt_out_write(buf, ensure_transaction_end).await
+        } else if E::ep_type() == EndpointType::Bulk
+            && !D::is_in()
+            && (buf.len() > self.max_packet_size as usize
+                || (ensure_transaction_end && buf.len() == self.max_packet_size as usize))
+        {
+            self.bulk_write(buf, ensure_transaction_end).await
         } else {
             self.epx_write(buf, ensure_transaction_end).await
         }
@@ -1608,6 +2011,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
     fn reset_data_toggle(&mut self) {
         self.pid = false;
+        self.stash_len = None;
         if Self::is_interrupt() {
             T::host_state().interrupt_pipes.clear_toggle_owed(self.index);
         }
@@ -1760,7 +2164,13 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
             let slot = index - EP_COUNT;
             // One buffer per pipe: a parked transfer's data must survive another pipe
             // taking EPX in the meantime.
-            let len = (blocks_for(endpoint.max_packet_size) * EPX_BLOCK_SIZE) as u16;
+            let len = if endpoint.ep_type == EndpointType::Bulk {
+                // Ping-pong: the second buffer sits exactly one block after the first.
+                debug_assert!(endpoint.max_packet_size as usize <= EPX_BLOCK_SIZE);
+                (2 * EPX_BLOCK_SIZE) as u16
+            } else {
+                (blocks_for(endpoint.max_packet_size) * EPX_BLOCK_SIZE) as u16
+            };
             let addr = match alloc_epx_mem(state, len) {
                 Ok(addr) => addr,
                 Err(()) => {
@@ -2012,6 +2422,7 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                 // can signal, so clear both bits in the pair.
                 if status & 0b11 != 0 {
                     regs.buff_status().write_clear(|w| w.0 = status & 0b11);
+                    note_epx_progress::<T>();
                     trace!("USB IRQ: EPx");
                     T::host_state().wake_current_epx();
                 }
