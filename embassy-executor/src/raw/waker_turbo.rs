@@ -25,7 +25,8 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
     unsafe { TaskRef::from_ptr(ptr as *const TaskHeader) }
 }
 
-pub(crate) fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
+/// Get the task associated with this waker, if it belongs to the Embassy executor.
+pub fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
     Some(task_from_waker(waker))
 }
 

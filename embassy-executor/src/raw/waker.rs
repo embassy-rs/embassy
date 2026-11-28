@@ -38,7 +38,8 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
     )
 }
 
-pub(crate) fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
+/// Get the task associated with this waker, if it belongs to the Embassy executor.
+pub fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
     // make sure to compare vtable addresses. Doing `==` on the references
     // will compare the contents, which is slower.
     if waker.vtable() as *const _ != &VTABLE as *const _ {

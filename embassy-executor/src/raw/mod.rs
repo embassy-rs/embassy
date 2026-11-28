@@ -48,8 +48,7 @@ use portable_atomic::AtomicPtr;
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
-pub use self::waker::task_from_waker;
-use self::waker::try_task_from_waker;
+pub use self::waker::{task_from_waker, try_task_from_waker};
 use super::SpawnToken;
 use crate::{ExecutorId, Metadata, MetadataRef, SpawnError, TaskId};
 
