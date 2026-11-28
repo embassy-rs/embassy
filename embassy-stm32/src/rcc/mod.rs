@@ -177,6 +177,15 @@ pub(crate) fn stop_exit(_cs: CriticalSection) {
     }
 }
 
+/// Undo any pre-Stop preparation (such as temporarily raised wake-up wait states)
+/// when `WFI` returned without entering Stop.
+#[cfg(all(feature = "low-power", not(stm32wb)))]
+pub(crate) fn stop_abort(_cs: CriticalSection) {
+    if let Some(restore) = unsafe { get_stop_restore() } {
+        restore.abort();
+    }
+}
+
 /// Get the current clock configuration of the chip.
 pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clocks {
     // Safety: the existence of a `Peri<RCC>` means that `rcc::init()`

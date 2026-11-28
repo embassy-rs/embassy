@@ -230,8 +230,10 @@ fn clear_flags() {
     // system Stop (clocks gone) from a mere CPU1 deepsleep in which the clocks were
     // left untouched. CPU2's flags are left alone - they belong to CPU2.
     crate::pac::PWR.extscr().modify(|w| w.set_c1cssf(true));
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32u3, stm32u5, stm32wba))]
     crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+    #[cfg(stm32h5)]
+    crate::pac::PWR.pmcr().modify(|w| w.set_cssf(true));
     #[cfg(stm32wba)]
     // Clear WKUP1..WKUP8 pending flags (CWUFx) before stop entry.
     crate::pac::PWR.wuscr().write(|w| w.0 = 0xff);
@@ -255,6 +257,18 @@ fn clear_flags() {
     #[cfg(stm32f3)]
     crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
 
+    #[cfg(stm32u0)]
+    // U0 clears STOPF (and SBF) via CSBF and wake-up flags via CWUFx in PWR_SCR (RM0503).
+    crate::pac::PWR.scr().write(|w| {
+        w.set_cwuf1(true);
+        w.set_cwuf2(true);
+        w.set_cwuf3(true);
+        w.set_cwuf4(true);
+        w.set_cwuf5(true);
+        w.set_cwuf7(true);
+        w.set_csbf(true);
+    });
+
     #[cfg(stm32g4)]
     // G4 keeps its wake-up flags (WUF1..WUF5) in PWR_SR1 and the standby flag (SBF) there
     // too; both are cleared by writing ones to PWR_SCR. A stale flag left over from a
@@ -270,8 +284,55 @@ fn clear_flags() {
     });
 }
 
+/// Read back the hardware Stop entry flag if supported by this chip.
+///
+/// Returns `Some(true)` if Stop was actually entered, `Some(false)` if `WFI`
+/// returned without entering Stop (for example, due to a pending interrupt or
+/// peripheral clock request), or `None` if hardware provides no readable Stop flag.
+fn did_enter_stop() -> Option<bool> {
+    cfg_select! {
+        any(stm32u3, stm32u5, stm32wba) => Some(crate::pac::PWR.sr().read().stopf()),
+        stm32h5 => Some(crate::pac::PWR.pmsr().read().stopf()),
+        stm32wl => {
+            let es = crate::pac::PWR.extscr().read();
+            #[cfg(not(feature = "_core-cm0p"))]
+            {
+                Some(es.c1stopf() || es.c1stop2f())
+            }
+            #[cfg(feature = "_core-cm0p")]
+            {
+                Some(es.c2stopf() || es.c2stop2f())
+            }
+        }
+        stm32wb => Some(crate::pac::PWR.extscr().read().c1stopf()),
+        stm32u0 => Some(crate::pac::PWR.sr1().read().stopf() != crate::pac::pwr::vals::Stopf::None),
+        _ => None,
+    }
+}
+
 /// Exit stop mode: restore the clocks, clear the flags, reinitialize the timer if required and resume time.
 fn exit_stop(cs: CriticalSection) {
+    if did_enter_stop() == Some(false) {
+        trace!("low power: WFI returned without entering stop");
+
+        // `stm32wb` switches CPU1 sysclk to HSI in software inside `enter_stop()`, so it
+        // still needs clock restoration even when `C1STOPF` is clear. Other families only
+        // need to undo temporarily raised wake-up flash/SRAM wait states.
+        #[cfg(stm32wb)]
+        {
+            let lock = crate::hsem::get_hsem(3).blocking_lock(0);
+            crate::rcc::stop_exit(cs);
+            drop(lock);
+        }
+        #[cfg(not(stm32wb))]
+        crate::rcc::stop_abort(cs);
+
+        clear_flags();
+        get_driver().resume_time(cs);
+        trace!("low power: resumed");
+        return;
+    }
+
     // Both cores share the clocks, so they restore them one at a time.
     #[cfg(any(stm32wb, stm32wl5x))]
     let lock = crate::hsem::get_hsem(3).blocking_lock(0);

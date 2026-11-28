@@ -331,6 +331,12 @@ impl StopRestore {
         }
     }
 
+    pub(crate) fn abort(&self) {
+        if self.wake_latency.is_some() {
+            Self::set_latency((self.latency, self.sram_latency));
+        }
+    }
+
     pub(crate) fn exit(&self) {
         let pwr = crate::pac::PWR;
         if pwr.vosr().read().vos() != self.vos {

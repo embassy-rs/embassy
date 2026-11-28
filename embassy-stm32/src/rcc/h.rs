@@ -1145,6 +1145,12 @@ impl StopRestore {
         }
     }
 
+    pub(crate) fn abort(&self) {
+        if self.wake_latency.is_some() {
+            set_latency(self.latency);
+        }
+    }
+
     pub(crate) fn exit(&self) {
         // The voltage first: the clocks may need more than VOS3.
         if PWR.voscr().read().vos() != self.vos {

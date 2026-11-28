@@ -665,10 +665,21 @@ impl StopRestore {
         }
     }
 
+    fn set_latency(latency: FlashLatency) {
+        FLASH.acr().modify(|w| w.set_latency(latency));
+        while FLASH.acr().read().latency() != latency {}
+    }
+
     pub(crate) fn enter(&self) {
         if let Some(latency) = self.wake_latency {
-            FLASH.acr().modify(|w| w.set_latency(latency));
-            while FLASH.acr().read().latency() != latency {}
+            Self::set_latency(latency);
+        }
+    }
+
+    #[cfg(not(stm32wb))]
+    pub(crate) fn abort(&self) {
+        if self.wake_latency.is_some() {
+            Self::set_latency(self.latency);
         }
     }
 
@@ -740,8 +751,7 @@ impl StopRestore {
         }
 
         if self.wake_latency.is_some() {
-            FLASH.acr().modify(|w| w.set_latency(self.latency));
-            while FLASH.acr().read().latency() != self.latency {}
+            Self::set_latency(self.latency);
         }
 
         if !s.hsion() || !s.msion() {

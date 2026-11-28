@@ -80,6 +80,44 @@ fn debugger_attached() -> bool {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Irq0;
+
+unsafe impl cortex_m::interrupt::InterruptNumber for Irq0 {
+    fn number(self) -> u16 {
+        0
+    }
+}
+
+/// Exercise the `did_enter_stop() == Some(false)` ("aborted WFI") path cleanly.
+///
+/// With a pending, unmasked NVIC interrupt while interrupts are masked inside a critical section,
+/// Cortex-M `WFI` returns immediately without entering Stop. Clocks, flash wait states, and the
+/// time driver must remain intact and ready for subsequent Stop transitions.
+fn test_aborted_wfi() {
+    info!("testing aborted WFI...");
+    critical_section::with(|cs| {
+        assert!(get_stop_mode(cs).is_some());
+        let latency_before = embassy_stm32::pac::FLASH.acr().read().latency();
+        let was_enabled = unsafe { (*cortex_m::peripheral::NVIC::PTR).iser[0].read() & 1 != 0 };
+        let was_pending = cortex_m::peripheral::NVIC::is_pending(Irq0);
+
+        unsafe { cortex_m::peripheral::NVIC::unmask(Irq0) };
+        cortex_m::peripheral::NVIC::pend(Irq0);
+
+        unsafe { embassy_stm32::low_power::sleep(cs) };
+
+        if !was_pending {
+            cortex_m::peripheral::NVIC::unpend(Irq0);
+        }
+        if !was_enabled {
+            cortex_m::peripheral::NVIC::mask(Irq0);
+        }
+
+        assert!(embassy_stm32::pac::FLASH.acr().read().latency() == latency_before);
+    });
+}
+
 #[embassy_executor::main(executor = "common::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     // This test stays in flash, so it also runs when the farm power-cycles the board to load the
@@ -132,6 +170,8 @@ async fn main(spawner: Spawner) {
 
     info!("set datetime");
     rtc.set(now).unwrap();
+
+    test_aborted_wfi();
 
     let start_rtc = reader.read().unwrap();
     let start = Instant::now();

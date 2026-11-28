@@ -407,6 +407,8 @@ impl StopRestore {
 
     pub(crate) fn enter(&self) {}
 
+    pub(crate) fn abort(&self) {}
+
     pub(crate) fn exit(&self) {
         let s = self.cr;
         RCC.cr().modify(|w| w.set_hseon(w.hseon() | s.hseon()));
