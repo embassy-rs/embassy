@@ -466,7 +466,9 @@ impl super::LPTimeDriver for RtcDriver {
     fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
         trace!("pause_time");
         let time_until_next_alarm = self.time_until_next_alarm(cs);
-        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+        if time_until_next_alarm == embassy_time::Duration::MIN
+            || time_until_next_alarm < self.min_stop_pause.borrow(cs).get()
+        {
             trace!(
                 "time_until_next_alarm < self.min_stop_pause ({})",
                 time_until_next_alarm

@@ -321,7 +321,9 @@ impl super::LPTimeDriver for RtcDriver {
         assert!(regs_gp16().cr1().read().cen());
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
-        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+        if time_until_next_alarm == embassy_time::Duration::MIN
+            || time_until_next_alarm < self.min_stop_pause.borrow(cs).get()
+        {
             Err(())
         } else {
             crate::rtc::start_wakeup_alarm(cs, time_until_next_alarm, embassy_time::Instant::from_ticks(self.now()));

@@ -19,8 +19,8 @@
 //! async fn main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
-//!     // the default value, but can be adjusted
-//!     config.min_stop_pause = Duration::from_millis(250);
+//!     // defaults to 0; raise if short sleeps should stay in WFI (e.g. Duration::from_micros(500))
+//!     config.min_stop_pause = Duration::from_micros(0);
 //!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
 //!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
