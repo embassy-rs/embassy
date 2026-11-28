@@ -49,6 +49,9 @@ UCPD:
 - fix: stm32/ucpd: `PdPhy::transmit_with_sop` and `PdPhy::transmit_hardreset` return `TxError::HardReset` without transmitting if a Hard Reset was received that hasn't been reported yet. They started the transmission first, so a message was cut short when its DMA was stopped, or a Hard Reset was sent back.
 - fix: stm32/ucpd: a transmission after a cancelled `PdPhy::transmit` no longer loses its first byte. The cancelled message ran out of data, which left the TX DMA request for its next byte pending, so the next transmission's DMA wrote its first byte before the message started. Every following message was sent corrupted.
 - fix: stm32/ucpd: `PdPhy::transmit` no longer hangs after a cancelled `PdPhy::transmit_hardreset`. The Hard Reset is still sent, and while it is, the UCPD ignores a transmission request without reporting it. `transmit` now waits for the Hard Reset first.
+- fix: stm32/ucpd: `PdPhy::transmit` no longer hangs after a Hard Reset aborted a message. The abort left TXMSGABT set, and while it is, the UCPD ignores TXSEND.
+- fix: stm32/ucpd: a received frame longer than the receive buffer no longer costs the next message. It left a byte in RXDR, which the DMA put in front of the next message, so that one was dropped as `RxError::Overrun` too.
+- change: stm32/ucpd: `PdPhy::transmit_with_sop` returns the new `TxError::InvalidLength` for a message shorter than 2 or longer than 264 bytes. A 0-byte message panicked in the DMA, a 1-byte message always ran out of data, and a length above 1023 was silently truncated by TX_PAYSZR.
 
 VREFBUF:
 - feat: stm32/vrefbuf g0x1: enable the VREFBUF clock. On G0x1, including G0B1, it is `SYSCFGEN` in `RCC_APBENR2`, shared with SYSCFG and COMP (RM0444 5.4.16). Without it `VoltageReferenceBuffer::new` never sees `VRR` and waits forever.

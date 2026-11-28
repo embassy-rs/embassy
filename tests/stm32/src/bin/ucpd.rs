@@ -11,7 +11,9 @@ use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::{poll_once, yield_now};
-use embassy_stm32::ucpd::{self, ActivePdPhy, CcPhy, CcPull, CcSel, CcVState, PdPhy, RxBuffers, RxError, Ucpd};
+use embassy_stm32::ucpd::{
+    self, ActivePdPhy, CcPhy, CcPull, CcSel, CcVState, PdPhy, RxBuffers, RxError, TxError, Ucpd,
+};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer, block_for, with_timeout};
 
@@ -133,11 +135,12 @@ async fn source(
     wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Advertise a higher current by changing the pull-up resistor.
+    SINK_READY.wait().await;
     debug!("source: sink detected, setting 3.0A current pull-up");
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
     let mut rx_buffers = RxBuffers::new();
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
+    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1, &mut rx_buffers);
 
     // Listen for an incoming message
     debug!("source: wait for message from sink");
@@ -193,6 +196,23 @@ async fn source(
     let n = unwrap!(pd_phy.receive(snk_to_src_buf.as_mut()).await);
     assert_eq!(&snk_to_src_buf[..n], MESSAGES[2].as_slice());
 
+    // The sink's Hard Reset aborts a cancelled long message, and its next messages arrive. The
+    // first may go out with a bad CRC (see `transmit_with_sop`), the second must arrive intact.
+    debug!("source: receiving after a hard reset that aborted a message");
+    loop {
+        match pd_phy.receive(snk_to_src_buf.as_mut()).await {
+            Err(RxError::HardReset) => break,
+            r => assert!(matches!(r, Err(RxError::Crc)), "expected the cut long message"),
+        }
+    }
+    loop {
+        match pd_phy.receive(snk_to_src_buf.as_mut()).await {
+            Ok(n) if snk_to_src_buf[..n] == MESSAGES[1] => break,
+            Ok(n) => assert_eq!(&snk_to_src_buf[..n], MESSAGES[0].as_slice()),
+            r => assert!(matches!(r, Err(RxError::Crc))),
+        }
+    }
+
     // Wait for hard-reset
     debug!("source: message sent, waiting for hard-reset");
     assert!(matches!(
@@ -212,15 +232,14 @@ async fn sink(
     // Wait for default source.
     debug!("sink: waiting for default vstate");
     wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
+    SINK_READY.set();
 
     // Wait higher current pull-up.
-    //debug!("sink: source default vstate detected, waiting for 3.0A vstate");
-    //wait_for_vstate(ucpd.cc_phy(), CcVState::HIGHEST).await;
-    //debug!("sink: source 3.0A vstate detected");
-    // TODO: not working yet, why? no idea, replace with timer for now
-    Timer::after_millis(100).await;
+    debug!("sink: source default vstate detected, waiting for 3.0A vstate");
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Highest).await;
+    debug!("sink: source 3.0A vstate detected");
 
-    let (_, mut idle_pd_phy) = ucpd.split_idle_pd_phy(rx_dma, tx_dma, Irqs);
+    let (_cc_phy, mut idle_pd_phy) = ucpd.split_idle_pd_phy(rx_dma, tx_dma, Irqs);
     let mut rx_buffers = RxBuffers::new();
     let mut pd_phy = idle_pd_phy.activate(CcSel::Cc1, &mut rx_buffers);
 
@@ -304,6 +323,22 @@ async fn sink(
     assert!(poll_once(pd_phy.transmit_hardreset()).is_pending());
     let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(&MESSAGES[2])).await;
     assert!(matches!(sent, Ok(Ok(()))));
+
+    // A Hard Reset that aborts a message doesn't block the next transmissions.
+    debug!("sink: aborting a cancelled transmission with a hard reset");
+    let _ = with_timeout(Duration::from_millis(2), pd_phy.transmit(&LONG_MESSAGE)).await;
+    unwrap!(pd_phy.transmit_hardreset().await);
+    for message in &MESSAGES[..2] {
+        let sent = with_timeout(Duration::from_millis(10), pd_phy.transmit(message)).await;
+        assert!(matches!(sent, Ok(Ok(()))));
+    }
+
+    // Messages shorter than a header or longer than the largest PD message are rejected.
+    let too_long = [0_u8; LONG_MESSAGE.len() + 1];
+    for len in [0, 1, too_long.len()] {
+        let sent = pd_phy.transmit(&too_long[..len]).await;
+        assert!(matches!(sent, Err(TxError::InvalidLength)));
+    }
 
     // Send hard reset
     debug!("sink: message received, sending hard-reset");
