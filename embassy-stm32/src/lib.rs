@@ -22,6 +22,8 @@ include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 mod atomic;
 mod macros;
 pub mod time;
+#[doc(hidden)]
+pub mod trace;
 #[cfg(feature = "trustzone-secure")]
 pub mod trustzone;
 mod wait;
@@ -385,6 +387,7 @@ macro_rules! bind_interrupts {
             $(#[cfg($cond_irq)])?
             $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
+                $crate::trace::irq_start($crate::interrupt::Interrupt::$irq);
                 unsafe {
                     $(
                         $(#[cfg($cond_handler)])?
@@ -392,6 +395,7 @@ macro_rules! bind_interrupts {
 
                     )*
                 }
+                $crate::trace::irq_end($crate::interrupt::Interrupt::$irq);
             }
 
             $(#[cfg($cond_irq)])?

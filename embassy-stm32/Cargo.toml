@@ -143,6 +143,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "low-power", "stm32f410c8", "time", "time-driver-lptim1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "low-power", "stm32f767zi", "time", "time-driver-lptim1"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "low-power", "stm32g071rb", "time", "time-driver-lptim1"]},
+    {target = "thumbv7em-none-eabihf", features = ["stm32g474re", "dual-bank", "time-driver-any", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "low-power", "stm32g474re", "time", "time-driver-lptim1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "low-power", "stm32h503rb", "time", "time-driver-lptim1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "low-power", "stm32h563zi", "time", "time-driver-lptim1"]},
@@ -278,6 +279,11 @@ critical-section = { version = "1.2", features = ["std"] }
 
 [features]
 default = ["rt"]
+
+## Trace time-driver interrupts and interrupts declared with `bind_interrupts!`. Provide the Rust ABI functions
+## `_embassy_stm32_trace_irq_start(irq: u16)` and `_embassy_stm32_trace_irq_end(irq: u16)`.
+## Both run in interrupt context and receive the external NVIC interrupt number.
+trace = []
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
